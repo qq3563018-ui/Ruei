@@ -539,7 +539,7 @@ input,select,textarea{ font-family:inherit; }
 <div class="toast" id="toast"></div>
 <div class="undo-toast" id="undoToast"><span id="undoToastMsg">已刪除</span><button id="undoToastBtn">復原</button></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ============ 資料儲存 ============ */
 const STORAGE_KEY = "lifeflow_db_v1";
@@ -566,6 +566,12 @@ function loadCloudConfig(){
   return null;
 }
 const CLOUD_CONFIG = loadCloudConfig();
+if(CLOUD_CONFIG && !window.supabase){
+  console.error("雲端連線失敗：Supabase 函式庫沒有載入成功（可能是網路問題），這次先用本機資料，稍後重新整理再試一次。");
+  window.addEventListener("DOMContentLoaded", ()=>{
+    setTimeout(()=>toast("⚠️ 連不上雲端，這次先用本機資料，檢查網路後重新整理"), 300);
+  });
+}
 const supabaseClient = (CLOUD_CONFIG && window.supabase)
   ? window.supabase.createClient(CLOUD_CONFIG.url, CLOUD_CONFIG.key)
   : null;
@@ -593,14 +599,14 @@ function save(){
 async function pushToCloud(){
   try{
     const { error } = await supabaseClient.from("app_state").upsert({ id:1, data:DB, updated_at:new Date().toISOString() });
-    if(error) console.error("雲端同步失敗", error);
-  }catch(e){ console.error("雲端同步失敗", e); }
+    if(error){ console.error("雲端同步失敗", error); toast("⚠️ 雲端同步失敗，這筆資料先留在本機"); }
+  }catch(e){ console.error("雲端同步失敗", e); toast("⚠️ 雲端同步失敗，這筆資料先留在本機"); }
 }
 async function pullFromCloud(){
   if(!supabaseClient) return;
   try{
     const { data, error } = await supabaseClient.from("app_state").select("data").eq("id", 1).maybeSingle();
-    if(error){ console.error("雲端讀取失敗，先使用本機資料", error); return; }
+    if(error){ console.error("雲端讀取失敗，先使用本機資料", error); toast("⚠️ 連不上雲端，先顯示本機資料"); return; }
     if(data && data.data){
       DB = withDefaults(data.data);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
