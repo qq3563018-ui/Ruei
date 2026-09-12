@@ -539,43 +539,9 @@ input,select,textarea{ font-family:inherit; }
 <div class="toast" id="toast"></div>
 <div class="undo-toast" id="undoToast"><span id="undoToastMsg">已刪除</span><button id="undoToastBtn">復原</button></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ============ 資料儲存 ============ */
 const STORAGE_KEY = "lifeflow_db_v1";
-
-/* ---- 雲端連線設定 ----
-   每位買家的專屬連結會帶 ?db=...&key=... 兩個參數（都是可公開的 anon/publishable key，不是管理鑰匙）。
-   第一次打開時記住到這台裝置的 localStorage，之後同一台裝置就不用再帶參數，
-   同時把網址列上的連線資訊清掉，避免使用者不小心把「帶自己資料鑰匙的網址」分享出去。 */
-const CLOUD_CONFIG_KEY = "lifeflow_cloud_config_v1";
-function loadCloudConfig(){
-  const params = new URLSearchParams(location.search);
-  const urlParam = params.get("db");
-  const keyParam = params.get("key");
-  if(urlParam && keyParam){
-    const cfg = { url:urlParam, key:keyParam };
-    localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cfg));
-    params.delete("db"); params.delete("key");
-    const clean = location.pathname + (params.toString()?("?"+params.toString()):"") + location.hash;
-    history.replaceState(null, "", clean);
-    return cfg;
-  }
-  const raw = localStorage.getItem(CLOUD_CONFIG_KEY);
-  if(raw){ try{ return JSON.parse(raw); }catch(e){} }
-  return null;
-}
-const CLOUD_CONFIG = loadCloudConfig();
-if(CLOUD_CONFIG && !window.supabase){
-  console.error("雲端連線失敗：Supabase 函式庫沒有載入成功（可能是網路問題），這次先用本機資料，稍後重新整理再試一次。");
-  window.addEventListener("DOMContentLoaded", ()=>{
-    setTimeout(()=>toast("⚠️ 連不上雲端，這次先用本機資料，檢查網路後重新整理"), 300);
-  });
-}
-const supabaseClient = (CLOUD_CONFIG && window.supabase)
-  ? window.supabase.createClient(CLOUD_CONFIG.url, CLOUD_CONFIG.key)
-  : null;
-
 function loadDB(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if(raw){ try{ return withDefaults(JSON.parse(raw)); }catch(e){} }
@@ -588,33 +554,7 @@ function withDefaults(obj){
   }, obj);
 }
 let DB = loadDB();
-
-let _cloudSaveTimer = null;
-function save(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-  if(!supabaseClient) return;
-  clearTimeout(_cloudSaveTimer);
-  _cloudSaveTimer = setTimeout(pushToCloud, 800);
-}
-async function pushToCloud(){
-  try{
-    const { error } = await supabaseClient.from("app_state").upsert({ id:1, data:DB, updated_at:new Date().toISOString() });
-    if(error){ console.error("雲端同步失敗", error); toast("⚠️ 雲端同步失敗，這筆資料先留在本機"); }
-  }catch(e){ console.error("雲端同步失敗", e); toast("⚠️ 雲端同步失敗，這筆資料先留在本機"); }
-}
-async function pullFromCloud(){
-  if(!supabaseClient) return;
-  try{
-    const { data, error } = await supabaseClient.from("app_state").select("data").eq("id", 1).maybeSingle();
-    if(error){ console.error("雲端讀取失敗，先使用本機資料", error); toast("⚠️ 連不上雲端，先顯示本機資料"); return; }
-    if(data && data.data){
-      DB = withDefaults(data.data);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-    } else {
-      await supabaseClient.from("app_state").insert({ id:1, data:DB });
-    }
-  }catch(e){ console.error("雲端讀取失敗，先使用本機資料", e); }
-}
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function todayStr(){ return fmtDate(new Date()); }
 function fmtDate(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
@@ -1225,9 +1165,7 @@ function openMoreSheet(){
     </div>
     <div class="card">
       <div class="card-title">資料儲存狀態</div>
-      <div class="muted">${supabaseClient
-        ? "雲端儲存 · 已連結專屬資料庫，換手機、換電腦用同一個連結都看得到同一份資料。請妥善保管這個連結，拿到連結的人就能看到與修改這份資料。"
-        : "本機儲存 · 僅在此裝置、此瀏覽器有效，換裝置或清除瀏覽器資料就會消失，建議定期用右上角「匯出」備份。"}</div>
+      <div class="muted">本機儲存 · 僅在此裝置、此瀏覽器有效，換裝置或清除瀏覽器資料就會消失，建議定期用右上角「匯出」備份。</div>
     </div>
   `);
   document.getElementById("moreGoAI").addEventListener("click", ()=>{ closeSheet(); switchView("ai"); });
@@ -3421,17 +3359,9 @@ function renderAll(){
   renderAssetList();
   renderDebt();
 }
-(async function boot(){
-  if(supabaseClient){
-    document.body.style.visibility = "hidden";
-    await pullFromCloud();
-    document.body.setAttribute("data-theme", DB.theme);
-    document.body.style.visibility = "visible";
-  }
-  renderAll();
-  // 開機預設就是「首頁」，首頁不顯示右下角快速新增按鈕，所以這裡跟 switchView() 保持一致
-  document.getElementById("mainFab").style.display = "none";
-})();
+renderAll();
+// 開機預設就是「首頁」，首頁不顯示右下角快速新增按鈕，所以這裡跟 switchView() 保持一致
+document.getElementById("mainFab").style.display = "none";
 </script>
 </body>
 </html>
