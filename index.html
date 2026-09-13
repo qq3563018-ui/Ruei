@@ -291,14 +291,14 @@ input,select,textarea{ font-family:inherit; }
   <div class="topbar-row">
     <div class="brand"><span class="brand-dot"></span><span id="brandText">生活小夥伴</span><button class="icon-btn" id="btnEditName" title="設定我的名字" style="width:22px; height:22px; font-size:11px; margin-left:4px;">✎</button></div>
     <div class="topbar-actions">
-      <button class="icon-btn" id="btnExport" title="匯出備份">⬇</button>
-      <button class="icon-btn" id="btnImport" title="匯入備份">⬆</button>
+      <button class="icon-btn" id="btnExport" title="匯出備份（Excel）">⬇</button>
+      <button class="icon-btn" id="btnImport" title="匯入備份（Excel）">⬆</button>
     </div>
   </div>
   <div class="theme-row" id="themeRow"></div>
 </div>
 
-<input type="file" id="importFile" accept="application/json" style="display:none">
+<input type="file" id="importFile" accept=".xlsx" style="display:none">
 
 <!-- 1. 首頁／月曆 -->
 <div class="view active" id="view-home">
@@ -535,6 +535,7 @@ input,select,textarea{ font-family:inherit; }
 <div class="toast" id="toast"></div>
 <div class="undo-toast" id="undoToast"><span id="undoToastMsg">已刪除</span><button id="undoToastBtn">復原</button></div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ============ 資料儲存 ============ */
 const STORAGE_KEY = "lifeflow_db_v1";
@@ -1139,12 +1140,18 @@ function openMoreSheet(){
       </div>
     </div>
     <div class="card">
-      <div class="card-title">資料儲存狀態</div>
-      <div class="muted">本機儲存 · 僅在此裝置、此瀏覽器有效，換裝置或清除瀏覽器資料就會消失，建議定期用右上角「匯出」備份。</div>
+      <div class="card-title">💾 備份與還原</div>
+      <div class="muted" style="margin-bottom:10px;">本機儲存 · 僅在此裝置、此瀏覽器有效，換裝置或清除瀏覽器資料就會消失，建議定期備份成一份 Excel 檔留存。</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-ghost" id="moreBtnExport" style="flex:1;">⬇ 匯出備份</button>
+        <button class="btn-ghost" id="moreBtnImport" style="flex:1;">⬆ 匯入備份</button>
+      </div>
     </div>
   `);
   document.getElementById("moreGoGoals").addEventListener("click", ()=>{ closeSheet(); switchView("goals"); });
   document.getElementById("moreGoAsset").addEventListener("click", ()=>{ closeSheet(); switchView("debt"); });
+  document.getElementById("moreBtnExport").addEventListener("click", ()=>{ closeSheet(); exportBackup(); });
+  document.getElementById("moreBtnImport").addEventListener("click", ()=>{ closeSheet(); document.getElementById("importFile").click(); });
 }
 
 /* ============ FAB：依當前頁面決定新增內容 ============ */
@@ -2764,16 +2771,91 @@ function openDebtForm(editId){
 }
 document.getElementById("btnAddDebt").addEventListener("click", ()=>openDebtForm(null));
 
-/* ============ 匯出／匯入備份 ============ */
-document.getElementById("btnExport").addEventListener("click", ()=>{
-  const blob = new Blob([JSON.stringify(DB, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `生活小夥伴備份_${todayStr()}.json`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+/* ============ 匯出／匯入備份（Excel） ============
+   每個陣列型的資料各自一張工作表；巢狀資料（負債的每期還款、目標的目標事項）
+   沒辦法自然攤平成表格欄位，所以整包用 JSON 文字存在同一格裡，匯入時再還原，
+   不特別另外拆表，避免大幅增加複雜度。單一值設定（主題、預算、自訂分類…）
+   統一放在「設定」工作表裡用 key/value 兩欄表示。 */
+function exportBackup(){
+  const wb = XLSX.utils.book_new();
+  const addSheet = (name, rows) => {
+    const ws = XLSX.utils.json_to_sheet(rows && rows.length ? rows : [{}]);
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+  addSheet("待辦", DB.todos.map(t=>({id:t.id, title:t.title, date:t.date||"", done:!!t.done, doneAt:t.doneAt||"", color:t.color||""})));
+  addSheet("打卡", Object.entries(DB.checkins).map(([date,v])=>({date, item:(v&&v.item)||"", at:(v&&v.at)||""})));
+  addSheet("記帳", DB.transactions.map(t=>({id:t.id, type:t.type, name:t.name, amount:t.amount, category:t.category, date:t.date, note:t.note||""})));
+  addSheet("資產", DB.assets.map(a=>({id:a.id, name:a.name, category:a.category, amount:a.amount, note:a.note||""})));
+  addSheet("負債", DB.debts.map(d=>({
+    id:d.id, name:d.name, original:d.original, remaining:d.remaining,
+    installmentAmount:d.installmentAmount, totalInstallments:d.totalInstallments, remainingInstallments:d.remainingInstallments,
+    dueDay:d.dueDay, rate:d.rate==null?"":d.rate, note:d.note||"", paymentsJSON:JSON.stringify(d.payments||[])
+  })));
+  addSheet("目標", DB.goals.map(g=>({id:g.id, title:g.title, note:g.note||"", createdAt:g.createdAt||"", itemsJSON:JSON.stringify(g.items||[])})));
+  addSheet("日記", DB.journal.map(e=>({id:e.id, date:e.date, time:e.time||"", mood:e.mood||"", text:e.text||""})));
+  addSheet("設定", [
+    {key:"theme", value:DB.theme||"pink"},
+    {key:"appName", value:DB.appName||""},
+    {key:"budgetJSON", value:JSON.stringify(DB.budget||null)},
+    {key:"customCategoriesJSON", value:JSON.stringify(DB.customCategories||{expense:[],income:[]})},
+    {key:"insightsMemoryJSON", value:JSON.stringify(DB.insightsMemory||{})},
+  ]);
+  XLSX.writeFile(wb, `生活小夥伴備份_${todayStr()}.xlsx`);
   toast("備份已下載");
-});
+}
+function sheetRows(wb, name){
+  const ws = wb.Sheets[name];
+  return ws ? XLSX.utils.sheet_to_json(ws, {defval:""}) : [];
+}
+function safeJSONParse(str, fallback){
+  if(!str) return fallback;
+  try{ return JSON.parse(str); }catch(e){ return fallback; }
+}
+function importBackupFromWorkbook(wb){
+  const settings = {};
+  sheetRows(wb, "設定").forEach(r=>{ settings[r.key] = r.value; });
+
+  const todos = sheetRows(wb, "待辦").map(r=>({
+    id: r.id || uid(), title: String(r.title||""), date: String(r.date||""),
+    done: r.done===true || r.done==="TRUE" || r.done===1, doneAt: r.doneAt || null, color: r.color || null
+  }));
+  const checkins = {};
+  sheetRows(wb, "打卡").forEach(r=>{ if(r.date) checkins[r.date] = { item:r.item||"", at:r.at||"" }; });
+  const transactions = sheetRows(wb, "記帳").map(r=>({
+    id:r.id||uid(), type:r.type, name:String(r.name||""), amount:Number(r.amount)||0, category:r.category, date:String(r.date||""), note:r.note||""
+  }));
+  const assets = sheetRows(wb, "資產").map(r=>({
+    id:r.id||uid(), name:String(r.name||""), category:r.category, amount:Number(r.amount)||0, note:r.note||""
+  }));
+  const debts = sheetRows(wb, "負債").map(r=>({
+    id:r.id||uid(), name:String(r.name||""), original:Number(r.original)||0, remaining:Number(r.remaining)||0,
+    installmentAmount:Number(r.installmentAmount)||0, totalInstallments:Number(r.totalInstallments)||0,
+    remainingInstallments:Number(r.remainingInstallments)||0, dueDay:Number(r.dueDay)||1,
+    rate: r.rate===""||r.rate==null ? null : Number(r.rate), note:r.note||"",
+    payments: safeJSONParse(r.paymentsJSON, [])
+  }));
+  const goals = sheetRows(wb, "目標").map(r=>({
+    id:r.id||uid(), title:String(r.title||""), note:r.note||"", createdAt:r.createdAt||todayStr(),
+    items: safeJSONParse(r.itemsJSON, [])
+  }));
+  const journal = sheetRows(wb, "日記").map(r=>({
+    id:r.id||uid(), date:String(r.date||""), time:r.time||"", mood:r.mood||null, text:r.text||""
+  }));
+
+  DB = withDefaults({
+    theme: settings.theme || "pink",
+    appName: settings.appName || "",
+    todos, checkins, transactions, debts, goals, assets, journal,
+    customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
+    budget: safeJSONParse(settings.budgetJSON, null),
+    insightsMemory: safeJSONParse(settings.insightsMemoryJSON, {}),
+  });
+  save();
+  document.body.setAttribute("data-theme", DB.theme);
+  renderThemeRow(); renderAll();
+  toast("備份已匯入");
+}
+document.getElementById("btnExport").addEventListener("click", exportBackup);
 document.getElementById("btnImport").addEventListener("click", ()=>{
   document.getElementById("importFile").click();
 });
@@ -2783,15 +2865,11 @@ document.getElementById("importFile").addEventListener("change", (e)=>{
   const reader = new FileReader();
   reader.onload = (ev)=>{
     try{
-      const parsed = JSON.parse(ev.target.result);
-      DB = withDefaults(parsed);
-      save();
-      document.body.setAttribute("data-theme", DB.theme);
-      renderThemeRow(); renderAll();
-      toast("備份已匯入");
-    }catch(err){ toast("檔案格式錯誤，匯入失敗"); }
+      const wb = XLSX.read(ev.target.result, {type:"array"});
+      importBackupFromWorkbook(wb);
+    }catch(err){ console.error(err); toast("檔案格式錯誤，匯入失敗"); }
   };
-  reader.readAsText(file);
+  reader.readAsArrayBuffer(file);
   e.target.value = "";
 });
 
