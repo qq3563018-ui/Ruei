@@ -401,9 +401,15 @@ input,select,textarea{ font-family:inherit; }
 <div class="view" id="view-ai">
   <div class="card">
     <div class="card-title">🌤 有什麼想不清楚的事？</div>
-    <div class="muted" style="margin-bottom:10px;">這裡不會直接回答你、跟你聊天——它會把你腦中一團亂的念頭，整理成一個「問得夠清楚，AI 才答得好」的完整問題。同一件事，直接丟一句模糊的話去問 ChatGPT，跟丟一個整理過、帶著背景的問題去問，得到的答案品質差很多。整理完可以直接複製，貼到你平常用的 ChatGPT、Claude 或任何 AI 裡問。</div>
+    <div class="muted" style="margin-bottom:10px; line-height:1.8;">
+      有件事一直卡在心裡，卻不知道自己真正煩惱的是什麼、該怎麼問，又或者不知道可以問誰～<br>
+      不用先想好怎麼問，也不用把事情整理得很有條理。<br>
+      把你現在腦中想到的、在意的、煩惱的直接說出來就好。<br>
+      我們會幫你整理你的困擾，並結合生活小夥伴裡和這件事有關的生活紀錄，找出你真正想釐清的問題與需要補充的資訊。<br>
+      最後會幫你整理成一份可以直接複製給 ChatGPT、Claude 或其他 AI 使用的提示詞，讓你不用重新解釋一次自己的情況，就能獲得更完整、更貼近你情況的分析。你只需要把事情說出來，整理問題交給我們。
+    </div>
     <div class="field">
-      <textarea id="aiInput" placeholder="不限主題：工作、感情、金錢、人生選擇……想到什麼就打什麼"></textarea>
+      <textarea id="aiInput" placeholder="不限主題：工作、感情、金錢、人生選擇……也可以聊星盤、八字、人類圖，或幫你規劃任何事"></textarea>
     </div>
     <div style="margin-bottom:14px;">
       <label style="display:block; font-size:12.5px; font-weight:700; color:var(--medium); margin-bottom:5px;">想要多深入？</label>
@@ -1729,7 +1735,7 @@ const PROMPT_DOMAINS = [
     caution:true
   },
   { key:"fortune", label:"命理／占星", emoji:"🔮",
-    keywords:["星座","占星","紫微","命盤","八字","塔羅","易經","風水","生辰","命理","流年","運勢","姓名學","手相","面相","占卜","五行","本命"],
+    keywords:["星座","占星","紫微","命盤","八字","塔羅","易經","風水","生辰","命理","流年","運勢","姓名學","手相","面相","占卜","五行","本命","人類圖","星盤","human design","顯示者","投射者","生產者","反映者","內在權威"],
     role:"一位熟悉命理／占星系統的資訊整理者",
     framework:["確認使用的分析系統","資料是否齊全","基礎概念與專有名詞","逐項分析各個結構","結構之間的關聯","整體解讀","區分原始資料、傳統解讀與推論"],
     topicWord:"這份命盤／星盤所代表的意義", decisionWord:"這些資訊和你的人生有什麼關聯",
@@ -1781,6 +1787,38 @@ function classifyDomains(text){
 }
 // 保留舊名稱給極少數還可能用到單一領域判斷的地方使用
 function classifyDomain(text){ return classifyDomains(text)[0]; }
+
+// ---- 排盤前置資料判斷：人類圖／八字／星盤這幾種分析，使用者常常還沒有自己的命盤資料 ----
+// 网址集中放在這裡管理，之後要換網站只需要改這三個值。
+// TODO（正式上線前務必確認）：目前這三個網址都是空字串佔位，還沒有經過安安確認是不是可信賴、
+// 適合的排盤網站，正式推廣給使用者之前一定要填上真正要用的網址，不要憑空自己編一個。
+const CHART_LINKS = {
+  humanDesign: { label:"人類圖", url:"" },
+  bazi: { label:"八字", url:"" },
+  astrology: { label:"西洋星盤", url:"" },
+};
+const CHART_TOPICS = [
+  { key:"humanDesign", label:CHART_LINKS.humanDesign.label, link:CHART_LINKS.humanDesign,
+    keywords:["人類圖","human design"],
+    dataKeywords:["顯示者","生產者","投射者","反映者","內在權威","人生角色","輪迴交叉","類型是"] },
+  { key:"bazi", label:CHART_LINKS.bazi.label, link:CHART_LINKS.bazi,
+    keywords:["八字","生辰八字","四柱"],
+    dataKeywords:["日主","天干","地支","大運","五行是","命盤"] },
+  { key:"astrology", label:CHART_LINKS.astrology.label, link:CHART_LINKS.astrology,
+    keywords:["星盤","出生星盤","本命盤"],
+    dataKeywords:["上升星座","太陽星座","月亮星座","上升是","水星","金星","火星","第一宮","第十宮"] },
+];
+// 只判斷「有沒有提到這個主題」跟「看起來有沒有帶資料」，不做完全相同文字比對以外的過度推測；
+// 只要文字裡出現這個主題常見的「結果用語」，就當作使用者已經有資料，不用再被要求去排盤。
+function detectChartRequest(text){
+  for(const topic of CHART_TOPICS){
+    if(topic.keywords.some(kw=>text.includes(kw))){
+      const hasData = topic.dataKeywords.some(kw=>text.includes(kw));
+      return { topic, hasData };
+    }
+  }
+  return null;
+}
 
 // 這個問題是不是「在做選擇」：要不要比較多方案、給決策建議
 function isDecisionQuestion(text){
@@ -2166,7 +2204,51 @@ function currentAIDepth(){
   return active ? active.dataset.v : "full";
 }
 
-/* ---- 主流程狀態機：input → understanding/clear → (supplementing ⟲) → ready → result ---- */
+/* ---- 跨模組生活脈絡：只挑跟這次問題領域真的有關的一兩件事，絕對不是把所有資料都塞進去 ----
+   一律用「我注意到」這種保留語氣呈現，不講成使用者的問題「本來就是」什麼，
+   且完全依賴既有的 recentJournalEntries／consecutiveMoodStreak／monthSummary 等函式，
+   不重新做一套資料存取邏輯。沒有相關資料時回傳空陣列，正常走原本的疑難雜症流程即可。 */
+function gatherLifeContext(domains){
+  const domainKeys = domains.map(d=>d.key);
+  const notes = [];
+
+  if(consecutiveMoodStreak(MOOD_LOW, 3)){
+    notes.push("你最近幾天的心情紀錄比較低落");
+  }
+
+  if(domainKeys.includes("career")){
+    const relevant = recentJournalEntries(7).filter(e=>/工作|加班|主管|老闆|同事|離職|職場|好累|很累/.test(e.text));
+    if(relevant.length) notes.push("日記裡也提到工作讓你感到疲憊或有壓力");
+    const dragging = DB.todos.find(t=>!t.done && /履歷|面試|轉職|離職|辭職/.test(t.title));
+    if(dragging) notes.push(`「${dragging.title}」這件待辦似乎也一直還沒開始`);
+  }
+
+  if(domainKeys.includes("finance")){
+    const {income, expense} = monthSummary(new Date());
+    if(income>0 && expense>income) notes.push("這個月的記帳顯示支出已經超過收入");
+    const heavyDebt = DB.debts.find(d=>d.remainingInstallments>0 && income>0 && (d.installmentAmount/income)>0.3);
+    if(heavyDebt) notes.push(`「${heavyDebt.name}」這筆負債的每期還款，占你月收入的比例不低`);
+  }
+
+  if(domainKeys.includes("love") || domainKeys.includes("relationship")){
+    const relevant = recentJournalEntries(7).filter(e=>/吵架|冷戰|已讀不回|分手|不理我/.test(e.text));
+    if(relevant.length) notes.push("最近的日記裡也提到跟這段關係有點摩擦");
+  }
+
+  if(domainKeys.includes("mental") || domainKeys.includes("health")){
+    const relevant = recentJournalEntries(7).filter(e=>/睡不著|失眠|沒有力氣|撐不住|崩潰/.test(e.text));
+    if(relevant.length) notes.push("日記裡也有提到睡不好或覺得撐不住的狀況");
+  }
+
+  return notes.slice(0,2); // 最多帶兩件事，避免變成一長串生活紀錄的羅列
+}
+function buildLifeContextNote(domains){
+  const notes = gatherLifeContext(domains);
+  if(!notes.length) return "";
+  return `我注意到${notes.join("，而且")}。`;
+}
+
+/* ---- 主流程狀態機：input → (chartPrereq ⟲) → understanding/clear → (supplementing ⟲) → ready → result ---- */
 let aiFlow = null;
 function domainBadges(domains){
   return domains.map(d=>`<span class="domain-badge" style="margin-right:6px; margin-bottom:6px; display:inline-block;">${d.emoji||""} ${escapeHtml(d.label)}</span>`).join("");
@@ -2188,11 +2270,24 @@ function analyzeQuestionText(text){
   return { domains, intents, emotions, concerns, gapQuestions:info.gapQuestions, isDecision };
 }
 function startAIFlow(question, depth){
+  // 排盤前置資料判斷：只在「一開始就提到人類圖／八字／星盤、但看起來還沒有資料」時攔一次，
+  // 使用者後續補充資訊或已經有資料的情況，都直接走原本流程，不重複判斷。
+  const chart = detectChartRequest(question);
+  if(chart && !chart.hasData){
+    aiFlow = { question, depth, supplement:"", chartTopic:chart.topic, stage:"chartPrereq" };
+    renderAIFlow();
+    return;
+  }
+  runNormalAIFlow(question, depth);
+}
+function runNormalAIFlow(question, depth){
   const a = analyzeQuestionText(question);
-  // 「已經很清楚」只在：沒有真正的資訊缺口、而且沒有需要被接住的情緒時才成立，
+  const lifeNote = buildLifeContextNote(a.domains);
+  // 「已經很清楚」只在：沒有真正的資訊缺口、沒有需要被接住的情緒、也沒有跨模組的生活脈絡要提時才成立，
   // 不是看字數長短——短但關鍵資訊齊全可以算清楚，長但情緒很多、資訊仍缺，就不能算清楚。
-  const alreadyClear = a.gapQuestions.length===0 && a.emotions.length===0;
-  const reframeText = alreadyClear ? "" : buildReframe(question, a.domains, a.intents.primary, a.emotions);
+  const alreadyClear = a.gapQuestions.length===0 && a.emotions.length===0 && !lifeNote;
+  const baseReframe = alreadyClear ? "" : buildReframe(question, a.domains, a.intents.primary, a.emotions);
+  const reframeText = lifeNote ? `${lifeNote}${baseReframe}` : baseReframe;
   aiFlow = {
     question, supplement:"", domains:a.domains, intent:a.intents.primary, secondaryIntent:a.intents.secondary,
     emotions:a.emotions, concerns:a.concerns, gapQuestions:a.gapQuestions, isDecision:a.isDecision,
@@ -2200,7 +2295,7 @@ function startAIFlow(question, depth){
   };
   renderAIFlow();
 }
-// 使用者在理解階段補充資訊（不管是回答缺口問題，還是自己想再多說一點）都走這裡，
+// 使用者在理解階段補充資訊（不管是回答缺口問題、自己想再多說一點，還是排盤完回來貼結果）都走這裡，
 // 重新分析一次「原問題＋補充」，再回到理解階段讓使用者確認一次新的理解。
 function applySupplement(add){
   aiFlow.supplement = aiFlow.supplement ? (aiFlow.supplement+"；"+add) : add;
@@ -2214,13 +2309,17 @@ function applySupplement(add){
   aiFlow.gapQuestions = a.gapQuestions;
   aiFlow.isDecision = a.isDecision;
   aiFlow.alreadyClear = false; // 使用者主動補充了，就不再走「已經很清楚」的捷徑，讓他確認一次新的理解
-  aiFlow.reframeText = buildReframe(combined, a.domains, a.intents.primary, a.emotions);
+  const lifeNote = buildLifeContextNote(a.domains);
+  const baseReframe = buildReframe(combined, a.domains, a.intents.primary, a.emotions);
+  aiFlow.reframeText = lifeNote ? `${lifeNote}${baseReframe}` : baseReframe;
+  aiFlow.awaitingChartData = false;
   aiFlow.stage = "understanding";
   renderAIFlow();
 }
 function renderAIFlow(){
   const box = document.getElementById("aiResultBox");
   if(!aiFlow){ box.innerHTML = ""; return; }
+  if(aiFlow.stage==="chartPrereq") return renderChartPrereqStage(box);
   if(aiFlow.stage==="understanding") return renderUnderstandingStage(box);
   if(aiFlow.stage==="supplementing") return renderSupplementStage(box);
   if(aiFlow.stage==="ready") return renderReadyStage(box);
@@ -2271,10 +2370,49 @@ function renderUnderstandingStage(box){
     document.getElementById("aiConfirmNo").addEventListener("click", ()=>{ aiFlow.stage="supplementing"; renderAIFlow(); });
   }
 }
-function renderSupplementStage(box){
+// 使用者提到想看人類圖／八字／星盤，但目前看起來還沒有資料時的「下一步引導」畫面。
+// 不是「偵測到關鍵字就一律丟網址」：如果原始問題還帶著其他真正的困擾（例如工作迷惘），
+// 一併提供「直接分析原本的困擾」這條路，不會讓使用者被排盤這件事卡住。
+function renderChartPrereqStage(box){
+  const f = aiFlow;
+  const topic = f.chartTopic;
+  const otherDomains = classifyDomains(f.question).filter(d=>d.key!=="fortune");
+  const hasOtherConcern = otherDomains.length>0;
+  const introText = hasOtherConcern
+    ? `我可以幫你一起釐清這件事。如果你也想從${escapeHtml(topic.label)}的角度來看，目前還需要你的${escapeHtml(topic.label)}資料——你可以先準備好再把結果帶回來；如果不想先看${escapeHtml(topic.label)}，也可以直接從${escapeHtml(otherDomains[0].topicWord)}開始分析。`
+    : `如果你還沒有自己的${escapeHtml(topic.label)}，可以先到下面準備一份。完成後，把結果截圖或貼上文字帶回來，我就可以繼續幫你分析。`;
+  const skipLabel = hasOtherConcern ? `直接分析${otherDomains[0].topicWord}` : "先不用，直接問其他事情";
   box.innerHTML = `
     <div class="ai-log-card" style="background:var(--cream); border-radius:14px; padding:14px;">
-      <div class="muted" style="margin-bottom:8px; line-height:1.6;">沒關係，多告訴我一點，我再重新理解一次就好，不用整句重新輸入。</div>
+      <div class="muted" style="margin-bottom:4px;">你剛剛說的是</div>
+      <div class="user-msg" style="margin-bottom:12px;">${escapeHtml(f.question)}</div>
+      <div style="font-size:13.5px; margin-bottom:6px; font-weight:700;">🌱 先準備一點資料</div>
+      <div class="ai-msg" style="margin-bottom:12px;">${introText}</div>
+      ${topic.link.url
+        ? `<a class="btn-main" style="display:block; text-align:center; text-decoration:none; margin-bottom:10px;" href="${escapeHtml(topic.link.url)}" target="_blank" rel="noopener">前往準備我的${escapeHtml(topic.label)}</a>`
+        : `<div class="muted" style="margin-bottom:10px; text-align:center;">（這裡預留的外部連結還沒設定，請先跟安安確認要用哪個網站）</div>`}
+      <div style="display:flex; gap:8px;">
+        <button class="btn-ghost" id="chartHaveData" style="flex:1;">我已經有${escapeHtml(topic.label)}了</button>
+        <button class="btn-ghost" id="chartSkip" style="flex:1;">${escapeHtml(skipLabel)}</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("chartHaveData").addEventListener("click", ()=>{
+    aiFlow.awaitingChartData = true;
+    aiFlow.stage = "supplementing";
+    renderAIFlow();
+  });
+  document.getElementById("chartSkip").addEventListener("click", ()=>{
+    runNormalAIFlow(f.question, f.depth);
+  });
+}
+function renderSupplementStage(box){
+  const introText = aiFlow.awaitingChartData
+    ? `太好了，把你的${escapeHtml(aiFlow.chartTopic.label)}結果貼上來（文字說明就可以，不用截圖），我再繼續幫你分析。`
+    : "沒關係，多告訴我一點，我再重新理解一次就好，不用整句重新輸入。";
+  box.innerHTML = `
+    <div class="ai-log-card" style="background:var(--cream); border-radius:14px; padding:14px;">
+      <div class="muted" style="margin-bottom:8px; line-height:1.6;">${introText}</div>
       <div class="field"><textarea id="aiSupplementInput" placeholder="補充一下你真正想問的、或我理解錯的地方…"></textarea></div>
       <button class="btn-main" id="aiSupplementSubmit" style="width:100%;">更新我的理解</button>
     </div>
@@ -3328,7 +3466,7 @@ function openDebtForm(editId){
     <div class="field"><label>總期數</label><input id="f_total" type="number" placeholder="0" value="${editing?editing.totalInstallments:""}"></div>
     <div class="field"><label>剩餘期數（可選，預設等於總期數）</label><input id="f_remaininstall" type="number" placeholder="" value="${editing?editing.remainingInstallments:""}"></div>
     <div class="field"><label>每月還款日（幾號）</label><input id="f_day" type="number" min="1" max="31" placeholder="15" value="${editing?editing.dueDay:""}"></div>
-    <div class="field"><label>利率（可選，%，不知道可以先不填）</label><input id="f_rate" type="number" placeholder="" value="${editing&&editing.rate!=null?editing.rate:""}"></div>
+    <div class="field"><label>利率（可選％數）</label><input id="f_rate" type="number" placeholder="" value="${editing&&editing.rate!=null?editing.rate:""}"></div>
     <div class="field"><label>備註（可選）</label><input id="f_note" placeholder="" value="${editing&&editing.note?escapeHtml(editing.note):""}"></div>
     <button class="btn-main" id="f_submit">儲存</button>
     ${editing?`<button class="btn-ghost" id="f_delete" style="width:100%; margin-top:8px;">刪除這筆負債</button>`:""}
