@@ -401,7 +401,7 @@ input,select,textarea{ font-family:inherit; }
 <div class="view" id="view-ai">
   <div class="card">
     <div class="card-title">🌤 有什麼想不清楚的事？</div>
-    <div class="muted" style="margin-bottom:10px;">你只管把問題說出來，怎麼問得更好，交給我。不管多模糊、多隨意都可以，用自己的話說說看就好——你不用先想好怎麼問，我會先陪你把真正想問的事情理清楚。</div>
+    <div class="muted" style="margin-bottom:10px;">這裡不會直接回答你、跟你聊天——它會把你腦中一團亂的念頭，整理成一個「問得夠清楚，AI 才答得好」的完整問題。同一件事，直接丟一句模糊的話去問 ChatGPT，跟丟一個整理過、帶著背景的問題去問，得到的答案品質差很多。整理完可以直接複製，貼到你平常用的 ChatGPT、Claude 或任何 AI 裡問。</div>
     <div class="field">
       <textarea id="aiInput" placeholder="不限主題：工作、感情、金錢、人生選擇……想到什麼就打什麼"></textarea>
     </div>
@@ -428,10 +428,14 @@ input,select,textarea{ font-family:inherit; }
 <!-- 5. 記帳 -->
 <div class="view" id="view-ledger">
   <div class="card">
-    <div class="card-title">本月概況 <span class="pill" id="ledgerMonthLabel"></span></div>
+    <div class="cal-head" style="margin-bottom:10px;">
+      <button class="cal-nav-btn" id="ledgerPrev">‹</button>
+      <h3 class="cal-title-btn" id="ledgerMonthLabel">本月概況</h3>
+      <button class="cal-nav-btn" id="ledgerNext">›</button>
+    </div>
     <div class="stat-grid">
-      <div class="stat-box"><div class="stat-num" id="ledgerIncome">0</div><div class="stat-label">本月收入</div></div>
-      <div class="stat-box"><div class="stat-num" id="ledgerExpense">0</div><div class="stat-label">本月支出</div></div>
+      <div class="stat-box"><div class="stat-num" id="ledgerIncome">0</div><div class="stat-label">收入</div></div>
+      <div class="stat-box"><div class="stat-num" id="ledgerExpense">0</div><div class="stat-label">支出</div></div>
       <div class="stat-box"><div class="stat-num" id="ledgerLeft">0</div><div class="stat-label">剩餘</div></div>
     </div>
     <button class="btn-ghost" id="btnShowReport" style="width:100%; margin-top:12px;">📊 產生帳務報表與分析</button>
@@ -1199,6 +1203,10 @@ let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth(); // 0-indexed
 let selectedDate = todayStr();
 
+/* ============ 記帳頁面：目前檢視的月份 ============ */
+let ledgerYear = new Date().getFullYear();
+let ledgerMonth = new Date().getMonth(); // 0-indexed
+
 // 統整某一天有哪些「生活痕跡」：打卡／待辦／心情／日記／記帳。
 // 首頁月曆的每一格，以及點擊後的簡短總覽卡，都共用這份判斷，確保兩邊看到的資訊一致。
 function dayLifeFacts(dateStr){
@@ -1249,13 +1257,15 @@ document.getElementById("calNext").addEventListener("click", ()=>{
   calMonth++; if(calMonth>11){calMonth=0; calYear++;} renderCalendar();
 });
 /* ===== 快速跳到指定年月 ===== */
-function openCalJumpPicker(){
+// 通用的「跳到指定年月」選擇器，月曆／記帳月份／報表都共用這一個，
+// 避免同樣的年月下拉選單邏輯散落在各處、之後要改還要改好幾次。
+function openMonthJumpPicker(curYear, curMonth, onPick){
   const nowYear = new Date().getFullYear();
   const yearFrom = nowYear - 8, yearTo = nowYear + 1;
   let years = "";
-  for(let y=yearTo; y>=yearFrom; y--){ years += `<option value="${y}" ${y===calYear?"selected":""}>${y}年</option>`; }
+  for(let y=yearTo; y>=yearFrom; y--){ years += `<option value="${y}" ${y===curYear?"selected":""}>${y}年</option>`; }
   let months = "";
-  for(let m=1; m<=12; m++){ months += `<option value="${m-1}" ${m-1===calMonth?"selected":""}>${m}月</option>`; }
+  for(let m=1; m<=12; m++){ months += `<option value="${m-1}" ${m-1===curMonth?"selected":""}>${m}月</option>`; }
   openSheet(`
     <div class="sheet-head"><h3>跳到指定月份</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field">
@@ -1269,9 +1279,15 @@ function openCalJumpPicker(){
     <button class="btn-main" id="f_jumpGo">前往</button>
   `);
   document.getElementById("f_jumpGo").addEventListener("click", ()=>{
-    calYear = parseInt(document.getElementById("f_jumpYear").value);
-    calMonth = parseInt(document.getElementById("f_jumpMonth").value);
+    const y = parseInt(document.getElementById("f_jumpYear").value);
+    const m = parseInt(document.getElementById("f_jumpMonth").value);
     closeSheet();
+    onPick(y, m);
+  });
+}
+function openCalJumpPicker(){
+  openMonthJumpPicker(calYear, calMonth, (y,m)=>{
+    calYear = y; calMonth = m;
     renderCalendar();
   });
 }
@@ -2408,9 +2424,9 @@ function renderCategoryStatsBox(elId, txList, emptyMsg){
   `).join("");
 }
 function renderLedger(){
-  const now = new Date();
-  document.getElementById("ledgerMonthLabel").textContent = `${now.getFullYear()}年${now.getMonth()+1}月`;
-  const {income, expense, txs} = monthSummary(now);
+  const viewDate = new Date(ledgerYear, ledgerMonth, 1);
+  document.getElementById("ledgerMonthLabel").textContent = `${ledgerYear}年 ${ledgerMonth+1}月`;
+  const {income, expense, txs} = monthSummary(viewDate);
   document.getElementById("ledgerIncome").textContent = income.toLocaleString();
   document.getElementById("ledgerExpense").textContent = expense.toLocaleString();
   document.getElementById("ledgerLeft").textContent = (income-expense).toLocaleString();
@@ -2508,62 +2524,102 @@ function openTxForm(editId){
 }
 
 /* ============ 帳務報表與分析 ============ */
+/* ============ 帳務報表：選月份 + 收支切換 + 圓形圖分布 ============ */
+let reportYear = new Date().getFullYear();
+let reportMonth = new Date().getMonth(); // 0-indexed
+let reportType = "expense"; // "expense" 或 "income"
+const REPORT_COLORS = ["#D98BA3","#7A9BAD","#8FA688","#9B8AA6","#B98368","#E0B15C","#6FA8A0","#C77B7B"];
+
+function reportPieHTML(catArr, total){
+  if(!catArr.length || total<=0){
+    return `<div class="empty-state" style="padding:20px 10px;">這個月還沒有這類紀錄</div>`;
+  }
+  let acc = 0;
+  const stops = catArr.map(([,amt],i)=>{
+    const start = (acc/total*360).toFixed(2);
+    acc += amt;
+    const end = (acc/total*360).toFixed(2);
+    return `${REPORT_COLORS[i % REPORT_COLORS.length]} ${start}deg ${end}deg`;
+  }).join(", ");
+  return `<div style="width:160px; height:160px; border-radius:50%; margin:0 auto; background:conic-gradient(${stops});"></div>`;
+}
 function openReport(){
-  const now = new Date();
-  const months = [];
-  for(let i=5;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({label:`${d.getMonth()+1}月`, ...monthSummary(d)});
-  }
-  const maxVal = Math.max(1, ...months.map(m=>Math.max(m.income, m.expense)));
-  const trendHTML = months.map(m=>`
-    <div style="margin-bottom:8px;">
-      <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:3px;"><span>${m.label}</span><span>收 $${m.income.toLocaleString()} ／支 $${m.expense.toLocaleString()}</span></div>
-      <div class="progress-bar" style="margin-bottom:3px;"><div class="progress-fill" style="width:${(m.income/maxVal*100)}%; background:var(--sage);"></div></div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${(m.expense/maxVal*100)}%;"></div></div>
-    </div>`).join("");
-
-  const {income, expense, txs} = monthSummary(now);
-  const savings = income - expense;
-  const savingsRate = income>0 ? Math.round(savings/income*100) : null;
+  const d = new Date(reportYear, reportMonth, 1);
+  const {income, expense, txs} = monthSummary(d);
+  const total = reportType==="income" ? income : expense;
+  const typeTxs = txs.filter(t=>t.type===reportType);
   const catStats = {};
-  txs.filter(t=>t.type==="expense").forEach(t=>{ catStats[t.category] = (catStats[t.category]||0)+t.amount; });
+  typeTxs.forEach(t=>{ catStats[t.category] = (catStats[t.category]||0)+t.amount; });
   const catArr = Object.entries(catStats).sort((a,b)=>b[1]-a[1]);
-  const topCat = catArr[0];
-  const debtMonthly = DB.debts.filter(d=>d.remainingInstallments>0).reduce((s,d)=>s+d.installmentAmount,0);
 
-  let analysis = [];
-  if(income===0 && expense===0){
-    analysis.push("這個月還沒有任何記帳紀錄，先記錄幾筆收支，之後就能看到完整分析。");
-  }else{
-    if(savingsRate===null){ analysis.push("本月尚未記錄收入，暫時無法計算儲蓄率。"); }
-    else if(savingsRate<0){ analysis.push(`本月支出超過收入 $${Math.abs(savings).toLocaleString()}，屬於入不敷出，建議先檢視「${topCat?topCat[0]:"支出較高"}」這類支出是否能減少。`); }
-    else if(savingsRate<10){ analysis.push(`本月儲蓄率約 ${savingsRate}%，偏低，可以留意日常小額支出是否有節省空間。`); }
-    else if(savingsRate<20){ analysis.push(`本月儲蓄率約 ${savingsRate}%，屬於一般水準，若想加快存錢速度可以再檢視非必要支出。`); }
-    else{ analysis.push(`本月儲蓄率約 ${savingsRate}%，狀況健康，可以考慮把多的錢分配到儲蓄或還款上。`); }
+  const legendHTML = catArr.length ? catArr.map(([cat,amt],i)=>{
+    const pct = total>0 ? Math.round(amt/total*100) : 0;
+    return `
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px;">
+        <span style="width:10px; height:10px; border-radius:50%; background:${REPORT_COLORS[i % REPORT_COLORS.length]}; flex-shrink:0;"></span>
+        <span style="flex:1;">${escapeHtml(cat)}</span>
+        <span style="color:var(--gray);">${pct}%</span>
+        <span style="font-weight:700; margin-left:6px;">$${amt.toLocaleString()}</span>
+      </div>`;
+  }).join("") : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
 
-    if(topCat && expense>0){
-      const share = Math.round(topCat[1]/expense*100);
-      if(share>=40) analysis.push(`「${topCat[0]}」佔本月支出的 ${share}%，是目前最大宗的花費，可以想想這個比例是否符合你的預期。`);
-    }
-    if(debtMonthly>0 && income>0){
-      const debtShare = Math.round(debtMonthly/income*100);
-      if(debtShare>=36) analysis.push(`每月固定還款約 $${debtMonthly.toLocaleString()}，佔收入的 ${debtShare}%，負擔偏重，建議優先處理債務，暫緩非必要支出。`);
-      else analysis.push(`每月固定還款約 $${debtMonthly.toLocaleString()}，佔收入的 ${debtShare}%，在一般可負擔範圍內。`);
-    }
-  }
+  const detailHTML = typeTxs.length
+    ? [...typeTxs].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`
+        <div class="item-row">
+          <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
+          <div class="item-sub" style="margin-right:8px;">${t.date} · ${escapeHtml(t.category)}</div>
+          <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
+        </div>`).join("")
+    : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
 
   openSheet(`
     <div class="sheet-head"><h3>📊 帳務報表</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:6px; font-weight:700;">近 6 個月收支趨勢</div>
-    <div style="margin-bottom:16px;">${trendHTML}</div>
-    <div class="muted" style="margin-bottom:6px; font-weight:700;">本月財務狀況分析</div>
-    <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.8;">
-      ${analysis.map(a=>`・${escapeHtml(a)}`).join("<br>")}
+    <div class="cal-head" style="margin-bottom:12px;">
+      <button class="cal-nav-btn" id="reportPrev">‹</button>
+      <h3 class="cal-title-btn" id="reportTitleBtn">${reportYear}年 ${reportMonth+1}月</h3>
+      <button class="cal-nav-btn" id="reportNext">›</button>
     </div>
+    <div class="seg" style="margin-bottom:16px;">
+      <button type="button" id="reportTypeExpense" class="${reportType==='expense'?'active':''}">支出</button>
+      <button type="button" id="reportTypeIncome" class="${reportType==='income'?'active':''}">收入</button>
+    </div>
+    ${reportPieHTML(catArr, total)}
+    <div class="muted" style="text-align:center; margin:10px 0 16px; font-size:13px;">
+      本月${reportType==='income'?'總收入':'總支出'} $${total.toLocaleString()}
+    </div>
+    <div class="muted" style="margin-bottom:6px; font-weight:700;">分類比例</div>
+    <div style="margin-bottom:16px;">${legendHTML}</div>
+    <div class="muted" style="margin-bottom:6px; font-weight:700;">明細</div>
+    <div>${detailHTML}</div>
   `);
+
+  document.getElementById("reportPrev").addEventListener("click", ()=>{
+    reportMonth--; if(reportMonth<0){ reportMonth=11; reportYear--; }
+    openReport();
+  });
+  document.getElementById("reportNext").addEventListener("click", ()=>{
+    reportMonth++; if(reportMonth>11){ reportMonth=0; reportYear++; }
+    openReport();
+  });
+  document.getElementById("reportTitleBtn").addEventListener("click", ()=>{
+    openMonthJumpPicker(reportYear, reportMonth, (y,m)=>{ reportYear=y; reportMonth=m; openReport(); });
+  });
+  document.getElementById("reportTypeExpense").addEventListener("click", ()=>{ reportType="expense"; openReport(); });
+  document.getElementById("reportTypeIncome").addEventListener("click", ()=>{ reportType="income"; openReport(); });
 }
-document.getElementById("btnShowReport").addEventListener("click", openReport);
+document.getElementById("btnShowReport").addEventListener("click", ()=>{
+  reportYear = ledgerYear; reportMonth = ledgerMonth;
+  openReport();
+});
+document.getElementById("ledgerPrev").addEventListener("click", ()=>{
+  ledgerMonth--; if(ledgerMonth<0){ ledgerMonth=11; ledgerYear--; } renderLedger();
+});
+document.getElementById("ledgerNext").addEventListener("click", ()=>{
+  ledgerMonth++; if(ledgerMonth>11){ ledgerMonth=0; ledgerYear++; } renderLedger();
+});
+document.getElementById("ledgerMonthLabel").addEventListener("click", ()=>{
+  openMonthJumpPicker(ledgerYear, ledgerMonth, (y,m)=>{ ledgerYear=y; ledgerMonth=m; renderLedger(); });
+});
 
 /* ============ 預算規劃 ============ */
 // 設計原則：不是把收入硬套進固定比例（例如 50/30/20），而是先問清楚使用者的
@@ -3136,7 +3192,7 @@ function renderAssetList(){
         <div class="item-title">${escapeHtml(a.name)}</div>
         <div class="item-sub">${escapeHtml(a.category)}${a.note?(" · "+escapeHtml(a.note)):""}</div>
       </div>
-      <div class="item-right" style="font-weight:700;">NT$ ${a.amount.toLocaleString()}</div>
+      <div class="item-right asset-edit-target" data-id="${a.id}" style="font-weight:700; cursor:pointer;">NT$ ${a.amount.toLocaleString()}</div>
       <button class="del-btn asset-del" data-id="${a.id}">✕</button>
     </div>`;
   }).join("");
@@ -3200,7 +3256,10 @@ function renderDebt(){
     const milestoneBadge = pct>=100?"🌸":pct>=75?"🌟":pct>=50?"🔥":pct>=25?"✨":"🌱";
     return `<div class="card">
       ${pct>=100?`<div class="completion-banner">🎉 這筆負債還清了！</div>`:""}
-      <div class="card-title">${escapeHtml(d.name)} <span class="pill">${milestoneBadge} ${pct}%</span></div>
+      <div class="card-title">
+        <span class="debt-edit-target" data-id="${d.id}" style="cursor:pointer;">${escapeHtml(d.name)} ✎</span>
+        <span class="pill">${milestoneBadge} ${pct}%</span>
+      </div>
       <div class="stat-grid" style="margin-bottom:10px;">
         <div class="stat-box"><div class="stat-num">${d.remaining.toLocaleString()}</div><div class="stat-label">剩餘金額</div></div>
         <div class="stat-box"><div class="stat-num">${d.remainingInstallments}/${d.totalInstallments}</div><div class="stat-label">剩餘期數</div></div>
@@ -3213,12 +3272,18 @@ function renderDebt(){
         <button class="del-btn debt-del" data-id="${d.id}">✕</button>
       </div>
       ${d.payments && d.payments.length ? `
-        <div class="muted" style="margin-top:10px;">已經一起完成了 ${d.payments.length} 期還款 👣</div>
+        <div class="muted" style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
+          <span>已經一起完成了 ${d.payments.length} 期還款 👣</span>
+          <button class="small-link undo-pay-btn" data-id="${d.id}">按錯了？撤銷最後一期</button>
+        </div>
         <div class="badge-strip" style="margin-top:4px;">${d.payments.slice(-8).map(p=>`<div class="badge-item"><div class="badge-emoji">${p.emoji}</div><span>${p.date.slice(5)}</span></div>`).join("")}</div>
       ` : ""}
     </div>`;
   }).join("");
 
+  list.querySelectorAll(".debt-edit-target").forEach(el=>{
+    el.addEventListener("click", ()=>openDebtForm(el.dataset.id));
+  });
   list.querySelectorAll(".pay-btn").forEach(b=>{
     b.addEventListener("click", ()=>{
       const d = DB.debts.find(x=>x.id===b.dataset.id);
@@ -3234,6 +3299,17 @@ function renderDebt(){
       toast(d.remaining<=0 ? "🎉 這筆負債還清了！你真的做到了" : `${emoji} ${line}`);
     });
   });
+  list.querySelectorAll(".undo-pay-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      const d = DB.debts.find(x=>x.id===b.dataset.id);
+      if(!d.payments || !d.payments.length) return;
+      d.payments.pop();
+      const prev = d.payments[d.payments.length-1];
+      d.remaining = prev ? prev.remainingAfter : d.original;
+      d.remainingInstallments = prev ? prev.remainingInstallmentsAfter : d.totalInstallments;
+      save(); renderAll(); toast("已撤銷最後一期還款");
+    });
+  });
   list.querySelectorAll(".debt-del").forEach(b=>{
     b.addEventListener("click", ()=>{
       const item = DB.debts.find(x=>x.id===b.dataset.id);
@@ -3241,19 +3317,21 @@ function renderDebt(){
     });
   });
 }
-function openDebtForm(){
+function openDebtForm(editId){
+  const editing = editId ? DB.debts.find(d=>d.id===editId) : null;
   openSheet(`
-    <div class="sheet-head"><h3>新增負債項目</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="field"><label>負債名稱</label><input id="f_name" placeholder="例如：信用貸款／房貸／信用卡"></div>
-    <div class="field"><label>原始金額</label><input id="f_original" type="number" placeholder="0"></div>
-    <div class="field"><label>目前剩餘金額（可選，預設等於原始金額）</label><input id="f_remaining" type="number" placeholder="0"></div>
-    <div class="field"><label>每期應繳金額</label><input id="f_installment" type="number" placeholder="0"></div>
-    <div class="field"><label>總期數</label><input id="f_total" type="number" placeholder="0"></div>
-    <div class="field"><label>剩餘期數（可選，預設等於總期數）</label><input id="f_remaininstall" type="number" placeholder=""></div>
-    <div class="field"><label>每月還款日（幾號）</label><input id="f_day" type="number" min="1" max="31" placeholder="15"></div>
-    <div class="field"><label>利率（可選，%）</label><input id="f_rate" type="number" placeholder=""></div>
-    <div class="field"><label>備註（可選）</label><input id="f_note" placeholder=""></div>
+    <div class="sheet-head"><h3>${editing?"編輯負債項目":"新增負債項目"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>負債名稱</label><input id="f_name" placeholder="例如：信用貸款／房貸／信用卡" value="${editing?escapeHtml(editing.name):""}"></div>
+    <div class="field"><label>原始金額</label><input id="f_original" type="number" placeholder="0" value="${editing?editing.original:""}"></div>
+    <div class="field"><label>目前剩餘金額（可選，預設等於原始金額）</label><input id="f_remaining" type="number" placeholder="0" value="${editing?editing.remaining:""}"></div>
+    <div class="field"><label>每期應繳金額</label><input id="f_installment" type="number" placeholder="0" value="${editing?editing.installmentAmount:""}"></div>
+    <div class="field"><label>總期數</label><input id="f_total" type="number" placeholder="0" value="${editing?editing.totalInstallments:""}"></div>
+    <div class="field"><label>剩餘期數（可選，預設等於總期數）</label><input id="f_remaininstall" type="number" placeholder="" value="${editing?editing.remainingInstallments:""}"></div>
+    <div class="field"><label>每月還款日（幾號）</label><input id="f_day" type="number" min="1" max="31" placeholder="15" value="${editing?editing.dueDay:""}"></div>
+    <div class="field"><label>利率（可選，%，不知道可以先不填）</label><input id="f_rate" type="number" placeholder="" value="${editing&&editing.rate!=null?editing.rate:""}"></div>
+    <div class="field"><label>備註（可選）</label><input id="f_note" placeholder="" value="${editing&&editing.note?escapeHtml(editing.note):""}"></div>
     <button class="btn-main" id="f_submit">儲存</button>
+    ${editing?`<button class="btn-ghost" id="f_delete" style="width:100%; margin-top:8px;">刪除這筆負債</button>`:""}
   `);
   document.getElementById("f_submit").addEventListener("click", ()=>{
     const name = document.getElementById("f_name").value.trim();
@@ -3268,15 +3346,26 @@ function openDebtForm(){
     const rate = document.getElementById("f_rate").value ? parseFloat(document.getElementById("f_rate").value) : null;
     const note = document.getElementById("f_note").value.trim();
     if(!name || !original || !installmentAmount || !totalInstallments){ toast("請完整填寫必填欄位"); return; }
-    DB.debts.push({
-      id:uid(), name, original, remaining,
-      installmentAmount, totalInstallments, remainingInstallments,
-      dueDay, rate, note, payments:[]
-    });
-    save(); closeSheet(); renderAll(); toast("已新增負債項目");
+    if(editing){
+      Object.assign(editing, { name, original, remaining, installmentAmount, totalInstallments, remainingInstallments, dueDay, rate, note });
+      toast("已更新負債項目");
+    }else{
+      DB.debts.push({
+        id:uid(), name, original, remaining,
+        installmentAmount, totalInstallments, remainingInstallments,
+        dueDay, rate, note, payments:[]
+      });
+      toast("已新增負債項目");
+    }
+    save(); closeSheet(); renderAll();
+  });
+  const delBtn = document.getElementById("f_delete");
+  if(delBtn) delBtn.addEventListener("click", ()=>{
+    DB.debts = DB.debts.filter(d=>d.id!==editId);
+    save(); closeSheet(); renderAll(); toast("已刪除這筆負債");
   });
 }
-document.getElementById("btnAddDebt").addEventListener("click", openDebtForm);
+document.getElementById("btnAddDebt").addEventListener("click", ()=>openDebtForm(null));
 
 /* ============ 匯出／匯入備份 ============ */
 document.getElementById("btnExport").addEventListener("click", ()=>{
