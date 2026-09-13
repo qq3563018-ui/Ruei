@@ -1789,13 +1789,11 @@ function classifyDomains(text){
 function classifyDomain(text){ return classifyDomains(text)[0]; }
 
 // ---- 排盤前置資料判斷：人類圖／八字／星盤這幾種分析，使用者常常還沒有自己的命盤資料 ----
-// 网址集中放在這裡管理，之後要換網站只需要改這三個值。
-// TODO（正式上線前務必確認）：目前這三個網址都是空字串佔位，還沒有經過安安確認是不是可信賴、
-// 適合的排盤網站，正式推廣給使用者之前一定要填上真正要用的網址，不要憑空自己編一個。
+// 网址集中放在這裡管理，之後要換網站只需要改這三個值（由學員自行確認提供，非系統自行編造）。
 const CHART_LINKS = {
-  humanDesign: { label:"人類圖", url:"" },
-  bazi: { label:"八字", url:"" },
-  astrology: { label:"西洋星盤", url:"" },
+  humanDesign: { label:"人類圖", url:"https://humandesignasia.org/Get_Your_Chart" },
+  bazi: { label:"八字", url:"https://m.buyiju.com/bazi/" },
+  astrology: { label:"西洋星盤", url:"https://astrodoor.cc/horoscope.jsp" },
 };
 const CHART_TOPICS = [
   { key:"humanDesign", label:CHART_LINKS.humanDesign.label, link:CHART_LINKS.humanDesign,
