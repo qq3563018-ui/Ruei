@@ -290,10 +290,6 @@ input,select,textarea{ font-family:inherit; }
 <div class="topbar">
   <div class="topbar-row">
     <div class="brand"><span class="brand-dot"></span><span id="brandText">生活小夥伴</span><button class="icon-btn" id="btnEditName" title="設定我的名字" style="width:22px; height:22px; font-size:11px; margin-left:4px;">✎</button></div>
-    <div class="topbar-actions">
-      <button class="icon-btn" id="btnExport" title="匯出備份（Excel）">⬇</button>
-      <button class="icon-btn" id="btnImport" title="匯入備份（Excel）">⬆</button>
-    </div>
   </div>
   <div class="theme-row" id="themeRow"></div>
 </div>
@@ -381,7 +377,6 @@ input,select,textarea{ font-family:inherit; }
     <div class="seg" id="todoFilterSeg">
       <button type="button" data-v="all" class="active">全部</button>
       <button type="button" data-v="today">今天</button>
-      <button type="button" data-v="unscheduled">未安排</button>
       <button type="button" data-v="done">已完成</button>
     </div>
   </div>
@@ -412,7 +407,7 @@ input,select,textarea{ font-family:inherit; }
     <div class="card">
       <div class="card-title">🌱 完成這個目標需要什麼？</div>
       <div id="goalItemList"></div>
-      <button class="btn-ghost" id="btnAddGoalItem" style="width:100%; margin-top:10px;">＋ 新增一件事</button>
+      <button class="btn-main" id="btnAddGoalItem" style="width:100%; margin-top:10px;">＋ 新增目標事項</button>
     </div>
   </div>
 </div>
@@ -1120,7 +1115,6 @@ document.querySelectorAll(".nav-item").forEach(el=>{
 function openMoreSheet(){
   openSheet(`
     <div class="sheet-head"><h3>更多</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="more-sheet-intro">這兩個不用天天打開，想到的時候，或是我在首頁提醒你的時候，再回來看看就好。</div>
     <div class="card nav-card" id="moreGoGoals">
       <div class="nav-card-row">
         <div>
@@ -1520,7 +1514,7 @@ function todoGroupCard(title, todos, showDateInRow){
     ${todos.map(t=>todoRowHTML(t, showDateInRow)).join("")}
   </div>`;
 }
-let todoFilter = "all"; // all | today | unscheduled | done
+let todoFilter = "all"; // all | today | done
 function renderTodo(){
   const today = todayStr();
   const kw = document.getElementById("todoSearch").value.trim();
@@ -1538,15 +1532,10 @@ function renderTodo(){
 
   const notDone = todos.filter(t=>!t.done);
   const overdue = notDone.filter(t=>t.date && t.date<today).sort((a,b)=>a.date.localeCompare(b.date));
-  const unscheduled = notDone.filter(t=>!t.date);
   const scheduled = notDone.filter(t=>t.date && t.date>=today);
 
   let html = "";
-  if(todoFilter==="unscheduled"){
-    html = unscheduled.length
-      ? todoGroupCard("📌 未安排", unscheduled, false)
-      : `<div class="card empty-state">目前沒有未安排日期的待辦</div>`;
-  }else if(todoFilter==="today"){
+  if(todoFilter==="today"){
     const todayTodos = scheduled.filter(t=>t.date===today);
     html += todayTodos.length
       ? todoGroupCard(`📅 今天｜${todoDateLabel(today)==="今天"?today.slice(5).replace("-","/"):today}`, todayTodos, false)
@@ -1566,9 +1555,6 @@ function renderTodo(){
       const isRelative = (label==="今天" || label==="明天");
       const title = isRelative ? `📅 ${label}｜${d.slice(5).replace("-","/")}` : `📅 ${label}`;
       html += todoGroupCard(title, byDate[d], false);
-    }
-    if(unscheduled.length){
-      html += todoGroupCard("📌 未安排", unscheduled, false);
     }
     if(!html){
       html = `<div class="card empty-state">目前沒有待辦事項，點右下角 ＋ 新增一個吧</div>`;
@@ -1593,7 +1579,7 @@ function openTodoForm(editId){
   openSheet(`
     <div class="sheet-head"><h3>${editing?"編輯待辦":"新增待辦"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>事項名稱</label><input id="f_title" placeholder="例如：繳水電費" value="${editing?escapeHtml(editing.title):""}"></div>
-    <div class="field"><label>日期（可選，還不知道哪天做可以先留空，之後會放在「未安排」）</label><input id="f_date" type="date" value="${editing?(editing.date||""):todayStr()}"></div>
+    <div class="field"><label>日期</label><input id="f_date" type="date" value="${editing?(editing.date||todayStr()):todayStr()}"></div>
     <div class="field"><label>標籤顏色（可選，自己挑一個喜歡的分類色）</label>
       <div class="color-picker" id="f_color">
         ${TODO_COLORS.map(c=>`<button class="color-swatch ${initColor===c?'active':''}" data-c="${c}" style="background:${c};"></button>`).join("")}
@@ -1612,7 +1598,7 @@ function openTodoForm(editId){
   });
   document.getElementById("f_submit").addEventListener("click", ()=>{
     const title = document.getElementById("f_title").value.trim();
-    const date = document.getElementById("f_date").value; // 留空 = 未安排，不再強制帶入今天
+    const date = document.getElementById("f_date").value || todayStr();
     if(!title){ toast("請輸入事項名稱"); return; }
     if(editing){
       editing.title=title; editing.date=date; editing.color=color;
@@ -1658,10 +1644,11 @@ function renderGoalsView(){
   }else{
     list.innerHTML = DB.goals.map(g=>{
       const {done,total} = goalProgress(g);
+      const statusText = total>0 ? `${done} / ${total}（${Math.round(done/total*100)}%）` : "尚未建立目標事項";
       return `<div class="item-row" data-id="${g.id}">
         <div class="goal-edit-target" data-id="${g.id}" style="flex:1; cursor:pointer;">
           <div class="item-title">🎯 ${escapeHtml(g.title)}</div>
-          <div class="item-sub">${total>0 ? `${done} / ${total}（${Math.round(done/total*100)}%）` : "尚未建立目標事項"}</div>
+          <div class="item-sub">${statusText} · 查看目標 →</div>
         </div>
         <button class="del-btn goal-del" data-id="${g.id}">✕</button>
       </div>`;
@@ -1691,11 +1678,14 @@ function renderGoalDetail(id){
   noteEl.style.display = g.note ? "block" : "none";
   noteEl.textContent = g.note || "";
   const {done,total} = goalProgress(g);
-  document.getElementById("goalProgressBox").innerHTML = renderGoalProgressVisual(done, total);
+  const progressBox = document.getElementById("goalProgressBox");
+  progressBox.innerHTML = total>0
+    ? `<div class="muted" style="margin-bottom:4px; font-weight:700;">🌱 目標進度</div>${renderGoalProgressVisual(done, total)}`
+    : "";
 
   const itemBox = document.getElementById("goalItemList");
   if(!g.items.length){
-    itemBox.innerHTML = `<div class="empty-state">還沒有建立目標事項，先想想完成這個目標大概要做哪些事吧。</div>`;
+    itemBox.innerHTML = `<div class="empty-state">尚未建立目標事項<br>把完成這個目標需要做的事情列出來吧！</div>`;
   }else{
     itemBox.innerHTML = g.items.map((item,idx)=>`
       <div class="item-row" data-id="${item.id}">
@@ -1765,8 +1755,10 @@ function openGoalForm(editId){
       editing.title = title; editing.note = note;
       save(); closeSheet(); renderGoalDetail(editId); renderGoalsView(); toast("已更新目標");
     }else{
-      DB.goals.push({id:uid(), title, note, items:[], createdAt:todayStr()});
-      save(); closeSheet(); renderGoalsView(); toast("已新增目標");
+      const newGoal = {id:uid(), title, note, items:[], createdAt:todayStr()};
+      DB.goals.push(newGoal);
+      save(); closeSheet(); renderGoalsView();
+      openGoalDetail(newGoal.id); // 建立成功直接進入這個目標的詳細頁，不要只跳個提示就結束
     }
   });
   const delBtn = document.getElementById("f_delete");
@@ -1779,7 +1771,7 @@ function openGoalItemForm(goalId, itemId){
   const g = DB.goals.find(x=>x.id===goalId);
   const editing = itemId ? g.items.find(i=>i.id===itemId) : null;
   openSheet(`
-    <div class="sheet-head"><h3>${editing?"編輯事項":"新增一件事"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="sheet-head"><h3>${editing?"編輯目標事項":"新增目標事項"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>內容</label><input id="f_text" placeholder="例如：查機票、辦護照、每月存 3,000 元" value="${editing?escapeHtml(editing.text):""}"></div>
     <button class="btn-main" id="f_submit">儲存</button>
     ${editing?`<button class="btn-ghost" id="f_delete" style="width:100%; margin-top:8px;">刪除這件事</button>`:""}
@@ -2855,10 +2847,6 @@ function importBackupFromWorkbook(wb){
   renderThemeRow(); renderAll();
   toast("備份已匯入");
 }
-document.getElementById("btnExport").addEventListener("click", exportBackup);
-document.getElementById("btnImport").addEventListener("click", ()=>{
-  document.getElementById("importFile").click();
-});
 document.getElementById("importFile").addEventListener("change", (e)=>{
   const file = e.target.files[0];
   if(!file) return;
