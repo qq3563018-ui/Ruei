@@ -373,7 +373,7 @@ input,select,textarea{ font-family:inherit; }
 
 <!-- 3. 待辦 -->
 <div class="view" id="view-todo">
-  <div class="card">
+  <div class="card" id="todoFilterCard">
     <div class="seg" id="todoFilterSeg">
       <button type="button" data-v="all" class="active">全部</button>
       <button type="button" data-v="today">今天</button>
@@ -381,7 +381,12 @@ input,select,textarea{ font-family:inherit; }
     </div>
   </div>
   <div class="card" style="margin-bottom:0;">
+    <div class="seg" id="todoSearchModeSeg" style="margin-bottom:10px;">
+      <button type="button" data-v="text" class="active">🔎 搜尋內容</button>
+      <button type="button" data-v="date">📅 搜尋日期</button>
+    </div>
     <input type="text" id="todoSearch" placeholder="搜尋待辦事項…">
+    <input type="date" id="todoDateSearch" style="display:none;">
   </div>
   <div id="todoGroupedList"></div>
 </div>
@@ -1515,7 +1520,30 @@ function todoGroupCard(title, todos, showDateInRow){
   </div>`;
 }
 let todoFilter = "all"; // all | today | done
+let todoSearchMode = "text"; // text | date
 function renderTodo(){
+  const box0 = document.getElementById("todoGroupedList");
+  if(todoSearchMode==="date"){
+    const d = document.getElementById("todoDateSearch").value;
+    if(!d){
+      box0.innerHTML = `<div class="card empty-state">選一個日期，看看那天有哪些待辦</div>`;
+      return;
+    }
+    const label = `📅 ${d.replace(/-/g,"/")}`;
+    const dayTodos = DB.todos.filter(t=>t.date===d);
+    if(!dayTodos.length){
+      box0.innerHTML = `<div class="card">
+        <div class="card-title">${label}</div>
+        <div class="empty-state">這天沒有待辦事項</div>
+        <button class="btn-main" id="btnAddTodoForSearchDate" style="width:100%; margin-top:10px;">＋ 新增待辦</button>
+      </div>`;
+      document.getElementById("btnAddTodoForSearchDate").addEventListener("click", ()=>openTodoForm(null, d));
+    }else{
+      box0.innerHTML = todoGroupCard(label, dayTodos, false);
+      bindTodoRowEvents(box0);
+    }
+    return;
+  }
   const today = todayStr();
   const kw = document.getElementById("todoSearch").value.trim();
   const todos = kw ? DB.todos.filter(t=>t.title.includes(kw)) : DB.todos;
@@ -1564,6 +1592,18 @@ function renderTodo(){
   bindTodoRowEvents(box);
 }
 document.getElementById("todoSearch").addEventListener("input", renderTodo);
+document.getElementById("todoDateSearch").addEventListener("change", renderTodo);
+document.querySelectorAll("#todoSearchModeSeg button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    document.querySelectorAll("#todoSearchModeSeg button").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    todoSearchMode = b.dataset.v;
+    document.getElementById("todoSearch").style.display = todoSearchMode==="text" ? "block" : "none";
+    document.getElementById("todoDateSearch").style.display = todoSearchMode==="date" ? "block" : "none";
+    document.getElementById("todoFilterCard").style.display = todoSearchMode==="text" ? "block" : "none";
+    renderTodo();
+  });
+});
 document.querySelectorAll("#todoFilterSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
     document.querySelectorAll("#todoFilterSeg button").forEach(x=>x.classList.remove("active"));
@@ -1573,13 +1613,14 @@ document.querySelectorAll("#todoFilterSeg button").forEach(b=>{
   });
 });
 
-function openTodoForm(editId){
+function openTodoForm(editId, presetDate){
   const editing = editId ? DB.todos.find(x=>x.id===editId) : null;
   const initColor = editing ? (editing.color||null) : null;
+  const initDate = editing ? (editing.date||todayStr()) : (presetDate || todayStr());
   openSheet(`
     <div class="sheet-head"><h3>${editing?"編輯待辦":"新增待辦"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>事項名稱</label><input id="f_title" placeholder="例如：繳水電費" value="${editing?escapeHtml(editing.title):""}"></div>
-    <div class="field"><label>日期</label><input id="f_date" type="date" value="${editing?(editing.date||todayStr()):todayStr()}"></div>
+    <div class="field"><label>日期</label><input id="f_date" type="date" value="${initDate}"></div>
     <div class="field"><label>標籤顏色（可選，自己挑一個喜歡的分類色）</label>
       <div class="color-picker" id="f_color">
         ${TODO_COLORS.map(c=>`<button class="color-swatch ${initColor===c?'active':''}" data-c="${c}" style="background:${c};"></button>`).join("")}
