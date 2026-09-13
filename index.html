@@ -433,6 +433,11 @@ input,select,textarea{ font-family:inherit; }
     <button class="btn-ghost" id="btnShowReport" style="width:100%; margin-top:12px;">📊 產生帳務報表與分析</button>
   </div>
   <div class="card">
+    <div class="card-title">🔄 固定收支 <button class="small-link" id="btnAddRecurring">＋ 新增</button></div>
+    <div class="muted" style="margin-bottom:10px;">設定後，小夥伴會按照你的週期，自動幫你建立記帳紀錄，不會另外提醒或加入待辦。</div>
+    <div id="recurringTxList"></div>
+  </div>
+  <div class="card">
     <div class="card-title">💡 本月預算 <button class="small-link" id="btnSetBudget">調整預算</button></div>
     <div id="budgetSummary"></div>
   </div>
@@ -547,7 +552,7 @@ function loadDB(){
 function withDefaults(obj){
   return Object.assign({
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
-    customCategories:{expense:[], income:[]}, budget:null, assets:[], journal:[], insightsMemory:{}
+    customCategories:{expense:[], income:[]}, budget:null, assets:[], journal:[], insightsMemory:{}, recurringTx:[]
   }, obj);
 }
 let DB = loadDB();
@@ -1926,6 +1931,8 @@ function renderCategoryStatsBox(elId, txList, emptyMsg){
   `).join("");
 }
 function renderLedger(){
+  processRecurringTx();
+  renderRecurringTx();
   const viewDate = new Date(ledgerYear, ledgerMonth, 1);
   document.getElementById("ledgerMonthLabel").textContent = `${ledgerYear}年 ${ledgerMonth+1}月`;
   const {income, expense, txs} = monthSummary(viewDate);
@@ -2024,6 +2031,233 @@ function openTxForm(editId){
     }
   });
 }
+
+/* ============ 固定收支（重複記帳規則） ============
+   設計原則：這裡存的是「規則」，不是預先產生好的一堆未來交易。
+   每次記帳頁面重新整理時，會檢查每條規則從開始日期到「今天」之間，
+   有哪些期別（月／年）還沒被處理過，只把「已經到期、還沒產生過」的
+   那幾期各自建立一筆一般的記帳紀錄，絕對不會預先建立未來的紀錄。
+   已經處理過的期別記在 rule.handledPeriods 裡，重新整理、重新開啟
+   都不會重複產生。暫停期間到期的期別一樣會被標記成「已處理」但
+   不會真的建立紀錄，之後恢復也不會回頭補產生那幾期。 */
+function daysInMonth(year, month){ return new Date(year, month, 0).getDate(); } // month: 1-12
+function clampDay(year, month, day){ return Math.min(day, daysInMonth(year, month)); }
+function recurringFreqLabel(r){
+  return r.freq==="monthly" ? `每月 ${r.day} 日` : `每年 ${r.month} 月 ${r.day} 日`;
+}
+// 算出這條規則從開始日期到今天之間，有哪些期別「已經到期」，回傳 [{key, date}]
+function duePeriods(rule){
+  const today = todayStr();
+  const out = [];
+  if(rule.freq==="monthly"){
+    let [y,m] = rule.startDate.split("-").map(Number);
+    const [ty,tm] = today.split("-").map(Number);
+    let guard = 0;
+    while((y<ty || (y===ty && m<=tm)) && guard<2400){ // guard：避免規則資料異常時無限迴圈
+      guard++;
+      const d = clampDay(y,m,rule.day);
+      const dateStr = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      if(dateStr>=rule.startDate && dateStr<=today && (!rule.endDate || dateStr<=rule.endDate)){
+        out.push({key:`${y}-${String(m).padStart(2,"0")}`, date:dateStr});
+      }
+      m++; if(m>12){ m=1; y++; }
+    }
+  }else{ // yearly
+    let y = Number(rule.startDate.split("-")[0]);
+    const ty = Number(today.split("-")[0]);
+    for(; y<=ty; y++){
+      const d = clampDay(y, rule.month, rule.day);
+      const dateStr = `${y}-${String(rule.month).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      if(dateStr>=rule.startDate && dateStr<=today && (!rule.endDate || dateStr<=rule.endDate)){
+        out.push({key:`${y}`, date:dateStr});
+      }
+    }
+  }
+  return out;
+}
+function processRecurringTx(){
+  let changed = false;
+  DB.recurringTx.forEach(rule=>{
+    if(!rule.handledPeriods) rule.handledPeriods = [];
+    duePeriods(rule).forEach(({key,date})=>{
+      if(rule.handledPeriods.includes(key)) return;
+      rule.handledPeriods.push(key);
+      changed = true;
+      if(!rule.paused){
+        DB.transactions.push({
+          id:uid(), date, amount:rule.amount, type:rule.type, category:rule.category,
+          name:rule.name, note:"", recurringRuleId:rule.id, recurringPeriod:key
+        });
+      }
+    });
+  });
+  if(changed) save();
+}
+function renderRecurringTx(){
+  const box = document.getElementById("recurringTxList");
+  if(!DB.recurringTx.length){
+    box.innerHTML = `<div class="empty-state">還沒有設定固定收支，像訂閱、房租、薪資這種每期都固定的，可以設定一次就好。</div>`;
+    return;
+  }
+  const rowHTML = (r)=>`
+    <div class="item-row" data-id="${r.id}" style="${r.paused?'opacity:.55;':''}">
+      <div class="recurring-edit-target" data-id="${r.id}" style="flex:1; cursor:pointer;">
+        <div class="item-title">${escapeHtml(r.name)}${r.paused?'（已暫停）':''}</div>
+        <div class="item-sub">$${r.amount.toLocaleString()}／${r.freq==='monthly'?'月':'年'} · ${recurringFreqLabel(r)} · ${escapeHtml(r.category)}</div>
+      </div>
+      <button class="del-btn recurring-pause" data-id="${r.id}" title="${r.paused?'恢復':'暫停'}">${r.paused?'▶️':'⏸️'}</button>
+      <button class="del-btn recurring-del" data-id="${r.id}">✕</button>
+    </div>`;
+  const expenseRules = DB.recurringTx.filter(r=>r.type==="expense");
+  const incomeRules = DB.recurringTx.filter(r=>r.type==="income");
+  let html = "";
+  if(expenseRules.length) html += `<div class="muted" style="font-weight:700; margin:8px 0 4px;">固定支出</div>` + expenseRules.map(rowHTML).join("");
+  if(incomeRules.length) html += `<div class="muted" style="font-weight:700; margin:8px 0 4px;">固定收入</div>` + incomeRules.map(rowHTML).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".recurring-edit-target").forEach(el=>{
+    el.addEventListener("click", ()=>openRecurringForm(el.dataset.id));
+  });
+  box.querySelectorAll(".recurring-pause").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const r = DB.recurringTx.find(x=>x.id===el.dataset.id);
+      r.paused = !r.paused;
+      save(); renderRecurringTx();
+      toast(r.paused ? "已暫停，這段期間不會再自動產生記帳" : "已恢復，之後會繼續依規則產生");
+    });
+  });
+  box.querySelectorAll(".recurring-del").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const item = DB.recurringTx.find(x=>x.id===el.dataset.id);
+      confirmDelete(item.name, ()=>{
+        DB.recurringTx = DB.recurringTx.filter(x=>x.id!==el.dataset.id);
+        save(); renderRecurringTx();
+        toast("已停止這筆固定收支，過去已經產生的記帳紀錄不會被刪除");
+      });
+    });
+  });
+}
+function openRecurringForm(editId){
+  const editing = editId ? DB.recurringTx.find(r=>r.id===editId) : null;
+  let type = editing ? editing.type : "expense";
+  let freq = editing ? editing.freq : "monthly";
+  let endMode = editing && editing.endDate ? "until" : "ongoing";
+  openSheet(`
+    <div class="sheet-head"><h3>${editing?"編輯固定收支":"新增固定收支"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:12px; line-height:1.6;">設定後，小夥伴會按照你的週期，自動幫你建立記帳紀錄，不會另外提醒或加入待辦。</div>
+    <div class="seg" id="rf_type" style="margin-bottom:12px;">
+      <button type="button" data-v="expense" class="${type==='expense'?'active':''}">支出</button>
+      <button type="button" data-v="income" class="${type==='income'?'active':''}">收入</button>
+    </div>
+    <div class="field"><label>名稱</label><input id="rf_name" placeholder="例如：GPT Plus、房租、薪資" value="${editing?escapeHtml(editing.name):""}"></div>
+    <div class="field"><label>金額</label><input id="rf_amount" type="number" placeholder="0" value="${editing?editing.amount:""}"></div>
+    <div class="field"><label>分類</label><select id="rf_cat"></select></div>
+    <div class="field" id="rf_customcat_wrap" style="display:none;"><label>自訂類別名稱</label><input id="rf_customcat" placeholder="輸入你想要的類別名稱"></div>
+    <div class="field"><label>重複頻率</label>
+      <div class="seg" id="rf_freq">
+        <button type="button" data-v="monthly" class="${freq==='monthly'?'active':''}">每月</button>
+        <button type="button" data-v="yearly" class="${freq==='yearly'?'active':''}">每年</button>
+      </div>
+    </div>
+    <div class="field" id="rf_monthlyDay_wrap" style="${freq==='monthly'?'':'display:none;'}">
+      <label>每月幾號</label><input id="rf_day_monthly" type="number" min="1" max="31" placeholder="例如：20" value="${editing&&editing.freq==='monthly'?editing.day:''}">
+    </div>
+    <div class="field" id="rf_yearlyDate_wrap" style="${freq==='yearly'?'':'display:none;'}">
+      <label>每年幾月幾號</label>
+      <div style="display:flex; gap:8px;">
+        <input id="rf_month_yearly" type="number" min="1" max="12" placeholder="月" style="flex:1;" value="${editing&&editing.freq==='yearly'?editing.month:''}">
+        <input id="rf_day_yearly" type="number" min="1" max="31" placeholder="日" style="flex:1;" value="${editing&&editing.freq==='yearly'?editing.day:''}">
+      </div>
+    </div>
+    <div class="field"><label>開始日期</label><input id="rf_start" type="date" value="${editing?editing.startDate:todayStr()}"></div>
+    <div class="field"><label>結束方式</label>
+      <div class="seg" id="rf_endMode">
+        <button type="button" data-v="ongoing" class="${endMode==='ongoing'?'active':''}">持續進行</button>
+        <button type="button" data-v="until" class="${endMode==='until'?'active':''}">設定結束日期</button>
+      </div>
+    </div>
+    <div class="field" id="rf_endDate_wrap" style="${endMode==='until'?'':'display:none;'}"><label>結束日期</label><input id="rf_end" type="date" value="${editing&&editing.endDate?editing.endDate:''}"></div>
+    <button class="btn-main" id="rf_submit">儲存</button>
+    ${editing?`<button class="btn-ghost" id="rf_delete" style="width:100%; margin-top:8px;">停止這筆固定收支</button>`:""}
+  `);
+  function fillCats(){
+    const sel = document.getElementById("rf_cat");
+    const preset = type==="expense"?EXPENSE_CATS:INCOME_CATS;
+    const custom = type==="expense"?DB.customCategories.expense:DB.customCategories.income;
+    const cats = [...preset, ...custom.filter(c=>!preset.includes(c))];
+    sel.innerHTML = cats.map(c=>`<option value="${c}" ${editing&&editing.category===c?"selected":""}>${c}</option>`).join("") + `<option value="__custom__">➕ 自訂新類別...</option>`;
+    document.getElementById("rf_customcat_wrap").style.display = "none";
+  }
+  fillCats();
+  document.getElementById("rf_cat").addEventListener("change", (e)=>{
+    document.getElementById("rf_customcat_wrap").style.display = e.target.value==="__custom__" ? "block" : "none";
+  });
+  document.querySelectorAll("#rf_type button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      document.querySelectorAll("#rf_type button").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active"); type = b.dataset.v; fillCats();
+    });
+  });
+  document.querySelectorAll("#rf_freq button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      document.querySelectorAll("#rf_freq button").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active"); freq = b.dataset.v;
+      document.getElementById("rf_monthlyDay_wrap").style.display = freq==="monthly" ? "block" : "none";
+      document.getElementById("rf_yearlyDate_wrap").style.display = freq==="yearly" ? "block" : "none";
+    });
+  });
+  document.querySelectorAll("#rf_endMode button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      document.querySelectorAll("#rf_endMode button").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active"); endMode = b.dataset.v;
+      document.getElementById("rf_endDate_wrap").style.display = endMode==="until" ? "block" : "none";
+    });
+  });
+  document.getElementById("rf_submit").addEventListener("click", ()=>{
+    const name = document.getElementById("rf_name").value.trim();
+    const amount = parseFloat(document.getElementById("rf_amount").value);
+    let category = document.getElementById("rf_cat").value;
+    if(category==="__custom__"){
+      category = document.getElementById("rf_customcat").value.trim();
+      if(!category){ toast("請輸入自訂類別名稱"); return; }
+      const list = type==="expense"?DB.customCategories.expense:DB.customCategories.income;
+      if(!list.includes(category)) list.push(category);
+    }
+    const startDate = document.getElementById("rf_start").value || todayStr();
+    const endDate = endMode==="until" ? (document.getElementById("rf_end").value || null) : null;
+    let day, month=null;
+    if(freq==="monthly"){
+      day = parseInt(document.getElementById("rf_day_monthly").value);
+    }else{
+      month = parseInt(document.getElementById("rf_month_yearly").value);
+      day = parseInt(document.getElementById("rf_day_yearly").value);
+    }
+    if(!name || !amount || amount<=0){ toast("請輸入名稱與金額"); return; }
+    if(!day || day<1 || day>31){ toast("請輸入 1-31 之間的日期"); return; }
+    if(freq==="yearly" && (!month || month<1 || month>12)){ toast("請輸入 1-12 之間的月份"); return; }
+    if(editing){
+      Object.assign(editing, { name, amount, type, category, freq, day, month, startDate, endDate });
+      toast("已更新這筆固定收支");
+    }else{
+      DB.recurringTx.push({
+        id:uid(), name, amount, type, category, freq, day, month,
+        startDate, endDate, paused:false, handledPeriods:[], createdAt:todayStr()
+      });
+      toast("已新增固定收支");
+    }
+    processRecurringTx();
+    save(); closeSheet(); renderAll();
+  });
+  const delBtn = document.getElementById("rf_delete");
+  if(delBtn) delBtn.addEventListener("click", ()=>{
+    closeSheet();
+    confirmDelete(editing.name, ()=>{
+      DB.recurringTx = DB.recurringTx.filter(r=>r.id!==editId);
+      save(); renderAll();
+      toast("已停止這筆固定收支，過去已經產生的記帳紀錄不會被刪除");
+    });
+  });
+}
+document.getElementById("btnAddRecurring").addEventListener("click", ()=>openRecurringForm(null));
 
 /* ============ 帳務報表與分析 ============ */
 /* ============ 帳務報表：選月份 + 收支切換 + 圓形圖分布 ============ */
@@ -2882,7 +3116,15 @@ function exportBackup(){
   };
   addSheet("待辦", DB.todos.map(t=>({id:t.id, title:t.title, date:t.date||"", done:!!t.done, doneAt:t.doneAt||"", color:t.color||""})));
   addSheet("打卡", Object.entries(DB.checkins).map(([date,v])=>({date, item:(v&&v.item)||"", at:(v&&v.at)||""})));
-  addSheet("記帳", DB.transactions.map(t=>({id:t.id, type:t.type, name:t.name, amount:t.amount, category:t.category, date:t.date, note:t.note||""})));
+  addSheet("記帳", DB.transactions.map(t=>({
+    id:t.id, type:t.type, name:t.name, amount:t.amount, category:t.category, date:t.date, note:t.note||"",
+    recurringRuleId:t.recurringRuleId||"", recurringPeriod:t.recurringPeriod||""
+  })));
+  addSheet("固定收支", DB.recurringTx.map(r=>({
+    id:r.id, name:r.name, amount:r.amount, type:r.type, category:r.category, freq:r.freq,
+    day:r.day, month:r.month==null?"":r.month, startDate:r.startDate, endDate:r.endDate||"",
+    paused:!!r.paused, createdAt:r.createdAt||"", handledPeriodsJSON:JSON.stringify(r.handledPeriods||[])
+  })));
   addSheet("資產", DB.assets.map(a=>({id:a.id, name:a.name, category:a.category, amount:a.amount, note:a.note||""})));
   addSheet("負債", DB.debts.map(d=>({
     id:d.id, name:d.name, original:d.original, remaining:d.remaining,
@@ -2919,8 +3161,18 @@ function importBackupFromWorkbook(wb){
   }));
   const checkins = {};
   sheetRows(wb, "打卡").forEach(r=>{ if(r.date) checkins[r.date] = { item:r.item||"", at:r.at||"" }; });
-  const transactions = sheetRows(wb, "記帳").map(r=>({
-    id:r.id||uid(), type:r.type, name:String(r.name||""), amount:Number(r.amount)||0, category:r.category, date:String(r.date||""), note:r.note||""
+  const transactions = sheetRows(wb, "記帳").map(r=>{
+    const t = {
+      id:r.id||uid(), type:r.type, name:String(r.name||""), amount:Number(r.amount)||0, category:r.category, date:String(r.date||""), note:r.note||""
+    };
+    if(r.recurringRuleId){ t.recurringRuleId = r.recurringRuleId; t.recurringPeriod = r.recurringPeriod||""; }
+    return t;
+  });
+  const recurringTx = sheetRows(wb, "固定收支").map(r=>({
+    id:r.id||uid(), name:String(r.name||""), amount:Number(r.amount)||0, type:r.type, category:r.category,
+    freq:r.freq, day:Number(r.day)||1, month: r.month===""||r.month==null ? null : Number(r.month),
+    startDate:String(r.startDate||todayStr()), endDate:r.endDate||null, paused:r.paused===true||r.paused==="TRUE",
+    createdAt:r.createdAt||todayStr(), handledPeriods: safeJSONParse(r.handledPeriodsJSON, [])
   }));
   const assets = sheetRows(wb, "資產").map(r=>({
     id:r.id||uid(), name:String(r.name||""), category:r.category, amount:Number(r.amount)||0, note:r.note||""
@@ -2943,7 +3195,7 @@ function importBackupFromWorkbook(wb){
   DB = withDefaults({
     theme: settings.theme || "pink",
     appName: settings.appName || "",
-    todos, checkins, transactions, debts, goals, assets, journal,
+    todos, checkins, transactions, debts, goals, assets, journal, recurringTx,
     customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
     budget: safeJSONParse(settings.budgetJSON, null),
     insightsMemory: safeJSONParse(settings.insightsMemoryJSON, {}),
