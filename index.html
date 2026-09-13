@@ -386,7 +386,7 @@ input,select,textarea{ font-family:inherit; }
       <button type="button" data-v="date">📅 搜尋日期</button>
     </div>
     <input type="text" id="todoSearch" placeholder="搜尋待辦事項…">
-    <input type="date" id="todoDateSearch" style="display:none;">
+    <button class="btn-ghost" id="todoDateSearchBtn" style="width:100%; display:none;">📅 選擇日期</button>
   </div>
   <div id="todoGroupedList"></div>
 </div>
@@ -1524,7 +1524,7 @@ let todoSearchMode = "text"; // text | date
 function renderTodo(){
   const box0 = document.getElementById("todoGroupedList");
   if(todoSearchMode==="date"){
-    const d = document.getElementById("todoDateSearch").value;
+    const d = todoSearchedDate;
     if(!d){
       box0.innerHTML = `<div class="card empty-state">選一個日期，看看那天有哪些待辦</div>`;
       return;
@@ -1592,18 +1592,83 @@ function renderTodo(){
   bindTodoRowEvents(box);
 }
 document.getElementById("todoSearch").addEventListener("input", renderTodo);
-document.getElementById("todoDateSearch").addEventListener("change", renderTodo);
 document.querySelectorAll("#todoSearchModeSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
     document.querySelectorAll("#todoSearchModeSeg button").forEach(x=>x.classList.remove("active"));
     b.classList.add("active");
     todoSearchMode = b.dataset.v;
     document.getElementById("todoSearch").style.display = todoSearchMode==="text" ? "block" : "none";
-    document.getElementById("todoDateSearch").style.display = todoSearchMode==="date" ? "block" : "none";
+    document.getElementById("todoDateSearchBtn").style.display = todoSearchMode==="date" ? "block" : "none";
     document.getElementById("todoFilterCard").style.display = todoSearchMode==="text" ? "block" : "none";
     renderTodo();
   });
 });
+
+/* ============ 待辦「依日期搜尋」的自訂日期選擇器 ============
+   不用瀏覽器原生的 <input type="date">，因為原生的選單樣式是作業系統畫的，
+   任何網站都沒辦法幫它上色。改成沿用月曆的 .cal-grid／.cal-cell 樣式，
+   這些本來就是用 CSS 變數上色，換主題色的時候會自動跟著換。 */
+let tdsYear = new Date().getFullYear();
+let tdsMonth = new Date().getMonth();
+let todoSearchedDate = null;
+function updateTodoDateSearchBtnLabel(){
+  const btn = document.getElementById("todoDateSearchBtn");
+  btn.textContent = todoSearchedDate ? `📅 ${todoSearchedDate.replace(/-/g,"/")}（點此更換日期）` : "📅 選擇日期";
+}
+function renderTdsGrid(){
+  const grid = document.getElementById("tdsGrid");
+  const dows = ["日","一","二","三","四","五","六"];
+  let html = dows.map(d=>`<div class="cal-dow">${d}</div>`).join("");
+  const firstDay = new Date(tdsYear, tdsMonth, 1).getDay();
+  const daysInMonth = new Date(tdsYear, tdsMonth+1, 0).getDate();
+  for(let i=0;i<firstDay;i++) html += `<div class="cal-cell empty"></div>`;
+  const today = todayStr();
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${tdsYear}-${String(tdsMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const isToday = dateStr===today;
+    const isSelected = dateStr===todoSearchedDate;
+    html += `<div class="cal-cell ${isToday?'today':''} ${isSelected?'selected':''}" data-date="${dateStr}"><div>${d}</div></div>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".cal-cell:not(.empty)").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      todoSearchedDate = el.dataset.date;
+      closeSheet();
+      updateTodoDateSearchBtnLabel();
+      renderTodo();
+    });
+  });
+}
+function openTodoDateSearchPicker(){
+  if(todoSearchedDate){
+    const [y,m] = todoSearchedDate.split("-").map(Number);
+    tdsYear = y; tdsMonth = m-1;
+  }
+  openSheet(`
+    <div class="sheet-head"><h3>選擇日期</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="cal-head">
+      <button class="cal-nav-btn" id="tdsPrev">‹</button>
+      <h3 class="cal-title-btn" id="tdsTitleBtn">${tdsYear}年 ${tdsMonth+1}月</h3>
+      <button class="cal-nav-btn" id="tdsNext">›</button>
+    </div>
+    <div class="cal-grid" id="tdsGrid"></div>
+  `);
+  renderTdsGrid();
+  document.getElementById("tdsPrev").addEventListener("click", ()=>{
+    tdsMonth--; if(tdsMonth<0){ tdsMonth=11; tdsYear--; }
+    document.getElementById("tdsTitleBtn").textContent = `${tdsYear}年 ${tdsMonth+1}月`;
+    renderTdsGrid();
+  });
+  document.getElementById("tdsNext").addEventListener("click", ()=>{
+    tdsMonth++; if(tdsMonth>11){ tdsMonth=0; tdsYear++; }
+    document.getElementById("tdsTitleBtn").textContent = `${tdsYear}年 ${tdsMonth+1}月`;
+    renderTdsGrid();
+  });
+  document.getElementById("tdsTitleBtn").addEventListener("click", ()=>{
+    openMonthJumpPicker(tdsYear, tdsMonth, (y,m)=>{ tdsYear=y; tdsMonth=m; openTodoDateSearchPicker(); });
+  });
+}
+document.getElementById("todoDateSearchBtn").addEventListener("click", openTodoDateSearchPicker);
 document.querySelectorAll("#todoFilterSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
     document.querySelectorAll("#todoFilterSeg button").forEach(x=>x.classList.remove("active"));
