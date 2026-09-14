@@ -587,7 +587,8 @@ function withDefaults(obj){
     emergencyFund:{
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
       customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
-      unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:""
+      unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:"",
+      includedDebtIds:null, manualDebtPayments:[]
     }
   }, obj);
 }
@@ -2904,10 +2905,41 @@ function efSafetyMonths(stability, hasDependents){
   };
   return table[stability] || 6;
 }
+// 「必要債務還款」不再讓使用者手動輸入固定數字，而是即時從「我的負債」讀取，
+// 這樣負債被結清、刪除、或月付金被修改時，緊急預備金重新計算時都會自動反映最新狀態，
+// 不會殘留舊的、複製過去的數字。「仍在還款中」沿用「我的負債」既有的 remainingInstallments
+// 欄位判斷，不另外建立第二套負債狀態系統。
+function efValidDebts(){
+  return DB.debts.filter(d=>(d.remainingInstallments||0)>0);
+}
+function efDefaultIncludedIds(){
+  return efValidDebts().filter(d=>(Number(d.installmentAmount)||0)>0).map(d=>d.id);
+}
+// includedDebtIds 為 null／undefined 代表「使用者從沒調整過」，這時預設把目前仍在還款、
+// 且有月付金的負債都勾選起來；一旦使用者動過任何一個勾選，就會存成明確的陣列，
+// 之後完全以使用者實際勾選的結果為準（包含勾選數量變成 0 筆的情況）。
+function efIncludedIdsSet(state){
+  return new Set(state.includedDebtIds!=null ? state.includedDebtIds : efDefaultIncludedIds());
+}
+function efDebtBreakdown(state){
+  const included = efIncludedIdsSet(state);
+  const fromDebts = efValidDebts().filter(d=>included.has(d.id)).map(d=>({id:d.id, name:d.name, amount:Number(d.installmentAmount)||0}));
+  const manual = (state.manualDebtPayments||[]).map(m=>({id:m.id, name:m.name, amount:Number(m.amount)||0}));
+  const total = [...fromDebts, ...manual].reduce((s,x)=>s+x.amount,0);
+  return { fromDebts, manual, total };
+}
+function efDebtMonthlyTotal(state){ return efDebtBreakdown(state).total; }
+function efSetDebtIncluded(state, debtId, included){
+  let ids = state.includedDebtIds!=null ? [...state.includedDebtIds] : efDefaultIncludedIds();
+  if(included){ if(!ids.includes(debtId)) ids.push(debtId); }
+  else{ ids = ids.filter(id=>id!==debtId); }
+  state.includedDebtIds = ids;
+}
 function efMonthlyTotal(ef){
-  const fixed = Object.values(ef.expenses||{}).reduce((s,v)=>s+(Number(v)||0),0);
+  // expenses.debt 欄位保留只是為了不影響舊備份的資料結構，實際加總已經改用即時讀取的 efDebtMonthlyTotal
+  const fixed = Object.entries(ef.expenses||{}).reduce((s,[k,v])=> k==="debt" ? s : s+(Number(v)||0), 0);
   const custom = (ef.customExpenses||[]).reduce((s,c)=>s+(Number(c.amount)||0),0);
-  return fixed + custom;
+  return fixed + custom + efDebtMonthlyTotal(ef);
 }
 function efInterruptionFund(ef){ return efMonthlyTotal(ef) * (ef.targetMonths||0); }
 function efTotalTarget(ef){ return efInterruptionFund(ef) + (ef.unexpectedFund||0); }
@@ -2927,6 +2959,86 @@ function openEfCustomExpenseForm(editItem, onSave){
   });
 }
 
+// 手動新增的「其他必要還款」跟「我的負債」自動帶入的項目分開管理，避免同一筆錢被算兩次
+function openEfManualDebtForm(editItem, onSave){
+  openSheet(`
+    <div class="sheet-head"><h3>${editItem?"編輯必要還款":"新增其他必要還款"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:12px;">給還沒有登記在「我的負債」裡的必要還款用，例如親友借款、還沒建檔的分期。</div>
+    <div class="field"><label>名稱</label><input id="ef_d_name" placeholder="例如：手機分期、私人借款" value="${editItem?escapeHtml(editItem.name):""}"></div>
+    <div class="field"><label>每月還款金額</label><input id="ef_d_amount" type="number" placeholder="0" value="${editItem?editItem.amount:""}"></div>
+    <button class="btn-main" id="ef_d_save">儲存</button>
+  `);
+  document.getElementById("ef_d_save").addEventListener("click", ()=>{
+    const name = document.getElementById("ef_d_name").value.trim();
+    const amount = parseFloat(document.getElementById("ef_d_amount").value)||0;
+    if(!name){ toast("請輸入名稱"); return; }
+    onSave(name, amount);
+  });
+}
+
+// STEP 1 裡「💳 必要債務還款」欄位的內容：優先讀取「我的負債」目前仍在還款中的項目，
+// 讓使用者勾選要不要納入，勾選狀態存在 state.includedDebtIds；使用者也可以在下方
+// 手動新增「我的負債」裡還沒登記的必要還款。
+function efRenderDebtSection(state){
+  const validDebts = efValidDebts();
+  const includedSet = efIncludedIdsSet(state);
+  let html = "";
+  if(!validDebts.length){
+    html += `<div class="muted" style="margin-bottom:8px;">目前沒有可帶入的負債資料。</div>`;
+  }else{
+    html += `<div class="muted" style="margin-bottom:8px;">已從「我的負債」整理出目前仍在還款的項目，勾選要納入的月付金：</div>`;
+    html += `<div id="efDebtChecklist">` + validDebts.map(d=>`
+      <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); cursor:pointer;">
+        <span style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" class="ef-debt-include-cb" data-id="${d.id}" ${includedSet.has(d.id)?"checked":""}>
+          <span>${escapeHtml(d.name)}</span>
+        </span>
+        <span class="muted">NT$${(Number(d.installmentAmount)||0).toLocaleString()} / 月</span>
+      </label>
+    `).join("") + `</div>`;
+  }
+  const manualRowsHTML = (state.manualDebtPayments||[]).map((m,i)=>`
+    <div class="item-row" data-i="${i}">
+      <div class="ef-manual-debt-edit" data-i="${i}" style="flex:1; cursor:pointer;">${escapeHtml(m.name)} <span class="muted">NT$${(Number(m.amount)||0).toLocaleString()} / 月</span></div>
+      <button class="del-btn ef-manual-debt-del" data-i="${i}">✕</button>
+    </div>
+  `).join("");
+  html += `<div id="efManualDebtList" style="margin-top:${validDebts.length?"6px":"0"};">${manualRowsHTML}</div>`;
+  html += `<button class="btn-ghost" type="button" id="btnEfAddManualDebt" style="width:100%; margin:6px 0 4px;">＋ 新增其他必要還款</button>`;
+  html += `<div class="muted" style="margin-top:6px;">必要債務還款小計：<b id="efDebtSubtotal">NT$${efDebtBreakdown(state).total.toLocaleString()}</b> / 月</div>`;
+  return html;
+}
+function bindEfDebtSectionEvents(state, onChange){
+  document.querySelectorAll(".ef-debt-include-cb").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      efSetDebtIncluded(state, cb.dataset.id, cb.checked);
+      onChange();
+    });
+  });
+  document.querySelectorAll(".ef-manual-debt-edit").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const i = Number(el.dataset.i);
+      openEfManualDebtForm(state.manualDebtPayments[i], (name,amount)=>{
+        state.manualDebtPayments[i] = {...state.manualDebtPayments[i], name, amount};
+        onChange();
+      });
+    });
+  });
+  document.querySelectorAll(".ef-manual-debt-del").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      state.manualDebtPayments.splice(Number(b.dataset.i),1);
+      onChange();
+    });
+  });
+  const addBtn = document.getElementById("btnEfAddManualDebt");
+  if(addBtn) addBtn.addEventListener("click", ()=>{
+    openEfManualDebtForm(null, (name,amount)=>{
+      state.manualDebtPayments.push({id:uid(), name, amount});
+      onChange();
+    });
+  });
+}
+
 function openEmergencyWizard(){
   const cur = DB.emergencyFund;
   const w = {
@@ -2938,6 +3050,8 @@ function openEmergencyWizard(){
     unexpectedFund: cur.unexpectedFund || 0,
     currentFund: cur.currentFund || 0,
     completionMonths: cur.completionMonths || null,
+    includedDebtIds: cur.includedDebtIds!=null ? [...cur.includedDebtIds] : null,
+    manualDebtPayments: (cur.manualDebtPayments||[]).map(m=>({...m})),
   };
   let step = 1;
   const TOTAL_STEPS = 4;
@@ -2966,12 +3080,18 @@ function openEmergencyWizard(){
     return stepCurrent();
   }
   function stepExpenses(){
-    const rowsHTML = EF_EXPENSE_ITEMS.map(item=>`
-      <div class="field">
-        <label>${item.label}${item.key==='debt'?'<br><span class="muted" style="font-weight:400;">填寫每月必須支付的最低／固定還款金額，不是剩餘總負債</span>':''}</label>
+    const rowsHTML = EF_EXPENSE_ITEMS.map(item=>{
+      if(item.key==="debt"){
+        return `<div class="field">
+          <label>${item.label}</label>
+          ${efRenderDebtSection(w)}
+        </div>`;
+      }
+      return `<div class="field">
+        <label>${item.label}</label>
         <input type="number" class="ef-exp-input" data-key="${item.key}" placeholder="0" value="${w.expenses[item.key]||""}">
-      </div>
-    `).join("");
+      </div>`;
+    }).join("");
     const customRowsHTML = w.customExpenses.map((c,i)=>`
       <div class="item-row" data-i="${i}">
         <div class="ef-custom-edit" data-i="${i}" style="flex:1; cursor:pointer;">${escapeHtml(c.name)} <span class="muted">NT$${(Number(c.amount)||0).toLocaleString()}</span></div>
@@ -3014,6 +3134,7 @@ function openEmergencyWizard(){
         stepExpenses();
       });
     });
+    bindEfDebtSectionEvents(w, stepExpenses);
     document.getElementById("wizNext").addEventListener("click", ()=>{ step=2; renderStep(); });
   }
   function stepStability(){
@@ -3089,11 +3210,14 @@ function openEmergencyWizard(){
     document.getElementById("wizNext").addEventListener("click", ()=>{
       w.currentFund = parseFloat(document.getElementById("ef_current").value)||0;
       DB.emergencyFund = {
-        expenses: w.expenses, customExpenses: w.customExpenses,
+        // expenses.debt 固定存 0：必要債務還款已經改成即時讀取負債資料＋手動新增項目，
+        // 不再讓這個欄位殘留舊的手動輸入數字，避免之後被誤用或重複計算。
+        expenses: {...w.expenses, debt:0}, customExpenses: w.customExpenses,
         incomeStability: w.incomeStability, hasDependents: w.hasDependents,
         riskFactors: w.riskFactors, unexpectedFund: w.unexpectedFund||0, currentFund: w.currentFund||0,
         targetMonths: efSafetyMonths(w.incomeStability, w.hasDependents),
-        completionMonths: w.completionMonths || null, updatedAt: todayStr()
+        completionMonths: w.completionMonths || null, updatedAt: todayStr(),
+        includedDebtIds: w.includedDebtIds, manualDebtPayments: w.manualDebtPayments
       };
       save(); closeSheet(); showAssetSub("emergency"); renderNetWorth();
     });
@@ -3530,7 +3654,8 @@ function importBackupFromWorkbook(wb){
     emergencyFund: safeJSONParse(settings.emergencyFundJSON, {
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
       customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
-      unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:""
+      unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:"",
+      includedDebtIds:null, manualDebtPayments:[]
     }),
   });
   save();
