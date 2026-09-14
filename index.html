@@ -26,7 +26,9 @@
   --mono:#4A4A48; --soft-mono:#C4C2BD; --light-mono:#EDECE9;
   /* 新增：🐥 小雞黃。黃色天生不能加深太多，一深就會變成看起來像「土色／焦糖」，
      不再是黃色，所以這裡不做深色版本，直接用使用者確認過的亮黃色本身當主色，
-     可讀性問題改用下面的 --on-accent（配黃色時文字改用深色而不是白色）解決。 */
+     可讀性問題改用下面的 --on-accent（配黃色時文字改用深色而不是白色）解決。
+     跟櫻桃紅／霧霾藍同一個問題：--cream／--bg 飽和度也比莫蘭迪粉低，
+     行事曆、小日記等大面積背景的黃色氛圍不夠明顯，一併調整。 */
   --chick:#FBDA74; --soft-chick:#F6E5B1; --light-chick:#F7F2E3;
   /* 新增：🍒 有質感的櫻桃紅。使用者確認要比第一版更紅更濃一點。
      --cream／--light-cherry／--bg／--line 原本飽和度太低（沿用泛用公式生成），
@@ -47,7 +49,7 @@ body[data-theme="blue"]{ --accent: var(--blue); --soft-accent: var(--soft-blue);
 body[data-theme="sage"]{ --accent: var(--sage); --soft-accent: var(--soft-sage); --light-accent: var(--light-sage); --cream:#F1F5EF; --bg:#F8FAF7; --line:#DFE7DC; }
 body[data-theme="lavender"]{ --accent: var(--lavender); --soft-accent: var(--soft-lavender); --light-accent: var(--light-lavender); --cream:#F4F1F6; --bg:#FAF8FA; --line:#E4DDE6; }
 body[data-theme="mono"]{ --accent: var(--mono); --soft-accent: var(--soft-mono); --light-accent: var(--light-mono); --cream:#F3F3F1; --bg:#FAFAFA; --line:#E2E1DE; }
-body[data-theme="chick"]{ --accent: var(--chick); --soft-accent: var(--soft-chick); --light-accent: var(--light-chick); --cream:#F9F8F3; --bg:#FBFBF9; --line:#EFE9D7; --on-accent: var(--dark); }
+body[data-theme="chick"]{ --accent: var(--chick); --soft-accent: var(--soft-chick); --light-accent: var(--light-chick); --cream:#FBF9F1; --bg:#FCFBFA; --line:#EFE9D7; --on-accent: var(--dark); }
 body[data-theme="cherry"]{ --accent: var(--cherry); --soft-accent: var(--soft-cherry); --light-accent: var(--light-cherry); --cream:#FBF1F2; --bg:#FCFAFA; --line:#F0E2E3; }
 
 *{ box-sizing:border-box; }
