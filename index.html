@@ -24,15 +24,20 @@
   --sage:#8FA688; --soft-sage:#C7D8C3; --light-sage:#E8F0E8;
   --lavender:#9B8AA6; --soft-lavender:#CDBFD4; --light-lavender:#EFE8F2;
   --mono:#4A4A48; --soft-mono:#C4C2BD; --light-mono:#EDECE9;
-  /* 新增：🐥 小雞黃。原色偏亮，同樣把使用者確認的亮黃色放到 --soft-chick，
-     --chick 用更深一階的焦糖金黃確保按鈕文字可讀。 */
-  --chick:#BD8C0F; --soft-chick:#FBDA74; --light-chick:#F9F4E7;
+  /* 新增：🐥 小雞黃。黃色天生不能加深太多，一深就會變成看起來像「土色／焦糖」，
+     不再是黃色，所以這裡不做深色版本，直接用使用者確認過的亮黃色本身當主色，
+     可讀性問題改用下面的 --on-accent（配黃色時文字改用深色而不是白色）解決。 */
+  --chick:#FBDA74; --soft-chick:#F6E5B1; --light-chick:#F7F2E3;
   /* 新增：🍒 有質感的櫻桃紅。刻意選偏淡、偏霧面的紅，避免侵略感，本身亮度已經
      足夠配白字閱讀，不需要另外做深色版本。 */
   --cherry:#C46471; --soft-cherry:#DA9FA7; --light-cherry:#F3E7E9;
   --cream:#FAF3EE; --bg:#FAFAF8; --dark:#37352F; --medium:#5A5248; --gray:#9B9A97;
   --line:#E9E5DE;
   --accent: var(--pink); --soft-accent: var(--soft-pink); --light-accent: var(--light-pink);
+  /* 按鈕／選中狀態等原本配白字的地方統一改用 --on-accent，預設維持白字；
+     碰到本身就很亮的主題色（例如黃色）沒辦法靠白字撐出可讀性，
+     就讓該主題把 --on-accent 換成深色文字，而不是把主題色本身染深變色。 */
+  --on-accent:#fff;
   --radius: 16px;
 }
 body[data-theme="pink"]{ --accent: var(--pink); --soft-accent: var(--soft-pink); --light-accent: var(--light-pink); --cream:#FBF1F4; --bg:#FCFAFB; --line:#F0E2E7; }
@@ -40,7 +45,7 @@ body[data-theme="blue"]{ --accent: var(--blue); --soft-accent: var(--soft-blue);
 body[data-theme="sage"]{ --accent: var(--sage); --soft-accent: var(--soft-sage); --light-accent: var(--light-sage); --cream:#F1F5EF; --bg:#F8FAF7; --line:#DFE7DC; }
 body[data-theme="lavender"]{ --accent: var(--lavender); --soft-accent: var(--soft-lavender); --light-accent: var(--light-lavender); --cream:#F4F1F6; --bg:#FAF8FA; --line:#E4DDE6; }
 body[data-theme="mono"]{ --accent: var(--mono); --soft-accent: var(--soft-mono); --light-accent: var(--light-mono); --cream:#F3F3F1; --bg:#FAFAFA; --line:#E2E1DE; }
-body[data-theme="chick"]{ --accent: var(--chick); --soft-accent: var(--soft-chick); --light-accent: var(--light-chick); --cream:#F9F8F3; --bg:#FBFBF9; --line:#EFE9D7; }
+body[data-theme="chick"]{ --accent: var(--chick); --soft-accent: var(--soft-chick); --light-accent: var(--light-chick); --cream:#F9F8F3; --bg:#FBFBF9; --line:#EFE9D7; --on-accent: var(--dark); }
 body[data-theme="cherry"]{ --accent: var(--cherry); --soft-accent: var(--soft-cherry); --light-accent: var(--light-cherry); --cream:#F7F5F5; --bg:#FBFAFA; --line:#E8DEDF; }
 
 *{ box-sizing:border-box; }
@@ -128,7 +133,7 @@ input,select,textarea{ font-family:inherit; }
   aspect-ratio:1; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center;
   font-size:12.5px; background:var(--cream); position:relative; color:var(--medium); gap:1px; cursor:pointer;
 }
-.cal-cell.today{ background:var(--accent); color:#fff; font-weight:900; }
+.cal-cell.today{ background:var(--accent); color:var(--on-accent); font-weight:900; }
 .cal-cell.empty{ background:transparent; cursor:default; }
 .cal-cell .cal-icons{
   font-size:7px; line-height:1; height:8px; width:100%;
@@ -142,7 +147,7 @@ input,select,textarea{ font-family:inherit; }
 
 /* ===== Buttons ===== */
 .btn-main{
-  background:var(--accent); color:#fff; padding:12px 18px; border-radius:12px; font-weight:700; font-size:14px;
+  background:var(--accent); color:var(--on-accent); padding:12px 18px; border-radius:12px; font-weight:700; font-size:14px;
   width:100%; text-align:center;
 }
 .btn-ghost{
@@ -150,7 +155,7 @@ input,select,textarea{ font-family:inherit; }
 }
 .fab{
   position:fixed; right:18px; bottom:88px; width:52px; height:52px; border-radius:50%;
-  background:var(--accent); color:#fff; font-size:26px; display:flex; align-items:center; justify-content:center;
+  background:var(--accent); color:var(--on-accent); font-size:26px; display:flex; align-items:center; justify-content:center;
   box-shadow:0 6px 16px rgba(0,0,0,.18); z-index:25;
 }
 
@@ -161,7 +166,7 @@ input,select,textarea{ font-family:inherit; }
 .item-row:last-child{ border-bottom:none; }
 .check-circle{
   width:22px; height:22px; border-radius:50%; border:2px solid var(--soft-accent); flex-shrink:0;
-  display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--on-accent);
 }
 .check-circle.done{ background:var(--accent); border-color:var(--accent); }
 .item-title{ font-size:14.5px; font-weight:500; }
@@ -194,7 +199,7 @@ input,select,textarea{ font-family:inherit; }
 .color-swatch.active{ border-color:var(--dark); transform:scale(1.08); }
 .seg{ display:flex; gap:8px; }
 .seg button{ flex:1; padding:9px; border-radius:10px; background:var(--bg); border:1px solid var(--line); font-size:13px; font-weight:700; color:var(--gray); }
-.seg button.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
+.seg button.active{ background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
 
 .empty-state{ text-align:center; padding:30px 10px; color:var(--gray); font-size:13px; }
 .badge-emoji{ font-size:26px; }
@@ -210,7 +215,7 @@ input,select,textarea{ font-family:inherit; }
   transition:opacity .25s ease, transform .25s ease; display:flex; align-items:center; gap:10px; max-width:88vw;
 }
 .undo-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
-.undo-toast button{ background:var(--soft-accent); color:#fff; font-weight:700; font-size:12.5px; padding:6px 12px; border-radius:20px; flex-shrink:0; }
+.undo-toast button{ background:var(--soft-accent); color:var(--on-accent); font-weight:700; font-size:12.5px; padding:6px 12px; border-radius:20px; flex-shrink:0; }
 
 .confirm-actions{ display:flex; gap:10px; }
 .confirm-actions button{ flex:1; }
@@ -224,7 +229,7 @@ input,select,textarea{ font-family:inherit; }
   background:var(--cream); border:1px solid var(--line); border-radius:14px; padding:14px;
   font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--dark); max-height:340px; overflow-y:auto;
 }
-.domain-badge{ display:inline-block; padding:4px 12px; border-radius:20px; background:var(--soft-accent); color:#fff; font-size:12px; font-weight:700; margin-bottom:10px; }
+.domain-badge{ display:inline-block; padding:4px 12px; border-radius:20px; background:var(--soft-accent); color:var(--on-accent); font-size:12px; font-weight:700; margin-bottom:10px; }
 .copy-btn{ margin-top:10px; }
 
 /* ===== 資產盤點 ===== */
@@ -2693,7 +2698,7 @@ function openBudgetWizard(){
   function stepGoal(){
     wrap("🎯 目前最重要的財務目標", "選一個現在對你來說最重要的就好，之後隨時可以改。",
       `<div style="display:flex; flex-direction:column; gap:8px;" id="wz_goalList">
-        ${FINANCIAL_GOALS.map(g=>`<button type="button" data-v="${g.key}" class="btn-ghost wz-goal-btn" style="text-align:left; ${wiz.goal===g.key?'background:var(--accent); color:#fff;':''}">${g.emoji} ${g.label}</button>`).join("")}
+        ${FINANCIAL_GOALS.map(g=>`<button type="button" data-v="${g.key}" class="btn-ghost wz-goal-btn" style="text-align:left; ${wiz.goal===g.key?'background:var(--accent); color:var(--on-accent);':''}">${g.emoji} ${g.label}</button>`).join("")}
       </div>
       <div class="field" id="wz_goalNoteWrap" style="margin-top:12px; ${wiz.goal==='specific'?'':'display:none;'}">
         <label>想存錢的目標是？（可選）</label>
@@ -3331,9 +3336,9 @@ function openEmergencyWizard(){
   }
   function stepStability(){
     const stabilityHTML = EF_STABILITY_OPTIONS.map(o=>`
-      <button type="button" class="btn-ghost ef-stability-btn" data-v="${o.key}" style="text-align:left; width:100%; margin-bottom:8px; ${w.incomeStability===o.key?'background:var(--accent); color:#fff;':''}">
+      <button type="button" class="btn-ghost ef-stability-btn" data-v="${o.key}" style="text-align:left; width:100%; margin-bottom:8px; ${w.incomeStability===o.key?'background:var(--accent); color:var(--on-accent);':''}">
         <div style="font-weight:700;">${o.label}</div>
-        <div style="font-size:12px; ${w.incomeStability===o.key?'color:#fff;':'color:var(--gray);'}">${o.desc}</div>
+        <div style="font-size:12px; ${w.incomeStability===o.key?'color:var(--on-accent);':'color:var(--gray);'}">${o.desc}</div>
       </button>
     `).join("");
     wrap("你的收入狀況比較接近哪一種？", "",
@@ -3366,7 +3371,7 @@ function openEmergencyWizard(){
         <span>${r.label}</span>
       </label>
     `).join("");
-    const presetBtns = EF_UNEXPECTED_PRESETS.map(v=>`<button type="button" class="btn-ghost ef-unexpected-btn" data-v="${v}" style="flex:1; ${w.unexpectedFund===v?'background:var(--accent); color:#fff;':''}">NT$${v.toLocaleString()}</button>`).join("");
+    const presetBtns = EF_UNEXPECTED_PRESETS.map(v=>`<button type="button" class="btn-ghost ef-unexpected-btn" data-v="${v}" style="flex:1; ${w.unexpectedFund===v?'background:var(--accent); color:var(--on-accent);':''}">NT$${v.toLocaleString()}</button>`).join("");
     wrap("生活中有哪些可能突然需要一筆錢的狀況？", "這些選項只是幫你想清楚自己的風險，不會自動幫你算金額。",
       `<div style="margin-bottom:16px;">${riskHTML}</div>
        <div class="field"><label>如果真的發生一次較大的突發狀況，你希望另外保留多少錢？</label>
@@ -3442,7 +3447,7 @@ function renderEmergencyFundPanel(){
 
   let completionHTML = "";
   if(remain>0){
-    const monthsOptions = EF_COMPLETION_PRESETS.map(m=>`<button type="button" class="btn-ghost ef-completion-btn" data-v="${m}" style="flex:1; ${ef.completionMonths===m?'background:var(--accent); color:#fff;':''}">${m}個月</button>`).join("");
+    const monthsOptions = EF_COMPLETION_PRESETS.map(m=>`<button type="button" class="btn-ghost ef-completion-btn" data-v="${m}" style="flex:1; ${ef.completionMonths===m?'background:var(--accent); color:var(--on-accent);':''}">${m}個月</button>`).join("");
     completionHTML = `
       <div class="card">
         <div class="card-title">希望多久準備完成？</div>
