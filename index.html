@@ -913,7 +913,7 @@ function renderJournal(){
     <div class="muted" style="margin-bottom:6px;">選一個來代表今天的你吧！🧸</div>
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
       <button class="emoji-pick-btn" id="btnPickMoodEmoji">
-        ${journalDraftMood ? `<span class="cur-emoji">${journalDraftMood}</span><span>更換 Emoji</span>` : `<span>＋ 選擇 Emoji</span>`}
+        ${journalDraftMood ? `<span class="cur-emoji">${journalDraftMood}</span>` : `<span>＋ 選擇 Emoji</span>`}
       </button>
       ${journalDraftMood ? `<button class="small-link" id="btnClearMoodEmoji">清除</button>` : ""}
     </div>
