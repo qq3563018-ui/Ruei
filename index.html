@@ -22,6 +22,17 @@
   --lavender:#9B8AA6; --soft-lavender:#CDBFD4; --light-lavender:#EFE8F2;
   --clay:#B98368; --soft-clay:#DDBCA8; --light-clay:#F3E7DD;
   --mono:#4A4A48; --soft-mono:#C4C2BD; --light-mono:#EDECE9;
+  /* 新增 6 種主題：--soft-X／--light-X 沿用既有主題的色階邏輯（主色→較淺→極淺）。
+     奶油黃／冰薄荷／柔霧粉 3 個主色偏亮，直接當按鈕底色配白字時對比不足，
+     所以這 3 個主題的 --X（實際餵給 --accent，按鈕／active 狀態使用）改用同色系
+     但更深一階的顏色，原本使用者指定的亮色則放到 --soft-X，理由詳見下方主題規則
+     與函式說明；主題圓點顯示的顏色仍然是使用者指定的原始色碼，不受影響。 */
+  --butter:#C89319; --soft-butter:#F5D76E; --light-butter:#F8F5E7;
+  --cherry:#D94343; --soft-cherry:#E98484; --light-cherry:#F6E4E4;
+  --milktea:#B19D81; --soft-milktea:#D5C9B8; --light-milktea:#F4F0EB;
+  --mint:#35978A; --soft-mint:#8ED1C6; --light-mint:#EAF5F3;
+  --softpink:#D43572; --soft-softpink:#F4C6D7; --light-softpink:#F9F3F5;
+  --deepblue:#3E6FB6; --soft-deepblue:#739AD2; --light-deepblue:#E7ECF4;
   --cream:#FAF3EE; --bg:#FAFAF8; --dark:#37352F; --medium:#5A5248; --gray:#9B9A97;
   --line:#E9E5DE;
   --accent: var(--pink); --soft-accent: var(--soft-pink); --light-accent: var(--light-pink);
@@ -33,6 +44,12 @@ body[data-theme="sage"]{ --accent: var(--sage); --soft-accent: var(--soft-sage);
 body[data-theme="lavender"]{ --accent: var(--lavender); --soft-accent: var(--soft-lavender); --light-accent: var(--light-lavender); --cream:#F4F1F6; --bg:#FAF8FA; --line:#E4DDE6; }
 body[data-theme="clay"]{ --accent: var(--clay); --soft-accent: var(--soft-clay); --light-accent: var(--light-clay); --cream:#F7F0E7; --bg:#FAF7F3; --line:#EBDFCF; }
 body[data-theme="mono"]{ --accent: var(--mono); --soft-accent: var(--soft-mono); --light-accent: var(--light-mono); --cream:#F3F3F1; --bg:#FAFAFA; --line:#E2E1DE; }
+body[data-theme="butter"]{ --accent: var(--butter); --soft-accent: var(--soft-butter); --light-accent: var(--light-butter); --cream:#F9F8F3; --bg:#FBFBFA; --line:#EDE9D9; }
+body[data-theme="cherry"]{ --accent: var(--cherry); --soft-accent: var(--soft-cherry); --light-accent: var(--light-cherry); --cream:#F8F4F4; --bg:#FBFAFA; --line:#EBDBDB; }
+body[data-theme="milktea"]{ --accent: var(--milktea); --soft-accent: var(--soft-milktea); --light-accent: var(--light-milktea); --cream:#F7F6F5; --bg:#FBFAFA; --line:#E7E4DF; }
+body[data-theme="mint"]{ --accent: var(--mint); --soft-accent: var(--soft-mint); --light-accent: var(--light-mint); --cream:#F5F7F7; --bg:#FAFBFB; --line:#DEE8E6; }
+body[data-theme="softpink"]{ --accent: var(--softpink); --soft-accent: var(--soft-softpink); --light-accent: var(--light-softpink); --cream:#F8F4F6; --bg:#FBFAFA; --line:#EBDBE1; }
+body[data-theme="deepblue"]{ --accent: var(--deepblue); --soft-accent: var(--soft-deepblue); --light-accent: var(--light-deepblue); --cream:#F4F6F8; --bg:#FAFAFB; --line:#DDE2E9; }
 
 *{ box-sizing:border-box; }
 html,body{ margin:0; padding:0; }
@@ -63,12 +80,19 @@ input,select,textarea{ font-family:inherit; }
   width:34px; height:34px; border-radius:50%; background:var(--light-accent);
   display:flex; align-items:center; justify-content:center; font-size:15px; color:var(--medium);
 }
-.theme-row{ display:flex; gap:8px; margin-top:12px; }
+.theme-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .theme-dot{
   width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer;
-  display:flex; align-items:center; justify-content:center; font-size:11px;
+  display:flex; align-items:center; justify-content:center; font-size:11px; flex-shrink:0;
+  position:relative;
 }
 .theme-dot.active{ border-color:var(--dark); }
+.theme-dot-label{
+  position:absolute; top:32px; left:50%; transform:translateX(-50%); white-space:nowrap;
+  background:var(--dark); color:#fff; font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:8px;
+  pointer-events:none; opacity:0; transition:opacity .15s ease; z-index:5;
+}
+.theme-dot-label.show{ opacity:1; }
 
 /* ===== Layout ===== */
 .view{ display:none; padding:16px; max-width:640px; margin:0 auto; }
@@ -661,17 +685,34 @@ const THEMES = [
   {id:"lavender", name:"薰衣草紫", color:"#9B8AA6"},
   {id:"clay", name:"陶土棕", color:"#B98368"},
   {id:"mono", name:"黑白", color:"#4A4A48"},
+  // 新增 6 種主題。這裡的 color 是主題圓點顯示的顏色，用使用者指定的原始色碼，
+  // 跟 CSS 裡實際餵給 --accent 的顏色（見 :root 註解）是分開的兩件事，兩者本來
+  // 就不需要相同——舊主題只是剛好兩者一致而已。
+  {id:"butter", name:"奶油黃", color:"#F5D76E"},
+  {id:"cherry", name:"櫻桃紅", color:"#D94343"},
+  {id:"milktea", name:"奶茶色", color:"#B99578"},
+  {id:"mint", name:"冰薄荷", color:"#8ED1C6"},
+  {id:"softpink", name:"柔霧粉", color:"#F4C6D7"},
+  {id:"deepblue", name:"深海藍", color:"#3E6FB6"},
 ];
 function renderThemeRow(){
   const row = document.getElementById("themeRow");
   row.innerHTML = THEMES.map(t=>
-    `<div class="theme-dot ${DB.theme===t.id?'active':''}" style="background:${t.color}" data-theme="${t.id}" title="${t.name}"></div>`
+    `<div class="theme-dot ${DB.theme===t.id?'active':''}" style="background:${t.color}" data-theme="${t.id}" title="${t.name}">
+      <span class="theme-dot-label">${t.name}</span>
+    </div>`
   ).join("");
   row.querySelectorAll(".theme-dot").forEach(el=>{
     el.addEventListener("click", ()=>{
       DB.theme = el.dataset.theme; save();
       document.body.setAttribute("data-theme", DB.theme);
       renderThemeRow();
+      // 手機沒有 hover，選中後短暫顯示主題名稱，避免使用者猜不到剛剛選了哪個顏色
+      const label = document.querySelector(`.theme-dot[data-theme="${DB.theme}"] .theme-dot-label`);
+      if(label){
+        label.classList.add("show");
+        setTimeout(()=>label.classList.remove("show"), 1200);
+      }
     });
   });
 }
