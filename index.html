@@ -1631,7 +1631,9 @@ function renderCheckin(){
   renderFarmTitle();
   const now = new Date();
   const onCurrentMonth = farmYear===now.getFullYear() && farmMonth===now.getMonth();
-  document.getElementById("ckDateLabel").textContent = `${farmYear}年 ${farmMonth+1}月`;
+  document.getElementById("ckDateLabel").textContent = onCurrentMonth
+    ? `${farmYear}年 ${farmMonth+1}月 ${now.getDate()}日`
+    : `${farmYear}年 ${farmMonth+1}月`;
   document.getElementById("btnFarmBackToToday").style.display = onCurrentMonth ? "none" : "inline-block";
   const todayDone = !!DB.checkins[todayStr()];
   const streak = getStreak();
