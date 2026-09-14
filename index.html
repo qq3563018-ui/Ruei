@@ -240,6 +240,21 @@ input,select,textarea{ font-family:inherit; }
   display:flex; align-items:center; justify-content:center; border:2px solid transparent;
 }
 .mood-btn.selected{ background:var(--light-accent); border-color:var(--soft-accent); }
+.emoji-pick-btn{
+  display:flex; align-items:center; gap:8px; background:var(--light-accent); color:var(--medium);
+  font-weight:700; font-size:14px; padding:10px 16px; border-radius:12px;
+}
+.emoji-pick-btn .cur-emoji{ font-size:20px; }
+emoji-picker{
+  width:100%; max-width:100%; height:min(60vh, 420px);
+  --background: var(--bg); --border-color: var(--line); --border-radius: var(--radius);
+  --indicator-color: var(--accent); --input-border-color: var(--soft-accent);
+  --input-border-radius: 10px; --button-active-background: var(--light-accent);
+  --button-hover-background: var(--light-accent); --category-font-color: var(--medium);
+}
+@media screen and (max-width:380px){
+  emoji-picker{ --num-columns:7; --emoji-size:1.5rem; }
+}
 .journal-display{
   background:var(--cream); border-radius:14px; padding:14px 16px; font-size:13.5px; line-height:1.8;
   color:var(--dark); white-space:pre-wrap;
@@ -349,7 +364,7 @@ input,select,textarea{ font-family:inherit; }
 <!-- 2. 打卡 -->
 <div class="view" id="view-checkin">
   <div class="card">
-    <div class="card-title">🌾 我的小農場 <span class="pill" id="ckStreakLabel">連續 0 天</span></div>
+    <div class="card-title"><span id="farmTitleText">🌾 我的小農場</span><button class="icon-btn" id="btnEditFarmName" title="幫小農場取名字" style="width:22px; height:22px; font-size:11px; margin-left:4px;">✎</button> <span class="pill" id="ckStreakLabel">連續 0 天</span></div>
     <div class="muted" id="ckDateLabel" style="margin-bottom:10px;"></div>
     <div class="farm-grid" id="farmGrid"></div>
     <div class="farm-legend">
@@ -482,6 +497,15 @@ input,select,textarea{ font-family:inherit; }
         <div class="nav-card-arrow">›</div>
       </div>
     </div>
+    <div class="card nav-card" id="goEmergencyCard">
+      <div class="nav-card-row">
+        <div>
+          <div class="card-title" style="margin-bottom:2px;">🛟 緊急預備金</div>
+          <div class="muted" id="emergencySummaryLine">尚未規劃</div>
+        </div>
+        <div class="nav-card-arrow">›</div>
+      </div>
+    </div>
   </div>
 
   <!-- 我的資產 明細 -->
@@ -520,6 +544,12 @@ input,select,textarea{ font-family:inherit; }
     <button class="btn-ghost" id="btnAddDebt" style="width:100%;">＋ 新增負債項目</button>
   </div>
 
+  <!-- 🛟 緊急預備金 -->
+  <div id="emergencyFundPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromEmergency">‹ 返回財務狀態</button>
+    <div id="emergencyFundContent"></div>
+  </div>
+
 </div>
 
 <div class="navbar">
@@ -541,6 +571,7 @@ input,select,textarea{ font-family:inherit; }
 <div class="undo-toast" id="undoToast"><span id="undoToastMsg">已刪除</span><button id="undoToastBtn">復原</button></div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1.29.1/index.js"></script>
 <script>
 /* ============ 資料儲存 ============ */
 const STORAGE_KEY = "lifeflow_db_v1";
@@ -552,7 +583,12 @@ function loadDB(){
 function withDefaults(obj){
   return Object.assign({
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
-    customCategories:{expense:[], income:[]}, budget:null, assets:[], journal:[], insightsMemory:{}, recurringTx:[]
+    customCategories:{expense:[], income:[]}, budget:null, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
+    emergencyFund:{
+      expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
+      customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
+      unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:""
+    }
   }, obj);
 }
 let DB = loadDB();
@@ -656,6 +692,18 @@ document.getElementById("btnEditName").addEventListener("click", ()=>{
   document.getElementById("f_savename").addEventListener("click", ()=>{
     DB.appName = document.getElementById("f_appname").value.trim();
     save(); closeSheet(); renderBrand(); toast("已更新名稱");
+  });
+});
+document.getElementById("btnEditFarmName").addEventListener("click", ()=>{
+  openSheet(`
+    <div class="sheet-head"><h3>幫你的小農場取個名字吧 🌱</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>農場名稱</label><input id="f_farmname" placeholder="例如：睿睿的小農場" value="${DB.farmName?escapeHtml(DB.farmName):""}"></div>
+    <div class="muted" style="margin-bottom:12px;">留空或清空儲存，會恢復顯示「我的小農場」。</div>
+    <button class="btn-main" id="f_savefarmname">儲存</button>
+  `);
+  document.getElementById("f_savefarmname").addEventListener("click", ()=>{
+    DB.farmName = document.getElementById("f_farmname").value.trim();
+    save(); closeSheet(); renderFarmTitle(); toast("已更新農場名稱");
   });
 });
 
@@ -820,14 +868,23 @@ function getJournalPrompt(){
   for(let i=0;i<d.length;i++){ hash = (hash*17 + d.charCodeAt(i) + 7) >>> 0; }
   return JOURNAL_PROMPTS[hash % JOURNAL_PROMPTS.length];
 }
-const MOOD_OPTIONS = [
-  {emoji:"😊", label:"開心"},
-  {emoji:"🙂", label:"平靜"},
-  {emoji:"😐", label:"普通"},
-  {emoji:"😔", label:"低落"},
-  {emoji:"😣", label:"煩躁"},
-  {emoji:"🥰", label:"幸福"},
-];
+// 通用的 Emoji 選擇器：開一個 bottom sheet 放 <emoji-picker>（自由選擇，不限固定表情），
+// 選好之後呼叫 onPick(unicode) 並自動關掉 sheet。sheet 裡如果已經有選過的 emoji，
+// 傳 currentEmoji 進來只是用來在標題附近顯示目前選的是什麼，不影響選擇器本身。
+function openEmojiPicker(onPick, currentEmoji){
+  openSheet(`
+    <div class="sheet-head"><h3>選一個 Emoji</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    ${currentEmoji?`<div class="muted" style="margin-bottom:10px;">目前選的是 <span style="font-size:18px;">${currentEmoji}</span>，選新的會直接換掉</div>`:""}
+    <emoji-picker></emoji-picker>
+  `);
+  const picker = document.querySelector("#sheetContent emoji-picker");
+  if(picker){
+    picker.addEventListener("emoji-click", (e)=>{
+      onPick(e.detail.unicode);
+      closeSheet();
+    });
+  }
+}
 let journalEditing = false;
 let journalDraftMood = null;
 let journalDraftText = null;
@@ -853,8 +910,12 @@ function renderJournal(){
   if(journalDraftMood===undefined) journalDraftMood = entry ? (entry.mood||null) : null;
   const draftText = journalDraftText !== null ? journalDraftText : (entry ? entry.text : "");
   box.innerHTML = `
-    <div class="mood-row" id="moodRow">
-      ${MOOD_OPTIONS.map(m=>`<button class="mood-btn ${journalDraftMood===m.emoji?'selected':''}" data-mood="${m.emoji}" title="${m.label}">${m.emoji}</button>`).join("")}
+    <div class="muted" style="margin-bottom:6px;">選一個來代表今天的你吧！🧸</div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+      <button class="emoji-pick-btn" id="btnPickMoodEmoji">
+        ${journalDraftMood ? `<span class="cur-emoji">${journalDraftMood}</span><span>更換 Emoji</span>` : `<span>＋ 選擇 Emoji</span>`}
+      </button>
+      ${journalDraftMood ? `<button class="small-link" id="btnClearMoodEmoji">清除</button>` : ""}
     </div>
     <div class="field">
       <textarea id="journalInput" placeholder="${getJournalPrompt()}">${escapeHtml(draftText||"")}</textarea>
@@ -863,17 +924,14 @@ function renderJournal(){
       <button class="btn-ghost" id="btnSaveJournal">儲存</button>
       ${entry ? `<button class="small-link" id="btnCancelJournalEdit">取消</button>` : ""}
     </div>
-    ${!entry ? `<div class="journal-gentle-note">今天也可以什麼都不寫，想說的時候再回來就好。</div>` : ""}
+    ${!entry ? `<div class="journal-gentle-note">今天也可以什麼都不寫，想說的時候再回來就好，Emoji 也可以不選。</div>` : ""}
   `;
   document.getElementById("journalInput").addEventListener("input", (e)=>{ journalDraftText = e.target.value; });
-  document.querySelectorAll("#moodRow .mood-btn").forEach(b=>{
-    b.addEventListener("click", ()=>{
-      journalDraftMood = (journalDraftMood===b.dataset.mood) ? null : b.dataset.mood;
-      renderJournal();
-      const ta = document.getElementById("journalInput");
-      if(ta) ta.focus();
-    });
+  document.getElementById("btnPickMoodEmoji").addEventListener("click", ()=>{
+    openEmojiPicker((emoji)=>{ journalDraftMood = emoji; renderJournal(); }, journalDraftMood);
   });
+  const clearBtn = document.getElementById("btnClearMoodEmoji");
+  if(clearBtn) clearBtn.addEventListener("click", ()=>{ journalDraftMood = null; renderJournal(); });
   document.getElementById("btnSaveJournal").addEventListener("click", ()=>{
     const text = document.getElementById("journalInput").value.trim();
     if(!text && !journalDraftMood) { journalEditing=false; journalDraftText=null; renderJournal(); return; }
@@ -915,11 +973,9 @@ function openJournalHistory(){
 document.getElementById("btnViewJournalHistory").addEventListener("click", openJournalHistory);
 
 /* ============ 🌱 最近的小發現（跨功能呼應，純本地規則運算） ============ */
+// 注意：心情 Emoji 現在是使用者自由選擇、沒有固定意義（不再是「😊=開心」這種對照表），
+// 所以這裡不能再根據特定 Emoji 推論使用者最近心情好壞，相關規則都已移除。
 function dateNDaysAgo(n){ const d=new Date(); d.setDate(d.getDate()-n); return d; }
-function last5DaysMoods(){
-  const threshold = fmtDate(dateNDaysAgo(4)); // 含今天共5天
-  return DB.journal.filter(e=>e.date>=threshold && e.mood).map(e=>e.mood);
-}
 function recentJournalEntries(n){
   const threshold = fmtDate(dateNDaysAgo(n-1));
   return DB.journal.filter(e=>e.date>=threshold && e.text);
@@ -943,21 +999,6 @@ function recentTodoCompletionRate(n){
   const done = items.filter(t=>t.done).length;
   return done/items.length;
 }
-// 連續心情規則：取某一天的心情（沒寫日記或沒選心情就是 null）
-function moodOnDate(dateStr){
-  const e = DB.journal.find(x=>x.date===dateStr);
-  return e ? (e.mood || null) : null;
-}
-// 檢查「今天往回算 days 天」是否每一天都落在指定的心情集合裡（必須每天都有寫，中斷就不算）
-function consecutiveMoodStreak(moodSet, days){
-  for(let i=0;i<days;i++){
-    const m = moodOnDate(fmtDate(dateNDaysAgo(i)));
-    if(!m || !moodSet.includes(m)) return false;
-  }
-  return true;
-}
-const MOOD_LOW = ["😔","😣"];
-const MOOD_GOOD = ["😊","🥰"];
 function goWriteJournal(){
   switchView("home");
   const entry = findTodayJournal();
@@ -986,69 +1027,6 @@ function computeInsight(){
   // 淨資產成長
   if(!result && mem.lastNetWorth!=null && netWorth > mem.lastNetWorth && DB.assets.length>0){
     result = { text:"和之前相比，你的財務狀態又往前了一點。", ctaLabel:"看看我的資產", ctaView:"debt" };
-  }
-  // 連續 3 天心情低落關懷
-  if(!result && consecutiveMoodStreak(MOOD_LOW, 3)){
-    result = {
-      text:"這幾天心情好像不太好受，還好嗎？要不要來寫寫日記抒發一下心情呢～",
-      buttons:[
-        {label:"寫日記", action:"journal"}
-      ]
-    };
-  }
-  // 心情 x 記帳
-  if(!result){
-    const negCount = last5DaysMoods().filter(m=>m==="😣"||m==="😔").length;
-    if(negCount>=2){
-      const recentAvg = recentDailyExpenseAvg(5);
-      const baseline = monthlyDailyExpenseAvg();
-      if(baseline>0 && recentAvg > baseline*1.3){
-        result = { text:"這幾天好像有點累，花費也比平常多了一些。如果最近真的比較辛苦，不用急著責怪自己，可以一起看看最近的支出。", ctaLabel:"看看最近的支出", ctaView:"ledger" };
-      }
-    }
-  }
-  // 心情 x 預算：本月花費已經明顯超出原本安排、又連續出現低落心情時，才溫和提醒一次，
-  // 避免只要有記帳資料就強行跳出提醒。
-  if(!result && DB.budget && DB.budget.version===2){
-    const negCount = last5DaysMoods().filter(m=>m==="😣"||m==="😔").length;
-    if(negCount>=2){
-      const plan = computeBudgetPlan(DB.budget);
-      if(plan.free>0){
-        const usedApprox = monthSummary(new Date()).expense - plan.necessary;
-        if(usedApprox > plan.free*1.2){
-          result = { text:"最近心情比較辛苦，這個月的花費也比原本安排的多一些。不用急著檢討自己，先照顧好心情最重要，之後可以再一起看看預算怎麼調整比較合適。", ctaLabel:"看看本月預算", ctaView:"ledger" };
-        }
-      }
-    }
-  }
-  // 心情 x 待辦
-  if(!result){
-    const negCount = last5DaysMoods().filter(m=>m==="😣"||m==="😔").length;
-    if(negCount>=2){
-      const rate = recentTodoCompletionRate(3);
-      if(rate!==null && rate<0.4){
-        result = { text:"最近好像有點累，不一定要一次把所有事情完成。今天先挑一件最重要的事情就好了。", ctaLabel:"看看我的待辦", ctaView:"todo" };
-      }
-    }
-  }
-  // 連續 3 天心情不錯，分享邀請（觸發後 7 天內不重複出現，避免每三天就跳一次）
-  if(!result && consecutiveMoodStreak(MOOD_GOOD, 3)){
-    const cooledDown = !mem.lastGoodStreakDate ||
-      (new Date(today) - new Date(mem.lastGoodStreakDate)) / 86400000 >= 7;
-    if(cooledDown){
-      result = {
-        text:"最近幾天心情感覺很不錯呢！是不是遇到什麼開心的事哇？歡迎在日記裡跟小夥伴分享一下呦～",
-        buttons:[ {label:"寫日記", action:"journal"} ]
-      };
-      mem.lastGoodStreakDate = today;
-    }
-  }
-  // 心情 x 今日日記 溫柔回應
-  if(!result){
-    const todayEntry = findTodayJournal();
-    if(todayEntry && (todayEntry.mood==="😣"||todayEntry.mood==="😔") && todayEntry.text){
-      result = { text:"看到你今天留下的這段話，辛苦了。心情不用急著變好，先陪自己待一下也可以。" };
-    }
   }
 
   mem.date = today;
@@ -1436,7 +1414,12 @@ function renderFarm(){
   if(todayTile && !!DB.checkins[today]) todayTile.addEventListener("click", openFarmPicker);
 }
 
+function renderFarmTitle(){
+  const name = (DB.farmName||"").trim();
+  document.getElementById("farmTitleText").textContent = name ? `🌾 ${name}` : "🌾 我的小農場";
+}
 function renderCheckin(){
+  renderFarmTitle();
   document.getElementById("ckDateLabel").textContent = todayStr();
   const todayDone = !!DB.checkins[todayStr()];
   const streak = getStreak();
@@ -2860,20 +2843,359 @@ const PAY_ENCOURAGE = [
 ];
 function debtProgress(d){ return Math.round((d.original - d.remaining) / d.original * 100); }
 
-let assetSubView = "overview"; // overview | assets | debts
+let assetSubView = "overview"; // overview | assets | debts | emergency
 function showAssetSub(name){
   assetSubView = name;
   document.getElementById("assetOverviewPanel").style.display = name==="overview" ? "block" : "none";
   document.getElementById("assetListPanel").style.display = name==="assets" ? "block" : "none";
   document.getElementById("debtListPanel").style.display = name==="debts" ? "block" : "none";
+  document.getElementById("emergencyFundPanel").style.display = name==="emergency" ? "block" : "none";
+  if(name==="emergency") renderEmergencyFundPanel();
   const fab = document.getElementById("mainFab");
   const onDebtTab = views.find(v=>document.getElementById("view-"+v).classList.contains("active"))==="debt";
-  if(onDebtTab) fab.style.display = (name==="overview") ? "none" : "flex";
+  if(onDebtTab) fab.style.display = (name==="overview" || name==="emergency") ? "none" : "flex";
 }
 document.getElementById("goAssetsCard").addEventListener("click", ()=>showAssetSub("assets"));
 document.getElementById("goDebtsCard").addEventListener("click", ()=>showAssetSub("debts"));
+document.getElementById("goEmergencyCard").addEventListener("click", ()=>showAssetSub("emergency"));
 document.getElementById("btnBackFromAssets").addEventListener("click", ()=>showAssetSub("overview"));
 document.getElementById("btnBackFromDebts").addEventListener("click", ()=>showAssetSub("overview"));
+document.getElementById("btnBackFromEmergency").addEventListener("click", ()=>showAssetSub("overview"));
+
+/* ============ 🛟 緊急預備金：財務安全狀態＋規劃工具，不是資產 ============
+   非常重要：這裡填的「目前已準備」金額只用來計算安全墊進度，絕對不會加進
+   DB.assets 或「我的資產」總額，避免使用者的銀行存款／現金被重複計算兩次。 */
+const EF_EXPENSE_ITEMS = [
+  {key:"housing", label:"🏠 房租／房貸／住宿"},
+  {key:"food", label:"🍚 基本伙食"},
+  {key:"utilities", label:"💡 水電／瓦斯"},
+  {key:"transport", label:"🛵 交通／通勤"},
+  {key:"phone", label:"📱 手機／網路"},
+  {key:"insurance", label:"🛡️ 保險"},
+  {key:"debt", label:"💳 必要債務還款"},
+  {key:"medical", label:"🏥 固定醫療／藥物"},
+  {key:"family", label:"👨‍👩‍👧 家庭／扶養支出"},
+  {key:"other", label:"📦 其他必要支出"},
+];
+const EF_STABILITY_OPTIONS = [
+  {key:"stable", label:"穩定", desc:"固定薪資，工作與收入短期內相對穩定"},
+  {key:"variable", label:"有波動", desc:"排班、獎金、抽成、業績或收入會有一定變化"},
+  {key:"unstable", label:"高度不穩定", desc:"自營、自由接案、收入來源容易中斷或每月差異很大"},
+];
+const EF_RISK_FACTORS = [
+  {key:"vehicle", label:"有汽車／機車"},
+  {key:"home", label:"自有住宅"},
+  {key:"kids", label:"有小孩／需要扶養家人"},
+  {key:"pet", label:"有寵物"},
+  {key:"medicalRisk", label:"有自費醫療風險需要考量"},
+  {key:"equipment", label:"工作需要昂貴設備"},
+  {key:"other", label:"其他"},
+  {key:"none", label:"暫時沒有特別需要考量的"},
+];
+const EF_UNEXPECTED_PRESETS = [30000, 50000, 100000];
+const EF_COMPLETION_PRESETS = [6, 12, 18, 24];
+
+// 清楚透明的規則表，不做神秘的 AI 風險分數
+function efSafetyMonths(stability, hasDependents){
+  const table = {
+    stable:   hasDependents ? 9  : 6,
+    variable: hasDependents ? 12 : 9,
+    unstable: 12,
+  };
+  return table[stability] || 6;
+}
+function efMonthlyTotal(ef){
+  const fixed = Object.values(ef.expenses||{}).reduce((s,v)=>s+(Number(v)||0),0);
+  const custom = (ef.customExpenses||[]).reduce((s,c)=>s+(Number(c.amount)||0),0);
+  return fixed + custom;
+}
+function efInterruptionFund(ef){ return efMonthlyTotal(ef) * (ef.targetMonths||0); }
+function efTotalTarget(ef){ return efInterruptionFund(ef) + (ef.unexpectedFund||0); }
+
+function openEfCustomExpenseForm(editItem, onSave){
+  openSheet(`
+    <div class="sheet-head"><h3>${editItem?"編輯支出":"新增其他支出"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>名稱</label><input id="ef_c_name" placeholder="例如：寵物基本開銷、停車位、管理費" value="${editItem?escapeHtml(editItem.name):""}"></div>
+    <div class="field"><label>每月金額</label><input id="ef_c_amount" type="number" placeholder="0" value="${editItem?editItem.amount:""}"></div>
+    <button class="btn-main" id="ef_c_save">儲存</button>
+  `);
+  document.getElementById("ef_c_save").addEventListener("click", ()=>{
+    const name = document.getElementById("ef_c_name").value.trim();
+    const amount = parseFloat(document.getElementById("ef_c_amount").value)||0;
+    if(!name){ toast("請輸入名稱"); return; }
+    onSave(name, amount);
+  });
+}
+
+function openEmergencyWizard(){
+  const cur = DB.emergencyFund;
+  const w = {
+    expenses: Object.assign({housing:0,food:0,utilities:0,transport:0,phone:0,insurance:0,debt:0,medical:0,family:0,other:0}, cur.expenses||{}),
+    customExpenses: (cur.customExpenses||[]).map(c=>({...c})),
+    incomeStability: cur.incomeStability || "",
+    hasDependents: !!cur.hasDependents,
+    riskFactors: [...(cur.riskFactors||[])],
+    unexpectedFund: cur.unexpectedFund || 0,
+    currentFund: cur.currentFund || 0,
+    completionMonths: cur.completionMonths || null,
+  };
+  let step = 1;
+  const TOTAL_STEPS = 4;
+
+  function dots(){
+    return Array.from({length:TOTAL_STEPS},(_,i)=>`<span style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;background:${i<step?'var(--accent)':'var(--soft-accent)'}"></span>`).join("");
+  }
+  function wrap(title, intro, body, opts){
+    opts = opts || {};
+    openSheet(`
+      <div class="sheet-head"><h3>${title}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+      <div style="margin-bottom:12px;">${dots()} <span class="muted" style="margin-left:4px;">${step}／${TOTAL_STEPS}</span></div>
+      ${intro?`<div class="muted" style="margin-bottom:12px; line-height:1.6;">${intro}</div>`:""}
+      ${body}
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        ${step>1?`<button class="btn-ghost" id="wizBack" style="flex:1;">上一步</button>`:""}
+        <button class="btn-main" id="wizNext" style="flex:2;">${opts.nextLabel||"下一步"}</button>
+      </div>
+    `);
+    if(step>1) document.getElementById("wizBack").addEventListener("click", ()=>{ step--; renderStep(); });
+  }
+  function renderStep(){
+    if(step===1) return stepExpenses();
+    if(step===2) return stepStability();
+    if(step===3) return stepRisk();
+    return stepCurrent();
+  }
+  function stepExpenses(){
+    const rowsHTML = EF_EXPENSE_ITEMS.map(item=>`
+      <div class="field">
+        <label>${item.label}${item.key==='debt'?'<br><span class="muted" style="font-weight:400;">填寫每月必須支付的最低／固定還款金額，不是剩餘總負債</span>':''}</label>
+        <input type="number" class="ef-exp-input" data-key="${item.key}" placeholder="0" value="${w.expenses[item.key]||""}">
+      </div>
+    `).join("");
+    const customRowsHTML = w.customExpenses.map((c,i)=>`
+      <div class="item-row" data-i="${i}">
+        <div class="ef-custom-edit" data-i="${i}" style="flex:1; cursor:pointer;">${escapeHtml(c.name)} <span class="muted">NT$${(Number(c.amount)||0).toLocaleString()}</span></div>
+        <button class="del-btn ef-custom-del" data-i="${i}">✕</button>
+      </div>
+    `).join("");
+    wrap("🏠 每月必要生活費", "填入即使暫時沒有收入，每個月仍然需要支付的基本支出。沒有的項目可以留白。",
+      `${rowsHTML}
+       <div id="efCustomList">${customRowsHTML}</div>
+       <button class="btn-ghost" id="btnEfAddCustom" style="width:100%; margin:4px 0 16px;">＋ 新增其他支出</button>
+       <div class="card" style="background:var(--light-accent); text-align:center; padding:12px;">
+         <div class="muted">每月必要生活費</div>
+         <div style="font-size:20px; font-weight:900;" id="efMonthlyTotalDisplay">NT$ ${efMonthlyTotal(w).toLocaleString()}</div>
+       </div>`
+    );
+    document.querySelectorAll(".ef-exp-input").forEach(inp=>{
+      inp.addEventListener("input", ()=>{
+        w.expenses[inp.dataset.key] = parseFloat(inp.value)||0;
+        document.getElementById("efMonthlyTotalDisplay").textContent = `NT$ ${efMonthlyTotal(w).toLocaleString()}`;
+      });
+    });
+    document.querySelectorAll(".ef-custom-edit").forEach(el=>{
+      el.addEventListener("click", ()=>{
+        const i = Number(el.dataset.i);
+        openEfCustomExpenseForm(w.customExpenses[i], (name,amount)=>{
+          w.customExpenses[i] = {...w.customExpenses[i], name, amount};
+          stepExpenses();
+        });
+      });
+    });
+    document.querySelectorAll(".ef-custom-del").forEach(b=>{
+      b.addEventListener("click", ()=>{
+        w.customExpenses.splice(Number(b.dataset.i),1);
+        stepExpenses();
+      });
+    });
+    document.getElementById("btnEfAddCustom").addEventListener("click", ()=>{
+      openEfCustomExpenseForm(null, (name,amount)=>{
+        w.customExpenses.push({id:uid(), name, amount});
+        stepExpenses();
+      });
+    });
+    document.getElementById("wizNext").addEventListener("click", ()=>{ step=2; renderStep(); });
+  }
+  function stepStability(){
+    const stabilityHTML = EF_STABILITY_OPTIONS.map(o=>`
+      <button type="button" class="btn-ghost ef-stability-btn" data-v="${o.key}" style="text-align:left; width:100%; margin-bottom:8px; ${w.incomeStability===o.key?'background:var(--accent); color:#fff;':''}">
+        <div style="font-weight:700;">${o.label}</div>
+        <div style="font-size:12px; ${w.incomeStability===o.key?'color:#fff;':'color:var(--gray);'}">${o.desc}</div>
+      </button>
+    `).join("");
+    wrap("你的收入狀況比較接近哪一種？", "",
+      `<div style="margin-bottom:16px;">${stabilityHTML}</div>
+       <div class="field"><label>目前有沒有其他人需要依靠你的收入生活？</label>
+         <div class="seg" id="ef_depSeg">
+           <button type="button" data-v="0" class="${!w.hasDependents?'active':''}">沒有</button>
+           <button type="button" data-v="1" class="${w.hasDependents?'active':''}">有</button>
+         </div>
+       </div>`
+    );
+    document.querySelectorAll(".ef-stability-btn").forEach(b=>{
+      b.addEventListener("click", ()=>{ w.incomeStability = b.dataset.v; stepStability(); });
+    });
+    document.querySelectorAll("#ef_depSeg button").forEach(b=>{
+      b.addEventListener("click", ()=>{
+        document.querySelectorAll("#ef_depSeg button").forEach(x=>x.classList.remove("active"));
+        b.classList.add("active"); w.hasDependents = b.dataset.v==="1";
+      });
+    });
+    document.getElementById("wizNext").addEventListener("click", ()=>{
+      if(!w.incomeStability){ toast("先選一個比較接近的收入狀況"); return; }
+      step=3; renderStep();
+    });
+  }
+  function stepRisk(){
+    const riskHTML = EF_RISK_FACTORS.map(r=>`
+      <label style="display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line);">
+        <input type="checkbox" class="ef-risk-cb" data-v="${r.key}" ${w.riskFactors.includes(r.key)?"checked":""}>
+        <span>${r.label}</span>
+      </label>
+    `).join("");
+    const presetBtns = EF_UNEXPECTED_PRESETS.map(v=>`<button type="button" class="btn-ghost ef-unexpected-btn" data-v="${v}" style="flex:1; ${w.unexpectedFund===v?'background:var(--accent); color:#fff;':''}">NT$${v.toLocaleString()}</button>`).join("");
+    wrap("生活中有哪些可能突然需要一筆錢的狀況？", "這些選項只是幫你想清楚自己的風險，不會自動幫你算金額。",
+      `<div style="margin-bottom:16px;">${riskHTML}</div>
+       <div class="field"><label>如果真的發生一次較大的突發狀況，你希望另外保留多少錢？</label>
+         <div class="seg" id="ef_unexpectedSeg">${presetBtns}</div>
+         <input type="number" id="ef_unexpectedCustom" placeholder="或自訂金額" style="margin-top:8px;" value="${EF_UNEXPECTED_PRESETS.includes(w.unexpectedFund)?"":(w.unexpectedFund||"")}">
+       </div>`
+    );
+    document.querySelectorAll(".ef-risk-cb").forEach(cb=>{
+      cb.addEventListener("change", ()=>{
+        const v = cb.dataset.v;
+        if(cb.checked){ if(!w.riskFactors.includes(v)) w.riskFactors.push(v); }
+        else{ w.riskFactors = w.riskFactors.filter(x=>x!==v); }
+      });
+    });
+    document.querySelectorAll(".ef-unexpected-btn").forEach(b=>{
+      b.addEventListener("click", ()=>{
+        w.unexpectedFund = Number(b.dataset.v);
+        document.getElementById("ef_unexpectedCustom").value = "";
+        stepRisk();
+      });
+    });
+    document.getElementById("ef_unexpectedCustom").addEventListener("input", (e)=>{
+      const v = parseFloat(e.target.value);
+      if(v>0) w.unexpectedFund = v;
+    });
+    document.getElementById("wizNext").addEventListener("click", ()=>{ step=4; renderStep(); });
+  }
+  function stepCurrent(){
+    wrap("目前已經有多少可以隨時動用的緊急預備金？", "請填真正可以在緊急狀況下快速使用的現金、活存或高流動性資金，不需要把股票、長期投資等全部算進來。",
+      `<div class="field"><label>目前已準備</label><input id="ef_current" type="number" placeholder="0" value="${w.currentFund||""}"></div>`,
+      {nextLabel:"幫我算安全墊 🛟"}
+    );
+    document.getElementById("wizNext").addEventListener("click", ()=>{
+      w.currentFund = parseFloat(document.getElementById("ef_current").value)||0;
+      DB.emergencyFund = {
+        expenses: w.expenses, customExpenses: w.customExpenses,
+        incomeStability: w.incomeStability, hasDependents: w.hasDependents,
+        riskFactors: w.riskFactors, unexpectedFund: w.unexpectedFund||0, currentFund: w.currentFund||0,
+        targetMonths: efSafetyMonths(w.incomeStability, w.hasDependents),
+        completionMonths: w.completionMonths || null, updatedAt: todayStr()
+      };
+      save(); closeSheet(); showAssetSub("emergency"); renderNetWorth();
+    });
+  }
+  renderStep();
+}
+
+function renderEmergencyFundPanel(){
+  const box = document.getElementById("emergencyFundContent");
+  const ef = DB.emergencyFund;
+  const monthly = efMonthlyTotal(ef);
+  if(!ef.targetMonths){
+    box.innerHTML = `
+      <div class="card">
+        <div class="card-title">🛟 緊急預備金</div>
+        <div class="muted" style="margin-bottom:14px; line-height:1.7;">緊急預備金不是一筆新的資產，是一個「財務安全狀態＋規劃工具」，幫你算出萬一收入中斷，大概可以撐多久、還差多少才安心。這裡填的金額不會加進你的資產總額。</div>
+        <button class="btn-main" id="btnStartEfWizard" style="width:100%;">開始規劃</button>
+      </div>
+    `;
+    document.getElementById("btnStartEfWizard").addEventListener("click", openEmergencyWizard);
+    return;
+  }
+  const interruption = efInterruptionFund(ef);
+  const target = efTotalTarget(ef);
+  const current = ef.currentFund||0;
+  const pct = target>0 ? Math.min(100, Math.round(current/target*100)) : 0;
+  const remain = Math.max(0, target-current);
+  const monthsCovered = monthly>0 ? current/monthly : null;
+  const stageStatus = (stageTarget)=> stageTarget<=0 ? "尚未達成" : (current>=stageTarget ? "已達成" : (current>0 ? "進行中" : "尚未達成"));
+
+  let completionHTML = "";
+  if(remain>0){
+    const monthsOptions = EF_COMPLETION_PRESETS.map(m=>`<button type="button" class="btn-ghost ef-completion-btn" data-v="${m}" style="flex:1; ${ef.completionMonths===m?'background:var(--accent); color:#fff;':''}">${m}個月</button>`).join("");
+    completionHTML = `
+      <div class="card">
+        <div class="card-title">希望多久準備完成？</div>
+        <div class="seg" id="efCompletionSeg" style="margin-bottom:10px;">${monthsOptions}</div>
+        <input type="number" id="efCompletionCustom" placeholder="或自訂月數" value="${EF_COMPLETION_PRESETS.includes(ef.completionMonths)?"":(ef.completionMonths||"")}">
+        <div id="efCompletionResult" class="muted" style="margin-top:10px; line-height:1.7;"></div>
+      </div>
+    `;
+  }
+
+  box.innerHTML = `
+    <div class="card">
+      <div class="card-title">你的完整緊急預備金目標</div>
+      <div style="font-size:24px; font-weight:900; color:var(--accent); margin-bottom:12px;">NT$ ${target.toLocaleString()}</div>
+      <div class="networth-line"><span class="label">🏠 生活中斷預備金</span><span class="value">NT$ ${interruption.toLocaleString()}</span></div>
+      <div class="muted" style="margin:2px 0 10px;">每月必要生活費 NT$${monthly.toLocaleString()} × ${ef.targetMonths} 個月</div>
+      <div class="networth-line"><span class="label">🚑 突發事件預備金</span><span class="value">NT$ ${(ef.unexpectedFund||0).toLocaleString()}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">目前準備</div>
+      <div style="margin-bottom:6px;">NT$${current.toLocaleString()} / NT$${target.toLocaleString()}</div>
+      <div class="progress-bar" style="margin-bottom:6px;"><div class="progress-fill" style="width:${pct}%"></div></div>
+      <div class="muted">${pct}%${remain>0?` · 還差 NT$${remain.toLocaleString()}`:" · 已經達成目標！"}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">如果收入從今天開始中斷……</div>
+      ${monthly>0
+        ? `<div>以目前的必要生活費計算，現有資金大約可以支撐 <b>${monthsCovered.toFixed(1)}</b> 個月。</div>`
+        : `<div class="empty-state">請先到「重新規劃」填寫每月必要生活費</div>`}
+      <div class="muted" style="margin-top:6px;">尚未扣除期間內可能發生的其他緊急支出。</div>
+    </div>
+    <div class="card">
+      <div class="card-title">我的安全墊進度</div>
+      <div class="networth-line"><span class="label">🌱 基本緩衝（1 個月必要生活費）</span><span class="value">${stageStatus(monthly)}</span></div>
+      <div class="networth-line"><span class="label">🛟 生活安全墊（${ef.targetMonths} 個月必要生活費）</span><span class="value">${stageStatus(interruption)}</span></div>
+      <div class="networth-line"><span class="label">🏡 完整安全墊（生活中斷＋突發預備金）</span><span class="value">${stageStatus(target)}</span></div>
+    </div>
+    ${completionHTML}
+    <div class="card" style="background:var(--light-accent); text-align:center;">
+      <div style="line-height:1.8;">緊急預備金不是一筆數字，而是你的財務安全墊，也是專屬於你的底氣，生活小夥伴會陪著你一起達成的！✨</div>
+    </div>
+    <button class="btn-ghost" id="btnRedoEfWizard" style="width:100%; margin-top:4px;">重新規劃</button>
+  `;
+  document.getElementById("btnRedoEfWizard").addEventListener("click", openEmergencyWizard);
+
+  if(remain>0){
+    const updateCompletionResult = (months)=>{
+      const resBox = document.getElementById("efCompletionResult");
+      if(!months || months<=0){ resBox.textContent = ""; return; }
+      const perMonth = Math.round(remain/months);
+      resBox.textContent = `🌱 如果希望在 ${months} 個月內完成，平均每月準備 NT$${perMonth.toLocaleString()}，就能慢慢把安全墊補起來。`;
+    };
+    document.querySelectorAll(".ef-completion-btn").forEach(b=>{
+      b.addEventListener("click", ()=>{
+        ef.completionMonths = Number(b.dataset.v);
+        document.getElementById("efCompletionCustom").value = "";
+        save();
+        document.querySelectorAll(".ef-completion-btn").forEach(x=>{ x.style.background=""; x.style.color=""; });
+        b.style.background="var(--accent)"; b.style.color="#fff";
+        updateCompletionResult(ef.completionMonths);
+      });
+    });
+    document.getElementById("efCompletionCustom").addEventListener("input", (e)=>{
+      const v = parseInt(e.target.value);
+      if(v>0){ ef.completionMonths = v; save(); updateCompletionResult(v); }
+    });
+    updateCompletionResult(ef.completionMonths);
+  }
+}
 
 function renderNetWorth(){
   const totalAssets = DB.assets.reduce((s,a)=>s+a.amount,0);
@@ -2893,6 +3215,9 @@ function renderNetWorth(){
   `;
   document.getElementById("assetSummaryLine").textContent = DB.assets.length ? `共 ${DB.assets.length} 筆・NT$ ${totalAssets.toLocaleString()}` : "還沒有建立資產，先從銀行存款開始吧";
   document.getElementById("debtSummaryLine").textContent = DB.debts.length ? `共 ${DB.debts.length} 筆・剩餘 NT$ ${totalDebts.toLocaleString()}` : "目前沒有負債 🎉";
+  const ef = DB.emergencyFund;
+  const efMonths = ef.targetMonths ? (efMonthlyTotal(ef)>0 ? (ef.currentFund||0)/efMonthlyTotal(ef) : 0) : null;
+  document.getElementById("emergencySummaryLine").textContent = ef.targetMonths ? `目前可支撐 ${efMonths.toFixed(1)} 個月` : "尚未規劃";
 }
 
 /* ---- 我的資產 ---- */
@@ -3136,9 +3461,11 @@ function exportBackup(){
   addSheet("設定", [
     {key:"theme", value:DB.theme||"pink"},
     {key:"appName", value:DB.appName||""},
+    {key:"farmName", value:DB.farmName||""},
     {key:"budgetJSON", value:JSON.stringify(DB.budget||null)},
     {key:"customCategoriesJSON", value:JSON.stringify(DB.customCategories||{expense:[],income:[]})},
     {key:"insightsMemoryJSON", value:JSON.stringify(DB.insightsMemory||{})},
+    {key:"emergencyFundJSON", value:JSON.stringify(DB.emergencyFund||null)},
   ]);
   XLSX.writeFile(wb, `生活小夥伴備份_${todayStr()}.xlsx`);
   toast("備份已下載");
@@ -3195,10 +3522,16 @@ function importBackupFromWorkbook(wb){
   DB = withDefaults({
     theme: settings.theme || "pink",
     appName: settings.appName || "",
+    farmName: settings.farmName || "",
     todos, checkins, transactions, debts, goals, assets, journal, recurringTx,
     customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
     budget: safeJSONParse(settings.budgetJSON, null),
     insightsMemory: safeJSONParse(settings.insightsMemoryJSON, {}),
+    emergencyFund: safeJSONParse(settings.emergencyFundJSON, {
+      expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
+      customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
+      unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:""
+    }),
   });
   save();
   document.body.setAttribute("data-theme", DB.theme);
