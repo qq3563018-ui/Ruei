@@ -17,10 +17,10 @@
 <style>
 :root{
   --pink:#D98BA3; --soft-pink:#EABED0; --light-pink:#F8E4EC;
-  /* 霧霾藍加了一點寶寶藍：主題圓點顯示使用者確認過的寶寶藍 #90C5DF，但這個亮度
-     直接當按鈕底色配白字對比不足，所以 --blue（實際餵給 --accent）改用同色系更深
-     一階的顏色，寶寶藍本身放到 --soft-blue。 */
-  --blue:#3392C1; --soft-blue:#90C5DF; --light-blue:#E9F2F7;
+  /* 霧霾藍加了一點寶寶藍：一開始為了配白字把 --blue 改深，結果整頁看起來變成
+     一般的中藍色，失去寶寶藍的感覺（跟小雞黃踩到同一個坑）。改成直接用使用者
+     確認過的寶寶藍本身當主色，配色文字改用 --on-accent 換成深色解決可讀性。 */
+  --blue:#90C5DF; --soft-blue:#BFDBE8; --light-blue:#E8EFF3;
   --sage:#8FA688; --soft-sage:#C7D8C3; --light-sage:#E8F0E8;
   --lavender:#9B8AA6; --soft-lavender:#CDBFD4; --light-lavender:#EFE8F2;
   --mono:#4A4A48; --soft-mono:#C4C2BD; --light-mono:#EDECE9;
@@ -28,9 +28,8 @@
      不再是黃色，所以這裡不做深色版本，直接用使用者確認過的亮黃色本身當主色，
      可讀性問題改用下面的 --on-accent（配黃色時文字改用深色而不是白色）解決。 */
   --chick:#FBDA74; --soft-chick:#F6E5B1; --light-chick:#F7F2E3;
-  /* 新增：🍒 有質感的櫻桃紅。刻意選偏淡、偏霧面的紅，避免侵略感，本身亮度已經
-     足夠配白字閱讀，不需要另外做深色版本。 */
-  --cherry:#C46471; --soft-cherry:#DA9FA7; --light-cherry:#F3E7E9;
+  /* 新增：🍒 有質感的櫻桃紅。使用者確認要比第一版更紅更濃一點。 */
+  --cherry:#D0434A; --soft-cherry:#DE9195; --light-cherry:#EEDDDE;
   --cream:#FAF3EE; --bg:#FAFAF8; --dark:#37352F; --medium:#5A5248; --gray:#9B9A97;
   --line:#E9E5DE;
   --accent: var(--pink); --soft-accent: var(--soft-pink); --light-accent: var(--light-pink);
@@ -41,12 +40,12 @@
   --radius: 16px;
 }
 body[data-theme="pink"]{ --accent: var(--pink); --soft-accent: var(--soft-pink); --light-accent: var(--light-pink); --cream:#FBF1F4; --bg:#FCFAFB; --line:#F0E2E7; }
-body[data-theme="blue"]{ --accent: var(--blue); --soft-accent: var(--soft-blue); --light-accent: var(--light-blue); --cream:#F4F7F8; --bg:#FAFBFB; --line:#DBE6EB; }
+body[data-theme="blue"]{ --accent: var(--blue); --soft-accent: var(--soft-blue); --light-accent: var(--light-blue); --cream:#F5F7F8; --bg:#FAFBFB; --line:#DEE5E8; --on-accent: var(--dark); }
 body[data-theme="sage"]{ --accent: var(--sage); --soft-accent: var(--soft-sage); --light-accent: var(--light-sage); --cream:#F1F5EF; --bg:#F8FAF7; --line:#DFE7DC; }
 body[data-theme="lavender"]{ --accent: var(--lavender); --soft-accent: var(--soft-lavender); --light-accent: var(--light-lavender); --cream:#F4F1F6; --bg:#FAF8FA; --line:#E4DDE6; }
 body[data-theme="mono"]{ --accent: var(--mono); --soft-accent: var(--soft-mono); --light-accent: var(--light-mono); --cream:#F3F3F1; --bg:#FAFAFA; --line:#E2E1DE; }
 body[data-theme="chick"]{ --accent: var(--chick); --soft-accent: var(--soft-chick); --light-accent: var(--light-chick); --cream:#F9F8F3; --bg:#FBFBF9; --line:#EFE9D7; --on-accent: var(--dark); }
-body[data-theme="cherry"]{ --accent: var(--cherry); --soft-accent: var(--soft-cherry); --light-accent: var(--light-cherry); --cream:#F7F5F5; --bg:#FBFAFA; --line:#E8DEDF; }
+body[data-theme="cherry"]{ --accent: var(--cherry); --soft-accent: var(--soft-cherry); --light-accent: var(--light-cherry); --cream:#F8F4F4; --bg:#FBFAFA; --line:#EADCDD; }
 
 *{ box-sizing:border-box; }
 html,body{ margin:0; padding:0; }
@@ -675,7 +674,7 @@ const THEMES = [
   {id:"lavender", name:"薰衣草紫", color:"#9B8AA6"},
   {id:"mono", name:"黑白", color:"#4A4A48"},
   {id:"chick", name:"小雞黃", color:"#FBDA74"},
-  {id:"cherry", name:"櫻桃紅", color:"#C46471"},
+  {id:"cherry", name:"櫻桃紅", color:"#D0434A"},
 ];
 function renderThemeRow(){
   const row = document.getElementById("themeRow");
