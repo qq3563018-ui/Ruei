@@ -382,7 +382,10 @@ emoji-picker{
 <div class="view" id="view-checkin">
   <div class="card">
     <div class="card-title"><span style="display:inline-flex; align-items:center; gap:4px;"><span id="farmTitleText">🌾 我的小農場</span><button class="icon-btn" id="btnEditFarmName" title="幫小農場取名字" style="width:22px; height:22px; font-size:11px;">✎</button></span> <span class="pill" id="ckStreakLabel">連續 0 天</span></div>
-    <div class="muted" id="ckDateLabel" style="margin-bottom:10px;"></div>
+    <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+      <span class="muted cal-title-btn" id="ckDateLabel" style="padding:4px 8px; margin:0 -8px;"></span>
+      <button class="small-link" id="btnFarmBackToToday" style="display:none;">回到今天</button>
+    </div>
     <div class="farm-grid" id="farmGrid"></div>
     <div class="farm-legend">
       <span><span class="farm-legend-swatch" style="background:var(--light-accent);"></span>🌱 已照顧</span>
@@ -1242,7 +1245,7 @@ document.getElementById("calNext").addEventListener("click", ()=>{
 // 避免同樣的年月下拉選單邏輯散落在各處、之後要改還要改好幾次。
 function openMonthJumpPicker(curYear, curMonth, onPick){
   const nowYear = new Date().getFullYear();
-  const yearFrom = nowYear - 8, yearTo = nowYear + 1;
+  const yearFrom = nowYear - 8, yearTo = 2100;
   let years = "";
   for(let y=yearTo; y>=yearFrom; y--){ years += `<option value="${y}" ${y===curYear?"selected":""}>${y}年</option>`; }
   let months = "";
@@ -1560,6 +1563,11 @@ function cancelCheckin(){
 
 /* ===== 田地方格 ===== */
 const FARM_DAYS = 28; // 4 排 x 7 欄
+// 農場格子預設顯示「以今天為結尾的過去 28 天」；null 代表就是今天，
+// 使用者跳轉到某個月份後，這裡存那個月最後一天（不超過今天），
+// 讓格子改成顯示「以那天為結尾的 28 天」，藉此瀏覽更久以前的紀錄。
+let farmAnchorDate = null;
+function farmAnchorStr(){ return farmAnchorDate || todayStr(); }
 const FLOWER_EMOJIS = ["🌸","🌷","🌼","🌻"];
 function getTileItem(dateStr, val){
   if(val && typeof val==="object" && val.item) return val.item;
@@ -1571,9 +1579,10 @@ function renderFarm(){
   const allDates = Object.keys(DB.checkins).sort();
   const firstEver = allDates.length ? allDates[0] : null;
   const today = todayStr();
+  const anchor = farmAnchorStr();
   let html = "";
   for(let i=FARM_DAYS-1; i>=0; i--){
-    const d = new Date(); d.setDate(d.getDate()-i);
+    const d = new Date(anchor+"T00:00:00"); d.setDate(d.getDate()-i);
     const key = fmtDate(d);
     const val = DB.checkins[key];
     const checked = !!val;
@@ -1620,7 +1629,11 @@ const FARM_MSG_MISS_2 = ["農場好像越來越熱鬧了……只是來的不是
 const FARM_MSG_MISS_3PLUS = "🚨 農場好像快被佔領啦！再不回來看看，這裡真的要變成它們的家了 🧟👻🌾";
 function renderCheckin(){
   renderFarmTitle();
-  document.getElementById("ckDateLabel").textContent = todayStr();
+  const anchor = farmAnchorStr();
+  const onToday = anchor===todayStr();
+  const windowStart = new Date(anchor+"T00:00:00"); windowStart.setDate(windowStart.getDate()-(FARM_DAYS-1));
+  document.getElementById("ckDateLabel").textContent = onToday ? todayStr() : `${fmtDate(windowStart)} ～ ${anchor}`;
+  document.getElementById("btnFarmBackToToday").style.display = onToday ? "none" : "inline-block";
   const todayDone = !!DB.checkins[todayStr()];
   const streak = getStreak();
   const hasHistory = Object.keys(DB.checkins).length>0;
@@ -1657,6 +1670,22 @@ function renderCheckin(){
 document.getElementById("btnDoCheckin").addEventListener("click", doCheckin);
 document.getElementById("btnCancelCheckin").addEventListener("click", cancelCheckin);
 document.getElementById("btnOpenFarmGuide").addEventListener("click", openFarmGuide);
+// 農場格子預設是「以今天結尾的過去 28 天」，跳到某個月份後改成「以那個月最後一天
+// 結尾的 28 天」，這樣可以往前瀏覽很久以前的紀錄；選到的月份不能超過今天所在的月份。
+function openFarmDateJumpPicker(){
+  const anchor = farmAnchorStr();
+  const ad = new Date(anchor+"T00:00:00");
+  openMonthJumpPicker(ad.getFullYear(), ad.getMonth(), (y,m)=>{
+    const today = new Date(todayStr()+"T00:00:00");
+    let target = new Date(y, m, daysInMonth(y, m+1));
+    if(target > today) target = today;
+    const targetStr = fmtDate(target);
+    farmAnchorDate = (targetStr===todayStr()) ? null : targetStr;
+    renderCheckin();
+  });
+}
+document.getElementById("ckDateLabel").addEventListener("click", openFarmDateJumpPicker);
+document.getElementById("btnFarmBackToToday").addEventListener("click", ()=>{ farmAnchorDate=null; renderCheckin(); });
 
 /* ============ 待辦 ============ */
 const TODO_COLORS = ["#C96A5C","#D99A5B","#D9C15B","#8FA688","#6FA89D","#7A9BAD","#7B8CC4","#9B8AA6","#D98BA3","#9B9A97"];
