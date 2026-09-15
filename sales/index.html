@@ -64,8 +64,7 @@ header.top{
 
 /* ---------- hero ---------- */
 .hero{ padding-block:56px 40px; }
-.hero-grid{ display:grid; grid-template-columns:1.1fr .9fr; gap:44px; align-items:center; }
-@media (max-width:760px){ .hero-grid{ grid-template-columns:1fr; } }
+.hero-grid{ max-width:640px; margin-inline:auto; }
 .eyebrow{
   font-size:12.5px; font-weight:700; color:var(--sage); letter-spacing:.14em; text-transform:uppercase;
   display:flex; align-items:center; gap:8px; margin-bottom:14px;
@@ -84,15 +83,6 @@ header.top{
   background:var(--paper-raised); max-width:100%;
 }
 .phone-shot img{ display:block; width:100%; height:auto; }
-.hero-shot-wrap{ position:relative; }
-.hero-shot-wrap .phone-shot{ max-width:280px; margin-inline:auto; }
-.floaty{
-  position:absolute; background:var(--paper-raised); border:1px solid var(--line); border-radius:16px;
-  padding:10px 14px; font-size:12.5px; font-weight:700; box-shadow:var(--shadow); line-height:1.5;
-}
-.floaty.f1{ top:8%; left:-6%; transform:rotate(-4deg); }
-.floaty.f2{ bottom:10%; right:-8%; transform:rotate(3deg); color:var(--sage); }
-@media (max-width:520px){ .floaty{ display:none; } }
 
 /* ---------- section heading helper ---------- */
 .sec-head{ text-align:center; max-width:38ch; margin:0 auto 40px; }
@@ -249,13 +239,6 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
       <div class="hero-cta">
         <a class="btn-line big" href="#product">看看生活小夥伴能幫我什麼</a>
       </div>
-    </div>
-    <div class="hero-shot-wrap">
-      <div class="floaty f1">🗓️ 一頁看完今天</div>
-      <div class="phone-shot">
-        <img src="img/home.png" alt="生活小夥伴首頁畫面，行事曆與今日總覽卡片">
-      </div>
-      <div class="floaty f2">💰 收支一眼看懂</div>
     </div>
   </div>
 </section>
