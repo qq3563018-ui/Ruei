@@ -348,7 +348,7 @@ emoji-picker{
   </div>
 
   <div class="card" style="text-align:center;">
-    <div class="muted" style="margin-bottom:4px;">今日的一句話</div>
+    <div class="muted" style="margin-bottom:4px;">今日小夥伴送給你的一句話🤍✨</div>
     <div id="dailyQuote" style="font-size:14.5px; font-weight:700; line-height:1.7; color:var(--dark);"></div>
   </div>
 
@@ -835,7 +835,7 @@ const DAILY_QUOTE_GROUPS = [
     "不知道未來會怎樣沒關係，未知也代表還有很多可能。",
     "也許你現在正在經歷的，只是故事中間，不是結局。",
     "人生偶爾繞遠路，也可能剛好看到原本看不到的風景。",
-    "希望有一天你回頭看現在，會發現很多擔心最後都沒有發生。",
+    "希望有一天你回頭看現在，會發現很多擔心都是不會發生的，所以一起大步向前走吧！",
     "你不需要一次看見整條路，下一步看得見就夠了。",
     "有些好事來得比較慢，不代表它不會來。",
     "願你最後過上的生活，不只是別人覺得很好，而是你自己真的喜歡。"
@@ -1039,7 +1039,7 @@ function renderJournal(){
       <button class="btn-ghost" id="btnSaveJournal">儲存</button>
       ${entry ? `<button class="small-link" id="btnCancelJournalEdit">取消</button>` : ""}
     </div>
-    ${!entry ? `<div class="journal-gentle-note">今天也可以什麼都不寫，想說的時候再回來就好，Emoji 也可以不選。</div>` : ""}
+    ${!entry ? `<div class="journal-gentle-note">今天有什麼想記住的嗎？一句話、幾個字也都可以呦～</div>` : ""}
   `;
   document.getElementById("journalInput").addEventListener("input", (e)=>{ journalDraftText = e.target.value; });
   document.getElementById("btnPickMoodEmoji").addEventListener("click", ()=>{
@@ -1222,7 +1222,7 @@ function openMoreSheet(){
       <div class="nav-card-row">
         <div>
           <div class="card-title" style="margin-bottom:2px;">🎯 我的目標</div>
-          <div class="muted">想完成的事，一步一步準備</div>
+          <div class="muted">想完成的事，小夥伴陪你一步一步準備完成！</div>
         </div>
         <div class="nav-card-arrow">›</div>
       </div>
