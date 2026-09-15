@@ -34,6 +34,9 @@
      導致整頁看起來紅色感很淡（例如小日記的卡片背景幾乎看不出紅色調），
      改成比照莫蘭迪粉那組色階實際的飽和度重新調過，讓整頁都有明顯的紅色氛圍。 */
   --cherry:#D0434A; --soft-cherry:#DE9195; --light-cherry:#F4D7D8;
+  /* 新增：🍑 杏桃橘。比照粉紅／櫻桃紅那組色階的飽和度公式（cream S≈55.6%／L≈96.5%，
+     line S≈35%／L≈90%）換算色相而來，確保整頁的橘色氛圍濃淡跟其他主題一致。 */
+  --orange:#DA9A62; --soft-orange:#E3C5AB; --light-orange:#F5E7DB;
   --cream:#FAF3EE; --bg:#FAFAF8; --dark:#37352F; --medium:#5A5248; --gray:#9B9A97;
   --line:#E9E5DE;
   --accent: var(--pink); --soft-accent: var(--soft-pink); --light-accent: var(--light-pink);
@@ -50,6 +53,7 @@ body[data-theme="lavender"]{ --accent: var(--lavender); --soft-accent: var(--sof
 body[data-theme="mono"]{ --accent: var(--mono); --soft-accent: var(--soft-mono); --light-accent: var(--light-mono); --cream:#F3F3F1; --bg:#FAFAFA; --line:#E2E1DE; }
 body[data-theme="chick"]{ --accent: var(--chick); --soft-accent: var(--soft-chick); --light-accent: var(--light-chick); --cream:#FBF9F1; --bg:#FCFBFA; --line:#EFE9D7; }
 body[data-theme="cherry"]{ --accent: var(--cherry); --soft-accent: var(--soft-cherry); --light-accent: var(--light-cherry); --cream:#FBF1F2; --bg:#FCFAFA; --line:#F0E2E3; }
+body[data-theme="orange"]{ --accent: var(--orange); --soft-accent: var(--soft-orange); --light-accent: var(--light-orange); --cream:#FBF6F1; --bg:#FCFBFA; --line:#EEE5DD; }
 
 *{ box-sizing:border-box; }
 html,body{ margin:0; padding:0; }
@@ -682,6 +686,7 @@ const THEMES = [
   {id:"mono", name:"黑白", color:"#4A4A48"},
   {id:"chick", name:"小雞黃", color:"#FBDA74"},
   {id:"cherry", name:"櫻桃紅", color:"#D0434A"},
+  {id:"orange", name:"杏桃橘", color:"#DA9A62"},
 ];
 function renderThemeRow(){
   const row = document.getElementById("themeRow");
