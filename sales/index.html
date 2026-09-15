@@ -1,0 +1,577 @@
+<title>生活小夥伴</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700;900&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FBF7F2; --paper-raised:#FFFFFF; --ink:#362F28; --ink-soft:#6B5E52; --ink-faint:#9C8F80;
+  --line:#E8DDD0; --rose:#C97C93; --rose-deep:#A85B75; --sage:#7E9A76; --sage-soft:#DCE6D8; --gold:#C9932F;
+  --shadow: 0 18px 40px -22px rgba(54,47,40,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#211D18; --paper-raised:#2B2620; --ink:#F3EDE3; --ink-soft:#C9BDAE; --ink-faint:#8A7E70;
+    --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
+    --shadow: 0 18px 40px -18px rgba(0,0,0,.55);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#211D18; --paper-raised:#2B2620; --ink:#F3EDE3; --ink-soft:#C9BDAE; --ink-faint:#8A7E70;
+  --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
+  --shadow: 0 18px 40px -18px rgba(0,0,0,.55);
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+html,body{ margin:0; padding:0; overflow-x:hidden; max-width:100%; }
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Noto Sans TC", "PingFang TC", sans-serif;
+  -webkit-font-smoothing:antialiased;
+  word-break:keep-all; overflow-wrap:break-word;
+}
+::selection{ background:var(--rose); color:#fff; }
+h1,h2,h3{ font-family:"Noto Serif TC", "Noto Sans TC", serif; margin:0; font-weight:900; word-break:keep-all; overflow-wrap:break-word; }
+p{ margin:0; word-break:keep-all; overflow-wrap:break-word; }
+a{ color:inherit; }
+.wrap{ max-width:1040px; margin:0 auto; padding-inline:22px; }
+section[id]{ scroll-margin-top:76px; }
+.nb{ white-space:nowrap; }
+
+/* ---------- header ---------- */
+header.top{
+  position:sticky; top:0; z-index:40; backdrop-filter:blur(8px);
+  background:color-mix(in srgb, var(--paper) 88%, transparent);
+  border-bottom:1px solid var(--line);
+}
+.top-row{ display:flex; align-items:center; justify-content:space-between; padding-block:14px; }
+.wordmark{ font-family:"Noto Serif TC",serif; font-weight:900; font-size:18px; letter-spacing:.5px; display:flex; align-items:center; gap:8px; }
+.wordmark .dot{ width:9px; height:9px; border-radius:50%; background:var(--rose); display:inline-block; }
+.btn-line{
+  display:inline-flex; align-items:center; gap:7px; background:var(--rose); color:#fff;
+  padding:10px 20px; border-radius:99px; font-weight:700; font-size:14px; text-decoration:none;
+  box-shadow:var(--shadow); transition:transform .15s ease; border:none; cursor:pointer;
+  font-family:inherit;
+}
+.btn-line:hover{ transform:translateY(-1px); }
+.btn-line.big{ padding:14px 30px; font-size:16px; }
+.btn-line svg{ width:16px; height:16px; flex-shrink:0; }
+
+/* ---------- hero ---------- */
+.hero{ padding-block:56px 40px; }
+.hero-grid{ display:grid; grid-template-columns:1.1fr .9fr; gap:44px; align-items:center; }
+@media (max-width:760px){ .hero-grid{ grid-template-columns:1fr; } }
+.eyebrow{
+  font-size:12.5px; font-weight:700; color:var(--sage); letter-spacing:.14em; text-transform:uppercase;
+  display:flex; align-items:center; gap:8px; margin-bottom:14px;
+}
+.eyebrow::before{ content:""; width:20px; height:1px; background:var(--sage); display:inline-block; }
+.hero h1{ font-size:clamp(26px,4.4vw,44px); line-height:1.4; }
+.hero h1 .ln{ display:block; }
+.hero-sub{ margin-top:22px; font-size:15.5px; line-height:2; color:var(--ink-soft); max-width:38ch; }
+.hero-brand{ margin-top:26px; padding-top:22px; border-top:1px solid var(--line); }
+.hero-brand b{ font-size:16px; display:block; margin-bottom:8px; }
+.hero-brand p{ font-size:14.5px; line-height:1.85; color:var(--ink-soft); max-width:40ch; }
+.hero-cta{ margin-top:28px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+
+.phone-shot{
+  border-radius:26px; overflow:hidden; box-shadow:var(--shadow); border:1px solid var(--line);
+  background:var(--paper-raised); max-width:100%;
+}
+.phone-shot img{ display:block; width:100%; height:auto; }
+.hero-shot-wrap{ position:relative; }
+.hero-shot-wrap .phone-shot{ max-width:280px; margin-inline:auto; }
+.floaty{
+  position:absolute; background:var(--paper-raised); border:1px solid var(--line); border-radius:16px;
+  padding:10px 14px; font-size:12.5px; font-weight:700; box-shadow:var(--shadow); line-height:1.5;
+}
+.floaty.f1{ top:8%; left:-6%; transform:rotate(-4deg); }
+.floaty.f2{ bottom:10%; right:-8%; transform:rotate(3deg); color:var(--sage); }
+@media (max-width:520px){ .floaty{ display:none; } }
+
+/* ---------- section heading helper ---------- */
+.sec-head{ text-align:center; max-width:38ch; margin:0 auto 40px; }
+.sec-head h2{ font-size:clamp(22px,3.2vw,30px); line-height:1.55; }
+.sec-head.wide{ max-width:680px; }
+.sec-head.wide h2 .seg{ white-space:nowrap; }
+
+/* ---------- problem redefine ---------- */
+.redefine{ padding-block:60px; border-top:1px solid var(--line); text-align:center; }
+.redefine .wrap{ max-width:560px; }
+.redefine h2{ font-size:clamp(22px,3.2vw,30px); line-height:1.5; margin-bottom:26px; }
+.redefine p{ font-size:15px; line-height:2; color:var(--ink-soft); }
+.redefine p + p{ margin-top:12px; }
+
+/* ---------- showcase ---------- */
+.showcase{ padding-block:64px; border-top:1px solid var(--line); }
+.showcase-item{ padding-block:44px; display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center; }
+.showcase-item.rev{ direction:rtl; }
+.showcase-item.rev > *{ direction:ltr; }
+.showcase-item.single{ grid-template-columns:1fr; text-align:center; }
+.showcase-item.single .blk p{ margin-inline:auto; }
+@media (max-width:760px){ .showcase-item, .showcase-item.rev{ grid-template-columns:1fr; direction:ltr; } }
+.showcase-item + .showcase-item{ border-top:1px solid var(--line); }
+.si-num{ font-size:12.5px; font-weight:700; color:var(--ink-faint); letter-spacing:.1em; margin-bottom:10px; }
+.showcase-item h3{ font-size:clamp(19px,2.6vw,24px); line-height:1.5; }
+.showcase-item .blk{ margin-top:18px; }
+.showcase-item .blk + .blk{ margin-top:20px; }
+.showcase-item .blk b{ display:block; font-size:13.5px; margin-bottom:6px; }
+.showcase-item .blk p{ font-size:14px; line-height:1.85; color:var(--ink-soft); max-width:42ch; }
+.showcase-item .blk .quip{ margin-top:8px; font-weight:700; color:var(--ink); }
+.shot-row{ display:flex; gap:18px; justify-content:center; flex-wrap:wrap; }
+.shot-row > *{ max-width:220px; flex:1 1 200px; }
+.showcase-outro{ margin-top:20px; padding-top:44px; border-top:1px solid var(--line); text-align:center; }
+.showcase-outro ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.showcase-outro li{ font-size:15px; font-weight:700; }
+.showcase-outro .final{ margin-top:22px; font-size:15.5px; font-weight:700; color:var(--rose-deep); }
+
+/* ---------- asset mini feature grid (inside 03 我的資產) ---------- */
+.asset-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:36px; }
+@media (max-width:640px){ .asset-grid{ grid-template-columns:1fr; } }
+.mini-feature{ background:var(--paper-raised); border:1px solid var(--line); border-radius:16px; padding:18px; }
+.mini-feature .mf-head{ display:flex; align-items:center; gap:9px; font-weight:700; font-size:14px; margin-bottom:10px; }
+.mini-feature .mf-head .ic{ width:32px; height:32px; border-radius:10px; background:var(--sage-soft); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+.mini-feature p{ font-size:13px; line-height:1.8; color:var(--ink-soft); }
+.mini-feature .mf-visual{ margin-top:12px; }
+.mini-feature .mf-visual img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+
+/* ---------- life trace ---------- */
+.trace{ padding-block:88px; background:var(--paper-raised); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.trace .wrap{ max-width:600px; text-align:center; }
+.trace h2{ font-size:clamp(23px,3.6vw,32px); line-height:1.65; margin-bottom:38px; }
+.trace p{ font-size:15px; line-height:2.1; color:var(--ink-soft); }
+.trace p + p{ margin-top:24px; }
+.trace .quote-block{ margin-top:24px; display:flex; flex-direction:column; gap:10px; }
+.trace .quote-line{ font-weight:700; color:var(--rose-deep); font-size:15.5px; }
+.trace .final{ margin-top:36px; font-size:16px; font-weight:700; color:var(--ink); }
+
+/* ---------- fit checklist ---------- */
+.fit{ padding-block:64px; border-top:1px solid var(--line); }
+.fit .wrap{ max-width:680px; }
+.fit h2{ font-size:clamp(22px,3.2vw,28px); text-align:center; line-height:1.55; margin-bottom:34px; }
+.fit-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:16px; }
+.fit-list li{
+  font-size:15px; line-height:1.8; color:var(--ink); background:var(--paper-raised);
+  border:1px solid var(--line); border-radius:14px; padding:16px 18px; display:flex; gap:10px;
+}
+.fit-list li::before{ content:"☑"; color:var(--sage); font-weight:700; flex-shrink:0; }
+.fit-list li span{ flex:1; min-width:0; }
+
+/* ---------- pricing (single, only price block on the page) ---------- */
+.pricing{ padding-block:64px; border-top:1px solid var(--line); }
+.price-card{
+  max-width:560px; margin:0 auto; background:var(--paper-raised); border:1px solid var(--line);
+  border-radius:26px; padding:40px 34px; box-shadow:var(--shadow); text-align:center;
+}
+.price-card h2{ font-size:22px; }
+.price-card > p.lead{ margin-top:14px; font-size:14px; line-height:1.85; color:var(--ink-soft); }
+.price-includes{ list-style:none; margin:28px 0 0; padding:0; text-align:left; display:grid; grid-template-columns:1fr 1fr; gap:10px 18px; }
+@media (max-width:480px){ .price-includes{ grid-template-columns:1fr; } }
+.price-includes li{ font-size:13.5px; color:var(--ink-soft); }
+.price-includes li b{ color:var(--sage); margin-right:6px; }
+.mini-dots{ display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
+.mini-dots span{ width:18px; height:18px; border-radius:50%; box-shadow:var(--shadow); flex-shrink:0; }
+.price-block{ margin-top:32px; padding-top:28px; border-top:1px dashed var(--line); }
+.price-name{ font-size:14px; color:var(--ink-faint); font-weight:700; }
+.price-amount{ font-size:32px; font-weight:900; font-family:"Noto Serif TC",serif; margin-top:8px; color:var(--ink); }
+.price-extra{ font-size:12.5px; color:var(--ink-faint); margin-top:8px; }
+.price-note{ font-size:13.5px; color:var(--ink-soft); margin-top:14px; font-weight:700; }
+.price-card .btn-line{ margin-top:26px; }
+.price-signoff{ margin-top:22px; font-size:13.5px; line-height:1.9; color:var(--ink-soft); }
+
+/* ---------- faq ---------- */
+.faq{ padding-block:64px; border-top:1px solid var(--line); }
+.faq .wrap{ max-width:680px; }
+.faq h2{ font-size:clamp(22px,3.2vw,28px); text-align:center; line-height:1.5; margin-bottom:34px; }
+.faq-item{ border:1px solid var(--line); border-radius:14px; background:var(--paper-raised); overflow:hidden; }
+.faq-item + .faq-item{ margin-top:12px; }
+.faq-item summary{
+  list-style:none; cursor:pointer; padding:16px 44px 16px 18px; font-weight:700; font-size:14.5px;
+  position:relative; line-height:1.6;
+}
+.faq-item summary::-webkit-details-marker{ display:none; }
+.faq-item summary::after{
+  content:"+"; position:absolute; right:16px; top:50%; transform:translateY(-50%);
+  font-size:20px; color:var(--rose); transition:transform .2s ease; font-weight:400;
+}
+.faq-item[open] summary::after{ transform:translateY(-50%) rotate(45deg); }
+.faq-a{ padding:0 18px 18px; font-size:13.5px; line-height:1.9; color:var(--ink-soft); }
+.faq-a p + p{ margin-top:10px; }
+
+/* ---------- closer (no price here) ---------- */
+.closer{ padding-block:72px; text-align:center; border-top:1px solid var(--line); }
+.closer .wrap{ max-width:520px; }
+.closer h2{ font-size:clamp(22px,3.4vw,30px); line-height:1.6; }
+.closer p{ margin-top:18px; font-size:14.5px; line-height:1.9; color:var(--ink-soft); }
+.closer p + p{ margin-top:12px; }
+.closer .brand{ margin-top:26px; font-size:17px; font-weight:900; font-family:"Noto Serif TC",serif; }
+.closer .hero-cta{ justify-content:center; margin-top:26px; }
+
+footer{ border-top:1px solid var(--line); padding-block:26px; text-align:center; }
+footer p{ font-size:12.5px; color:var(--ink-faint); }
+</style>
+
+<header class="top">
+  <div class="wrap top-row">
+    <div class="wordmark"><span class="dot"></span>生活小夥伴</div>
+    <a class="btn-line" href="https://lin.ee/OENKDEu" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.9 2 10.7c0 4.3 3.6 7.9 8.4 8.6.3.06.8.2.9.46.1.24.06.6.03.85l-.15 1c-.05.28-.22 1.1.96.6 1.18-.5 6.4-3.77 8.74-6.45C22.4 13.98 22 12.4 22 10.7 22 5.9 17.52 2 12 2z"/></svg>
+      加官方 LINE
+    </a>
+  </div>
+</header>
+
+<!-- 01｜HERO -->
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">一款陪你過生活的小夥伴</div>
+      <h1><span class="ln">你不是不會整理生活。</span><span class="ln">只是你的生活，散落在太多地方。</span></h1>
+      <p class="hero-sub">
+        記帳在一個 App<br>
+        待辦放在備忘錄<br>
+        想完成的目標記在某個地方，後來又忘了<br>
+        每個月的薪水拿到後卻常常不知道如何分配、花去哪裡了<br>
+        看似每天都在過生活<br>
+        卻很少有一個地方，真正把它們留下來
+      </p>
+      <div class="hero-brand">
+        <b>🌱 生活小夥伴</b>
+        <p>把待辦、目標、記帳、資產負債、生活打卡與心情紀錄，整理在一起，也慢慢記下你走過的生活。</p>
+      </div>
+      <div class="hero-cta">
+        <a class="btn-line big" href="#product">看看生活小夥伴能幫我什麼</a>
+      </div>
+    </div>
+    <div class="hero-shot-wrap">
+      <div class="floaty f1">🗓️ 一頁看完今天</div>
+      <div class="phone-shot">
+        <img src="img/home.png" alt="生活小夥伴首頁畫面，行事曆與今日總覽卡片">
+      </div>
+      <div class="floaty f2">💰 收支一眼看懂</div>
+    </div>
+  </div>
+</section>
+
+<!-- 02｜問題重新定義 -->
+<section class="redefine">
+  <div class="wrap">
+    <h2>你缺的並不是更多工具</h2>
+    <p>所以生活小夥伴想做的，不是再塞給你更多需要管理的東西。</p>
+    <p>而是把原本散落的生活，重新整理回一個地方。</p>
+  </div>
+</section>
+
+<!-- 03｜實際產品展示 -->
+<section class="showcase" id="product">
+  <div class="wrap">
+    <div class="sec-head wide">
+      <h2><span class="seg">把生活放在一起之後，</span><span class="seg">你會在這裡看見什麼？</span></h2>
+    </div>
+
+    <!-- 01 今天的生活 -->
+    <div class="showcase-item">
+      <div>
+        <div class="si-num">01 · 今天的生活</div>
+        <h3>今天要做什麼？最近過得怎麼樣？</h3>
+        <div class="blk">
+          <b>首頁／月曆</b>
+          <p>打卡小遊戲、待辦、心情、日記與記帳紀錄，都會慢慢留在同一個月曆裡。</p>
+          <p class="quip">「打開首頁，就能先看看今天的自己。」</p>
+        </div>
+        <div class="blk">
+          <b>待辦事項</b>
+          <p>想到的事情先放進來。可以按照日期查看，也能搜尋日期與內容。</p>
+          <p class="quip">「不用再把『等等要記得』一直放在腦袋裡。」</p>
+        </div>
+      </div>
+      <div class="shot-row">
+        <div class="phone-shot">
+          <img src="img/home.png" alt="生活小夥伴首頁畫面，行事曆與今日總覽卡片">
+        </div>
+        <div class="phone-shot">
+          <img src="img/todo.png" alt="生活小夥伴待辦事項畫面，依日期分組並可搜尋">
+        </div>
+      </div>
+    </div>
+
+    <!-- 02 農場打卡小遊戲 -->
+    <div class="showcase-item rev">
+      <div>
+        <div class="si-num">02 · 農場打卡小遊戲</div>
+        <h3>一起來建造你的專屬農場吧！</h3>
+        <div class="blk">
+          <p>生活小夥伴的農場打卡小遊戲，不是上班時那種討人厭的打卡，而是有打卡的日子，你的小農場會慢慢成長；偶爾沒有做到，也不會讓以前的累積全部消失。反而可能會有殭屍等其他訪客偷偷出現！農場還能隨意更改成你喜歡的名字呦～</p>
+          <p class="quip">「有做到的日子，會留下成長。」</p>
+          <p class="quip">「沒做到的日子，也會留下不同的故事。」</p>
+          <p class="quip">「真正能陪你很久的工具，不需要你每天都完美。」</p>
+        </div>
+      </div>
+      <div class="shot-row">
+        <div class="phone-shot">
+          <img src="img/farm.png" alt="生活小夥伴每日打卡農場畫面，方格顯示已照顧與訪客紀錄">
+        </div>
+        <div class="phone-shot">
+          <img src="img/guide.png" alt="農場訪客圖鑑畫面，只公開已發現的殭屍，其餘訪客維持未知狀態">
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 我的資產 -->
+    <div class="showcase-item">
+      <div>
+        <div class="si-num">03 · 我的資產</div>
+        <h3>錢剩多少？花去哪裡？現在的財務狀況怎麼樣？</h3>
+        <div class="blk">
+          <p>「我的資產」不是只有記帳，而是讓你可以從日常金流，一路看到自己的整體財務狀況。</p>
+        </div>
+        <div class="blk">
+          <b>收支／記帳</b>
+          <p>收入、支出、金流紀錄與分類，都可以慢慢整理清楚。</p>
+          <p class="quip">「你不是突然變得很會理財，而是終於開始看得懂自己的金流去向。」</p>
+        </div>
+      </div>
+      <div class="phone-shot" style="max-width:280px;margin-inline:auto;">
+        <img src="img/ledger.png" alt="生活小夥伴記帳頁面，顯示本月收入、支出與剩餘">
+      </div>
+    </div>
+
+    <div class="asset-grid">
+      <div class="mini-feature">
+        <div class="mf-head"><span class="ic">🧮</span>每月預算分配</div>
+        <p>針對每個月的收入與生活需求，安排不同用途的預算，讓你知道這個月的錢要怎麼分配。</p>
+        <div class="mf-visual"><img src="img/budget.png" alt="生活小夥伴每月預算分配畫面"></div>
+      </div>
+      <div class="mini-feature">
+        <div class="mf-head"><span class="ic">🔁</span>固定收支</div>
+        <p>房租、保費、訂閱這類每期都固定的支出，可以預先設定，不用每個月重新輸入。</p>
+        <div class="mf-visual"><img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面"></div>
+      </div>
+      <div class="mini-feature">
+        <div class="mf-head"><span class="ic">🏦</span>資產盤點</div>
+        <p>整理自己目前持有的不同資產，慢慢看懂自己的資產累積。</p>
+        <div class="mf-visual"><img src="img/assets.png" alt="生活小夥伴資產盤點畫面"></div>
+      </div>
+      <div class="mini-feature">
+        <div class="mf-head"><span class="ic">💳</span>負債與還款進度</div>
+        <p>不只看見「還有多少債」，也能看見「自己已經還了多少」。</p>
+        <div class="mf-visual"><img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面"></div>
+      </div>
+      <div class="mini-feature" style="grid-column:1 / -1;">
+        <div class="mf-head"><span class="ic">🛟</span>緊急預備金</div>
+        <p>整理與追蹤自己的緊急預備金準備狀況。</p>
+        <div class="mf-visual" style="max-width:320px;margin-inline:auto;"><img src="img/ef.png" alt="生活小夥伴緊急預備金規劃畫面"></div>
+      </div>
+    </div>
+
+    <!-- 04 年度目標 -->
+    <div class="showcase-item rev" style="margin-top:20px; border-top:1px solid var(--line);">
+      <div>
+        <div class="si-num">04 · 年度目標</div>
+        <h3>想完成的目標，不再只停留於一個想法而已，小夥伴將陪你一起行動！</h3>
+        <div class="blk">
+          <p>把想完成的事情留下來，再一步一步拆成真正可以開始的小行動。</p>
+          <p style="margin-top:10px;">例如想去日本生活一個月：查語言學校 → 算需要多少錢 → 每月存一筆旅費 → 辦護照 → 看機票 → 找住宿。</p>
+          <p class="quip">「不用現在就知道整條路怎麼走。」</p>
+          <p class="quip">「只要先知道下一步，就可以開始了！」</p>
+        </div>
+      </div>
+      <div class="phone-shot" style="max-width:280px;margin-inline:auto;">
+        <img src="img/goal.png" alt="生活小夥伴年度目標畫面，將目標拆解成一步步的小行動">
+      </div>
+    </div>
+
+    <!-- 05 留下自己 -->
+    <div class="showcase-item single">
+      <div>
+        <div class="si-num">05 · 留下自己</div>
+        <h3>有些日子很普通，也值得被留下來。</h3>
+        <div class="blk">
+          <b>心情日記</b>
+          <p>今天開心、很累、有點煩，或只是突然有一句話想留給以後的自己。不用寫很多。</p>
+          <p class="quip">「一句話、幾個字，也可以是今天的紀錄。」</p>
+        </div>
+      </div>
+      <div class="phone-shot" style="max-width:280px;margin-inline:auto;margin-top:26px;">
+        <img src="img/journal.png" alt="生活小夥伴心情日記畫面，選一個 emoji 代表今天並留下一段文字">
+      </div>
+    </div>
+
+    <div class="showcase-outro">
+      <ul>
+        <li>你今天要做的事。</li>
+        <li>你正在努力的目標。</li>
+        <li>你賺進來、花出去與正在累積的錢。</li>
+        <li>還有每一天，正在發生的生活。</li>
+      </ul>
+      <p class="final">生活小夥伴都將和你一起記錄你的每一刻。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 生活軌跡 -->
+<section class="trace">
+  <div class="wrap">
+    <h2><span class="ln">每一段小小的紀錄，</span><span class="ln">回頭看才發現，那些都是自己走過的生活軌跡。</span></h2>
+    <p>我們會拍照，是因為想把某一個瞬間留下來。但生活裡值得被記住的，其實不單只能用照片紀錄。</p>
+    <p>
+      今天花出去的一筆錢<br>
+      完成的一件小事<br>
+      曾經很想實現的一個目標<br>
+      那段時間努力還掉的負債<br>
+      某一天留下來的心情<br>
+      還有那些認真生活、偶爾偷懶、經歷挫折、跌入谷底，最後又重新回來的日子。
+    </p>
+    <p>當下看，它們可能都只是一個很普通的紀錄。可是當時間慢慢累積，幾個月後、幾年後再回頭看，你看到的可能會是——</p>
+    <div class="quote-block">
+      <p class="quote-line">「原來那時候的我，正經歷這件事。」</p>
+      <p class="quote-line">「原來這個目標，我真的完成了。」</p>
+      <p class="quote-line">「原來不知不覺，我已經走到這裡了。」</p>
+      <p class="quote-line">「原來，我是如此努力的在過生活。」</p>
+    </div>
+    <p style="margin-top:26px;">那些當時覺得平凡的日子，早就一點一點，變成了你的故事。</p>
+    <p>所以生活小夥伴想留下的，不只是今天花了多少錢、完成多少事。而是讓這些散落的日常，隨著時間慢慢連成——「只屬於你的生活軌跡。」</p>
+    <p class="final">它陪你整理現在，陪你慢慢往前，也替你留下，一路走來的自己。</p>
+  </div>
+</section>
+
+<!-- 適合誰 -->
+<section class="fit">
+  <div class="wrap">
+    <h2><span class="ln">如果你也是這樣，</span><span class="ln">那生活小夥伴就是<br>為你量身定做的。</span></h2>
+    <ul class="fit-list">
+      <li><span>手機裡有備忘錄、行事曆、記帳 App……卻還是常常找不到自己到底記在哪裡。</span></li>
+      <li><span>每個月薪水進來，到了月底卻常常不知道錢剩多少、花去哪裡了。</span></li>
+      <li><span>腦袋總是裝著很多「等等要記得做的事」，卻沒有一個地方能完整記錄，一目了然。</span></li>
+      <li><span>有很多想完成的目標，卻常常停在「我之後想……」，也不太清楚第一步要從哪裡開始。</span></li>
+      <li><span>想好好記帳、打卡、規劃生活，但太複雜、太要求的工具，通常用沒多久就放棄了。</span></li>
+      <li><span>不想花時間自己研究公式、做表格、搭一整套生活管理系統，只想打開就可以開始用。</span></li>
+      <li><span>除了把生活整理好，也想替現在的自己留下紀錄，過一段時間後，可以回頭看看自己一路是怎麼走過來的。</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 購買內容＋唯一價格區 -->
+<section class="pricing">
+  <div class="wrap">
+    <div class="price-card">
+      <h2>🌱 生活小夥伴</h2>
+      <p class="lead">你的待辦、目標、記帳、資產負債、心情紀錄與生活打卡，都整理在同一個地方。</p>
+      <ul class="price-includes">
+        <li><b>✓</b>完整生活小夥伴系統</li>
+        <li><b>✓</b>月曆與生活總覽</li>
+        <li><b>✓</b>待辦事項</li>
+        <li><b>✓</b>年度目標拆解</li>
+        <li><b>✓</b>收支與預算管理</li>
+        <li><b>✓</b>固定收支</li>
+        <li><b>✓</b>資產盤點</li>
+        <li><b>✓</b>負債與還款進度</li>
+        <li><b>✓</b>緊急預備金規劃</li>
+        <li><b>✓</b>心情日記</li>
+        <li><b>✓</b>農場打卡小遊戲與訪客圖鑑</li>
+        <li><b>✓</b>資料備份與還原</li>
+        <li><b>✓</b>8 種介面主題顏色</li>
+      </ul>
+      <div class="mini-dots">
+        <span style="background:#D98BA3"></span>
+        <span style="background:#90C5DF"></span>
+        <span style="background:#8FA688"></span>
+        <span style="background:#9B8AA6"></span>
+        <span style="background:#4A4A48"></span>
+        <span style="background:#FBDA74"></span>
+        <span style="background:#D0434A"></span>
+        <span style="background:#EE7C2B"></span>
+      </div>
+      <div class="price-block">
+        <div class="price-name">【價格方案名稱待定】</div>
+        <div class="price-amount">NT$＿＿＿</div>
+        <div class="price-extra">【若之後決定有原價／首發價，再於此處加入】</div>
+        <div class="price-note">一次買斷，不用每個月付費。</div>
+      </div>
+      <a class="btn-line big" href="https://lin.ee/OENKDEu" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.9 2 10.7c0 4.3 3.6 7.9 8.4 8.6.3.06.8.2.9.46.1.24.06.6.03.85l-.15 1c-.05.28-.22 1.1.96.6 1.18-.5 6.4-3.77 8.74-6.45C22.4 13.98 22 12.4 22 10.7 22 5.9 17.52 2 12 2z"/></svg>
+        開始使用我的生活小夥伴
+      </a>
+      <p class="price-signoff">不用從明天開始。<br>今天，就先從生活裡的第一件事開始。</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq">
+  <div class="wrap">
+    <h2>常見問題 FAQ</h2>
+
+    <details class="faq-item">
+      <summary>需要下載 App 嗎？</summary>
+      <div class="faq-a"><p>不需要。生活小夥伴是網頁系統，直接加入到手機主畫面即可開始使用。</p></div>
+    </details>
+
+    <details class="faq-item">
+      <summary>我的資料會儲存在哪裡？</summary>
+      <div class="faq-a">
+        <p>生活小夥伴的資料僅儲存在您目前使用的裝置本機，不會自動同步到其他裝置。</p>
+        <p>因此更換裝置時，原本的資料不會自動跟著轉移。</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>如果換手機或換裝置，原本的資料怎麼辦？</summary>
+      <div class="faq-a">
+        <p>不用擔心，只需要定期使用生活小夥伴內建的匯出／匯入功能進行備份即可。</p>
+        <p>更換裝置前，先將目前的生活紀錄匯出保存，再到新的裝置中匯入，就可以將備份的資料帶回來。</p>
+        <p>所以為了避免裝置更換、瀏覽器資料被清除等情況造成紀錄遺失，建議養成定期備份的習慣。</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>系統裡的財務報表與分析，可以當作理財建議嗎？</summary>
+      <div class="faq-a">
+        <p>生活小夥伴會根據您自行輸入的收支、資產、負債等紀錄，自動整理並呈現相關的財務資訊與分析。</p>
+        <p>這些內容主要是幫助您更容易看懂自己的財務狀況，作為日常整理與規劃時的參考，並不等同於專業的投資、理財或其他財務建議。</p>
+        <p>若涉及重要的財務決策，仍建議依照自身實際情況判斷，必要時尋求相關專業人士協助。</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>這是訂閱制嗎？</summary>
+      <div class="faq-a"><p>不是。生活小夥伴採一次買斷制，不用每個月再付一筆訂閱費。</p></div>
+    </details>
+
+    <details class="faq-item">
+      <summary>往後系統如持續優化或增加新功能，還需要另外付費嗎？</summary>
+      <div class="faq-a">
+        <p>不需要。隨著生活小夥伴持續優化、增加功能，每一次版本升級後，新購買的價格也可能隨著系統內容更加完整而調整。</p>
+        <p>但已經購買的使用者不受後續價格調漲影響，也不需要補差價，即可使用後續的版本升級。</p>
+      </div>
+    </details>
+
+    <p style="text-align:center; margin-top:28px; font-size:14px; font-weight:700; color:var(--ink-soft);">「越早加入，保留的是當下的購買價格；生活小夥伴則會繼續陪你一起慢慢長大。🌱」</p>
+  </div>
+</section>
+
+<!-- 最終 CTA（不重複價格，只留品牌收尾與 LINE 按鈕） -->
+<section class="closer">
+  <div class="wrap">
+    <h2>你可以從今天開始——</h2>
+    <p>
+      記下第一筆錢。<br>
+      放進第一件待辦。<br>
+      寫下第一個想完成的目標。<br>
+      替今天留下一個心情。
+    </p>
+    <p>讓那些原本散落在腦袋裡、手機裡、不同 App 裡的事情，慢慢回到同一個地方。</p>
+    <p>也許你需要的從來都不是下一個工具。而是一個可以把它們重新放在一起整理的地方。</p>
+    <div class="brand">🌱 生活小夥伴</div>
+    <div class="hero-cta">
+      <a class="btn-line big" href="https://lin.ee/OENKDEu" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.9 2 10.7c0 4.3 3.6 7.9 8.4 8.6.3.06.8.2.9.46.1.24.06.6.03.85l-.15 1c-.05.28-.22 1.1.96.6 1.18-.5 6.4-3.77 8.74-6.45C22.4 13.98 22 12.4 22 10.7 22 5.9 17.52 2 12 2z"/></svg>
+        開始使用我的生活小夥伴
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>生活小夥伴 · 為生活留下溫柔的紀錄</p>
+</footer>
