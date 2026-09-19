@@ -10,19 +10,19 @@
 <style>
 :root{
   --paper:#FBF7F2; --paper-raised:#FFFFFF; --ink:#362F28; --ink-soft:#6B5E52; --ink-faint:#9C8F80;
-  --line:#E8DDD0; --rose:#C97C93; --rose-deep:#A85B75; --sage:#7E9A76; --sage-soft:#DCE6D8; --gold:#C9932F;
+  --line:#E8DDD0; --rose:#C97C93; --rose-deep:#A85B75; --rose-soft:#F3DEE4; --sage:#7E9A76; --sage-soft:#DCE6D8; --gold:#C9932F;
   --shadow: 0 18px 40px -22px rgba(54,47,40,.35);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --paper:#211D18; --paper-raised:#2B2620; --ink:#F3EDE3; --ink-soft:#C9BDAE; --ink-faint:#8A7E70;
-    --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
+    --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --rose-soft:#3D2830; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
     --shadow: 0 18px 40px -18px rgba(0,0,0,.55);
   }
 }
 :root[data-theme="dark"]{
   --paper:#211D18; --paper-raised:#2B2620; --ink:#F3EDE3; --ink-soft:#C9BDAE; --ink-faint:#8A7E70;
-  --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
+  --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --rose-soft:#3D2830; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
   --shadow: 0 18px 40px -18px rgba(0,0,0,.55);
 }
 
@@ -152,7 +152,7 @@ header.top{
 .trace .quote-block{ margin-top:24px; display:flex; flex-direction:column; gap:10px; }
 .trace .quote-line{ font-weight:700; color:var(--rose-deep); font-size:15.5px; }
 .trace .final{ margin-top:36px; font-size:16px; font-weight:700; color:var(--ink); }
-.trace-dedication{ display:inline-block; font-size:13px; color:var(--sage); letter-spacing:.03em; margin-bottom:18px; padding:8px 18px; background:var(--sage-soft); border-radius:999px; }
+.trace-dedication{ display:inline-block; font-size:13px; color:var(--rose-deep); letter-spacing:.03em; margin-bottom:18px; padding:8px 18px; background:var(--rose-soft); border-radius:999px; }
 
 /* ---------- fit checklist ---------- */
 .fit{ padding-block:64px; border-top:1px solid var(--line); }
