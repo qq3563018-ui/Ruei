@@ -135,6 +135,8 @@ header.top{
 .mini-feature p{ font-size:13px; line-height:1.8; color:var(--ink-soft); }
 .mini-feature .mf-visual{ margin-top:12px; }
 .mini-feature .mf-visual img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+.asset-collage{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+.asset-collage img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
 
 /* ---------- life trace ---------- */
 .trace{ padding-block:88px; background:var(--paper-raised); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
@@ -347,22 +349,24 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
       <div class="mini-feature">
         <div class="mf-head"><span class="ic">🧮</span>每月預算分配</div>
         <p>針對每個月的收入與生活需求，安排不同用途的預算，讓你知道這個月的錢要怎麼分配。</p>
-        <div class="mf-visual"><img src="img/budget.png" alt="生活小夥伴每月預算分配畫面"></div>
       </div>
       <div class="mini-feature">
         <div class="mf-head"><span class="ic">🔁</span>固定收支</div>
         <p>房租、保費、訂閱這類每期都固定的支出，可以預先設定，不用每個月重新輸入。</p>
-        <div class="mf-visual"><img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面"></div>
       </div>
       <div class="mini-feature">
         <div class="mf-head"><span class="ic">🏦</span>資產盤點</div>
         <p>整理自己目前持有的不同資產，慢慢看懂自己的資產累積。</p>
-        <div class="mf-visual"><img src="img/assets.png" alt="生活小夥伴資產盤點畫面"></div>
       </div>
       <div class="mini-feature">
         <div class="mf-head"><span class="ic">💳</span>負債與還款進度</div>
         <p>不只看見「還有多少債」，也能看見「自己已經還了多少」。</p>
-        <div class="mf-visual"><img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面"></div>
+      </div>
+      <div class="asset-collage" style="grid-column:1 / -1;">
+        <img src="img/budget.png" alt="生活小夥伴每月預算分配畫面">
+        <img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面">
+        <img src="img/assets.png" alt="生活小夥伴資產盤點畫面">
+        <img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面">
       </div>
       <div class="mini-feature" style="grid-column:1 / -1;">
         <div class="mf-head"><span class="ic">🛟</span>緊急預備金</div>
