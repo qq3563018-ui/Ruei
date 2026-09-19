@@ -138,7 +138,8 @@ header.top{
 .asset-carousel{ display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; margin-top:8px; padding-bottom:6px; scrollbar-width:none; }
 .asset-carousel::-webkit-scrollbar{ display:none; }
 .asset-carousel .ac-item{ flex:0 0 78%; max-width:260px; scroll-snap-align:start; }
-.asset-carousel img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+.asset-carousel .ac-frame{ height:380px; border-radius:12px; border:1px solid var(--line); overflow:hidden; background:var(--paper-raised); }
+.asset-carousel .ac-frame img{ width:100%; height:100%; object-fit:contain; display:block; }
 .asset-carousel-hint{ margin-top:10px; font-size:12px; color:var(--ink-faint); text-align:center; }
 
 /* ---------- life trace ---------- */
@@ -362,19 +363,19 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
         <div class="mf-head"><span class="ic">💳</span>負債與還款進度</div>
         <p>不只看見「還有多少債」，也能看見「自己已經還了多少」。</p>
       </div>
-      <div style="grid-column:1 / -1;">
-        <div class="asset-carousel">
-          <div class="ac-item"><img src="img/budget.png" alt="生活小夥伴每月預算分配畫面"></div>
-          <div class="ac-item"><img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面"></div>
-          <div class="ac-item"><img src="img/assets.png" alt="生活小夥伴資產盤點畫面"></div>
-          <div class="ac-item"><img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面"></div>
-        </div>
-        <p class="asset-carousel-hint">👉 左右滑動查看更多畫面</p>
-      </div>
-      <div class="mini-feature" style="grid-column:1 / -1;">
+      <div class="mini-feature">
         <div class="mf-head"><span class="ic">🛟</span>緊急預備金</div>
         <p>整理與追蹤自己的緊急預備金準備狀況。</p>
-        <div class="mf-visual" style="max-width:320px;margin-inline:auto;"><img src="img/ef.png" alt="生活小夥伴緊急預備金規劃畫面"></div>
+      </div>
+      <div style="grid-column:1 / -1;">
+        <div class="asset-carousel">
+          <div class="ac-item"><div class="ac-frame"><img src="img/budget.png" alt="生活小夥伴每月預算分配畫面"></div></div>
+          <div class="ac-item"><div class="ac-frame"><img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面"></div></div>
+          <div class="ac-item"><div class="ac-frame"><img src="img/assets.png" alt="生活小夥伴資產盤點畫面"></div></div>
+          <div class="ac-item"><div class="ac-frame"><img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面"></div></div>
+          <div class="ac-item"><div class="ac-frame"><img src="img/ef.png" alt="生活小夥伴緊急預備金規劃畫面"></div></div>
+        </div>
+        <p class="asset-carousel-hint">👉 左右滑動查看更多畫面</p>
       </div>
     </div>
 
