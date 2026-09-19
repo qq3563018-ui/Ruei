@@ -135,8 +135,11 @@ header.top{
 .mini-feature p{ font-size:13px; line-height:1.8; color:var(--ink-soft); }
 .mini-feature .mf-visual{ margin-top:12px; }
 .mini-feature .mf-visual img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
-.asset-collage{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
-.asset-collage img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+.asset-carousel{ display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; margin-top:8px; padding-bottom:6px; scrollbar-width:none; }
+.asset-carousel::-webkit-scrollbar{ display:none; }
+.asset-carousel .ac-item{ flex:0 0 78%; max-width:260px; scroll-snap-align:start; }
+.asset-carousel img{ width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+.asset-carousel-hint{ margin-top:10px; font-size:12px; color:var(--ink-faint); text-align:center; }
 
 /* ---------- life trace ---------- */
 .trace{ padding-block:88px; background:var(--paper-raised); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
@@ -359,11 +362,14 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
         <div class="mf-head"><span class="ic">💳</span>負債與還款進度</div>
         <p>不只看見「還有多少債」，也能看見「自己已經還了多少」。</p>
       </div>
-      <div class="asset-collage" style="grid-column:1 / -1;">
-        <img src="img/budget.png" alt="生活小夥伴每月預算分配畫面">
-        <img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面">
-        <img src="img/assets.png" alt="生活小夥伴資產盤點畫面">
-        <img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面">
+      <div style="grid-column:1 / -1;">
+        <div class="asset-carousel">
+          <div class="ac-item"><img src="img/budget.png" alt="生活小夥伴每月預算分配畫面"></div>
+          <div class="ac-item"><img src="img/fixed.png" alt="生活小夥伴固定收支設定畫面"></div>
+          <div class="ac-item"><img src="img/assets.png" alt="生活小夥伴資產盤點畫面"></div>
+          <div class="ac-item"><img src="img/debts.png" alt="生活小夥伴負債與還款進度畫面"></div>
+        </div>
+        <p class="asset-carousel-hint">👉 左右滑動查看更多畫面</p>
       </div>
       <div class="mini-feature" style="grid-column:1 / -1;">
         <div class="mf-head"><span class="ic">🛟</span>緊急預備金</div>
