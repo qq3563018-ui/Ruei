@@ -210,31 +210,34 @@ header.top{
 
 /* ---------- closer (no price here) ---------- */
 .closer{
-  padding:56px 20px 64px; text-align:center; border-top:1px solid var(--line); position:relative; overflow:hidden;
-  background-color:#FBEAD3;
-  background-image:radial-gradient(#C99A78 2px, transparent 2.6px);
-  background-size:32px 32px;
+  padding:52px 20px 60px; text-align:center; border-top:1px solid var(--line); position:relative; overflow:hidden;
+  background-color:#FDF3E7;
+  background-image:radial-gradient(#A98879 2.1px, transparent 2.7px);
+  background-size:38px 38px;
 }
-.closer .doodle{ position:absolute; opacity:.9; stroke:#fff; }
-.closer .doodle.d1{ top:36px; left:14%; width:70px; }
-.closer .doodle.d2{ top:52px; right:10%; width:90px; }
-.closer .polaroid{ position:relative; max-width:400px; margin:0 auto; background:#EBDD84; padding:16px 16px 66px; border-radius:4px; box-shadow:0 16px 34px rgba(80,60,30,.18); }
-.closer .polaroid-blob{ position:absolute; width:78px; height:120px; background:#C9AB90; border-radius:58% 42% 55% 45% / 55% 45% 62% 38%; z-index:0; }
-.closer .polaroid-blob.blob-tl{ top:-32px; left:-26px; transform:rotate(-18deg); }
-.closer .polaroid-blob.blob-br{ bottom:-34px; right:-26px; transform:rotate(22deg); }
-.closer .polaroid-photo{ position:relative; z-index:1; background:#FBF6EC; padding:34px 22px 26px; }
+.closer .doodle{ position:absolute; opacity:.95; stroke:#fff; fill:none; }
+.closer .doodle .spark{ fill:#fff; stroke:none; }
+.closer .doodle.d1{ top:22px; left:16%; width:56px; }
+.closer .doodle.d2{ top:34px; right:9%; width:82px; }
+.closer .polaroid{ position:relative; max-width:400px; margin:0 auto; background:#F0E7A6; padding:28px 28px 0; border-radius:3px; box-shadow:0 16px 34px rgba(80,60,30,.2); }
+.closer .polaroid-blob{ position:absolute; background:#D6BBA6; border-radius:58% 42% 55% 45% / 55% 45% 62% 38%; z-index:0; }
+.closer .polaroid-blob.blob-tl{ width:74px; height:92px; top:-32px; left:-23px; transform:rotate(-18deg); }
+.closer .polaroid-blob.blob-br{ width:82px; height:118px; bottom:-32px; right:-50px; transform:rotate(22deg); }
+.closer .polaroid-photo{ position:relative; z-index:1; background:#FAF6F3; padding:32px 20px 26px; }
 .closer .wrap{ max-width:420px; position:relative; z-index:1; }
-.closer h2{ font-size:clamp(19px,3.2vw,25px); line-height:1.6; font-family:"Noto Serif TC",serif; }
-.closer p{ margin-top:14px; font-size:13.5px; line-height:1.9; color:var(--ink-soft); }
+.closer h2{ font-size:clamp(19px,3.2vw,25px); line-height:1.6; font-family:"Noto Serif TC",serif; color:#160F09; }
+.closer p{ margin-top:14px; font-size:13.5px; line-height:1.9; color:#4C433E; }
 .closer p + p{ margin-top:10px; }
-.closer .brand{ margin-top:20px; font-size:16px; font-weight:900; font-family:"Noto Serif TC",serif; }
+.closer .brand{ margin-top:20px; font-size:16px; font-weight:900; font-family:"Noto Serif TC",serif; color:#160F09; }
 .closer .hero-cta{ justify-content:center; margin-top:18px; }
+.closer .hero-cta .btn-line{ background:#C77D94; }
+.closer .polaroid-caption{ margin-top:16px; padding-bottom:28px; position:relative; z-index:1; }
 .closer .polaroid-tag{
-  position:absolute; left:16px; bottom:14px; z-index:1; text-align:left;
-  background:#7C6350; color:#F3E4C8; font-family:"Courier New",monospace; font-size:11px; font-weight:700;
-  letter-spacing:.02em; line-height:1.6; padding:8px 12px; border:1px solid rgba(0,0,0,.15);
+  display:inline-block; text-align:left;
+  background:#947F6E; color:#160F09; font-family:"Courier New",monospace; font-size:12px; font-weight:700;
+  letter-spacing:.02em; line-height:1.7; padding:9px 14px; border:1.5px solid #160F09;
 }
-.closer .polaroid-tag u{ text-decoration:none; border-bottom:1px dotted #F3E4C8; }
+.closer .polaroid-tag .ln2{ display:table; margin-left:auto; margin-top:2px; border-bottom:2px dotted #160F09; padding-bottom:2px; }
 
 footer{ border-top:1px solid var(--line); padding-block:26px; text-align:center; }
 footer p{ font-size:12.5px; color:var(--ink-faint); }
@@ -597,8 +600,15 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
 
 <!-- 最終 CTA（不重複價格，只留品牌收尾與 LINE 按鈕） -->
 <section class="closer">
-  <svg class="doodle d1" viewBox="0 0 80 50" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 30 Q10 6 26 14 Q34 18 30 28 Q40 22 44 32 Q30 40 18 36 Q6 40 4 30Z"/></svg>
-  <svg class="doodle d2" viewBox="0 0 100 60" fill="none" stroke-width="2" stroke-linecap="round"><path d="M6 36 Q16 8 38 18 Q48 22 42 34 Q60 24 68 38 Q46 50 26 44 Q10 48 6 36Z"/></svg>
+  <svg class="doodle d1" viewBox="0 0 44 40" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 4 C15 1 6 7 6 16 C6 22 12 25 17 21 C13 27 15 33 21 36 C18 38 19 40 24 38 C20 36 21 31 19 28 C25 30 29 25 27 19 C33 19 35 12 29 8 C31 4 26 1 22 4 Z"/>
+    <path class="spark" d="M6 0 7.2 3 10 4 7.2 5 6 8 4.8 5 2 4 4.8 3Z" transform="translate(2,-4) scale(0.6)"/>
+  </svg>
+  <svg class="doodle d2" viewBox="0 0 90 40" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 4 C15 1 6 7 6 16 C6 22 12 25 17 21 C13 27 15 33 21 36 C18 38 19 40 24 38 C20 36 21 31 19 28 C25 30 29 25 27 19 C33 19 35 12 29 8 C31 4 26 1 22 4 Z"/>
+    <path d="M22 4 C15 1 6 7 6 16 C6 22 12 25 17 21 C13 27 15 33 21 36 C18 38 19 40 24 38 C20 36 21 31 19 28 C25 30 29 25 27 19 C33 19 35 12 29 8 C31 4 26 1 22 4 Z" transform="translate(90,0) scale(-1,1)"/>
+    <path class="spark" d="M6 0 7.2 3 10 4 7.2 5 6 8 4.8 5 2 4 4.8 3Z" transform="translate(40,-2) scale(0.7)"/>
+  </svg>
   <div class="polaroid">
     <div class="polaroid-blob blob-tl"></div>
     <div class="polaroid-blob blob-br"></div>
@@ -622,7 +632,9 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
         </div>
       </div>
     </div>
-    <div class="polaroid-tag">COLLECTING MOMENTS<br>NOT THINGS</div>
+    <div class="polaroid-caption">
+      <div class="polaroid-tag">COLLECTING MOMENTS<span class="ln2">NOT THINGS</span></div>
+    </div>
   </div>
 </section>
 
