@@ -107,8 +107,8 @@ header.top{
 .showcase-item.rev{ direction:rtl; }
 .showcase-item.rev > *{ direction:ltr; }
 .showcase-item.single{ grid-template-columns:1fr; text-align:center; gap:22px; }
-.showcase-item.single .si-num, .showcase-item.single h3{ text-align:left; }
-.showcase-item.single .blk p{ margin-inline:auto; }
+.showcase-item.single .si-num, .showcase-item.single h3, .showcase-item.single .blk{ text-align:left; }
+.showcase-item.single .blk p{ margin-inline:0; }
 @media (max-width:760px){ .showcase-item, .showcase-item.rev{ grid-template-columns:1fr; direction:ltr; } }
 .showcase-item + .showcase-item{ border-top:1px solid var(--line); }
 .si-num{ font-size:12.5px; font-weight:700; color:var(--ink-faint); letter-spacing:.1em; margin-bottom:10px; }
