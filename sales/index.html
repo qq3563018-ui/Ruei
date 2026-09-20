@@ -209,35 +209,14 @@ header.top{
 .faq-a p + p{ margin-top:10px; }
 
 /* ---------- closer (no price here) ---------- */
-.closer{
-  padding:52px 20px 60px; text-align:center; border-top:1px solid var(--line); position:relative; overflow:hidden;
-  background-color:#FDF3E7;
-  background-image:radial-gradient(#A98879 2.1px, transparent 2.7px);
-  background-size:38px 38px;
+.closer{ padding:0; border-top:1px solid var(--line); }
+.closer-media{ position:relative; max-width:600px; margin:0 auto; }
+.closer-media img{ width:100%; display:block; }
+.closer-media .cta-hit{
+  position:absolute; left:31.86%; top:63.46%; width:36.19%; height:5.35%;
+  display:block; border-radius:999px;
 }
-.closer .doodle{ position:absolute; opacity:.95; stroke:#fff; fill:none; }
-.closer .doodle .spark{ fill:#fff; stroke:none; }
-.closer .doodle.d1{ top:22px; left:16%; width:56px; }
-.closer .doodle.d2{ top:34px; right:9%; width:82px; }
-.closer .polaroid{ position:relative; max-width:400px; margin:0 auto; background:#F0E7A6; padding:28px 28px 0; border-radius:3px; box-shadow:0 16px 34px rgba(80,60,30,.2); }
-.closer .polaroid-blob{ position:absolute; background:#D6BBA6; border-radius:58% 42% 55% 45% / 55% 45% 62% 38%; z-index:0; }
-.closer .polaroid-blob.blob-tl{ width:74px; height:92px; top:-32px; left:-23px; transform:rotate(-18deg); }
-.closer .polaroid-blob.blob-br{ width:82px; height:118px; bottom:-32px; right:-50px; transform:rotate(22deg); }
-.closer .polaroid-photo{ position:relative; z-index:1; background:#FAF6F3; padding:32px 20px 26px; }
-.closer .wrap{ max-width:420px; position:relative; z-index:1; }
-.closer h2{ font-size:clamp(19px,3.2vw,25px); line-height:1.6; font-family:"Noto Serif TC",serif; color:#160F09; }
-.closer p{ margin-top:14px; font-size:13.5px; line-height:1.9; color:#4C433E; }
-.closer p + p{ margin-top:10px; }
-.closer .brand{ margin-top:20px; font-size:16px; font-weight:900; font-family:"Noto Serif TC",serif; color:#160F09; }
-.closer .hero-cta{ justify-content:center; margin-top:18px; }
-.closer .hero-cta .btn-line{ background:#C77D94; }
-.closer .polaroid-caption{ margin-top:16px; padding-bottom:28px; position:relative; z-index:1; }
-.closer .polaroid-tag{
-  display:inline-block; text-align:left;
-  background:#947F6E; color:#160F09; font-family:"Courier New",monospace; font-size:12px; font-weight:700;
-  letter-spacing:.02em; line-height:1.7; padding:9px 14px; border:1.5px solid #160F09;
-}
-.closer .polaroid-tag .ln2{ display:table; margin-left:auto; margin-top:2px; border-bottom:2px dotted #160F09; padding-bottom:2px; }
+.closer-media .cta-hit span{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
 
 footer{ border-top:1px solid var(--line); padding-block:26px; text-align:center; }
 footer p{ font-size:12.5px; color:var(--ink-faint); }
@@ -600,41 +579,9 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
 
 <!-- 最終 CTA（不重複價格，只留品牌收尾與 LINE 按鈕） -->
 <section class="closer">
-  <svg class="doodle d1" viewBox="0 0 44 40" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M22 4 C15 1 6 7 6 16 C6 22 12 25 17 21 C13 27 15 33 21 36 C18 38 19 40 24 38 C20 36 21 31 19 28 C25 30 29 25 27 19 C33 19 35 12 29 8 C31 4 26 1 22 4 Z"/>
-    <path class="spark" d="M6 0 7.2 3 10 4 7.2 5 6 8 4.8 5 2 4 4.8 3Z" transform="translate(2,-4) scale(0.6)"/>
-  </svg>
-  <svg class="doodle d2" viewBox="0 0 90 40" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M22 4 C15 1 6 7 6 16 C6 22 12 25 17 21 C13 27 15 33 21 36 C18 38 19 40 24 38 C20 36 21 31 19 28 C25 30 29 25 27 19 C33 19 35 12 29 8 C31 4 26 1 22 4 Z"/>
-    <path d="M22 4 C15 1 6 7 6 16 C6 22 12 25 17 21 C13 27 15 33 21 36 C18 38 19 40 24 38 C20 36 21 31 19 28 C25 30 29 25 27 19 C33 19 35 12 29 8 C31 4 26 1 22 4 Z" transform="translate(90,0) scale(-1,1)"/>
-    <path class="spark" d="M6 0 7.2 3 10 4 7.2 5 6 8 4.8 5 2 4 4.8 3Z" transform="translate(40,-2) scale(0.7)"/>
-  </svg>
-  <div class="polaroid">
-    <div class="polaroid-blob blob-tl"></div>
-    <div class="polaroid-blob blob-br"></div>
-    <div class="polaroid-photo">
-      <div class="wrap">
-        <h2>你可以從今天開始——</h2>
-        <p>
-          記下第一筆錢。<br>
-          放進第一件待辦。<br>
-          寫下第一個想完成的目標。<br>
-          替今天留下一個心情。
-        </p>
-        <p>讓那些原本散落在腦袋裡、手機裡、不同 App 裡的事情，慢慢回到同一個地方。</p>
-        <p>生活小夥伴將陪你一起走屬於你的花路！</p>
-        <div class="brand">🌱 生活小夥伴</div>
-        <div class="hero-cta">
-          <a class="btn-line big" href="https://lin.ee/OENKDEu" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.9 2 10.7c0 4.3 3.6 7.9 8.4 8.6.3.06.8.2.9.46.1.24.06.6.03.85l-.15 1c-.05.28-.22 1.1.96.6 1.18-.5 6.4-3.77 8.74-6.45C22.4 13.98 22 12.4 22 10.7 22 5.9 17.52 2 12 2z"/></svg>
-            開始使用我的生活小夥伴
-          </a>
-        </div>
-      </div>
-    </div>
-    <div class="polaroid-caption">
-      <div class="polaroid-tag">COLLECTING MOMENTS<span class="ln2">NOT THINGS</span></div>
-    </div>
+  <div class="closer-media">
+    <img src="img/closer.png" alt="你可以從今天開始——記下第一筆錢、放進第一件待辦、寫下第一個想完成的目標、替今天留下一個心情。生活小夥伴將陪你一起走屬於你的花路！">
+    <a class="cta-hit" href="https://lin.ee/OENKDEu" target="_blank" rel="noopener" aria-label="開始使用我的生活小夥伴"><span>開始使用我的生活小夥伴</span></a>
   </div>
 </section>
 
