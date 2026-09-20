@@ -94,8 +94,9 @@ header.top{
 .redefine{ padding-block:60px; border-top:1px solid var(--line); text-align:center; }
 .redefine .wrap{ max-width:560px; }
 .redefine h2{ font-size:clamp(22px,3.2vw,30px); line-height:1.5; margin:36px 0 26px; }
-.redefine p{ font-size:15px; line-height:2; color:var(--ink-soft); }
+.redefine p{ margin:0; font-size:15px; line-height:2; color:var(--ink-soft); }
 .redefine p + p{ margin-top:12px; }
+.redefine .lead-group p + p{ margin-top:0; }
 .redefine p.hl{ font-size:17px; font-weight:700; color:var(--rose-deep); line-height:1.8; }
 .redefine p.hl + p{ margin-top:22px; }
 .redefine .fore{ margin-top:40px; padding:28px 24px; background:var(--paper-raised); border:1px solid var(--line); border-radius:16px; }
@@ -260,9 +261,11 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
 <!-- 02｜問題重新定義 -->
 <section class="redefine">
   <div class="wrap">
-    <p>你想存下來的錢，可能和某個很想完成的目標有關。</p>
-    <p>最近一直亂花錢，也可能剛好是那陣子壓力很大。</p>
-    <p>今天完成的一件小事，可能正慢慢把你帶向幾個月後想成為的自己。</p>
+    <div class="lead-group">
+      <p>你想存下來的錢，可能和某個很想完成的目標有關。</p>
+      <p>最近一直亂花錢，也可能剛好是那陣子壓力很大。</p>
+      <p>今天完成的一件小事，可能正慢慢把你帶向幾個月後想成為的自己。</p>
+    </div>
 
     <h2>所以，你缺的並不是更多工具</h2>
     <p>生活小夥伴想做的，不是再塞給你更多需要管理的<span style="white-space:nowrap">東西。</span></p>
