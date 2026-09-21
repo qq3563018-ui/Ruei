@@ -155,7 +155,8 @@ header.top{
 .trace .final{ margin-top:36px; font-size:16px; font-weight:700; color:var(--ink); position:relative; padding-bottom:88px; }
 .trace-mascot{ width:74px; height:auto; position:absolute; pointer-events:none; }
 .trace-mascot-l{ left:6%; bottom:0; }
-.trace-mascot-r{ right:6%; bottom:18px; }
+.trace-mascot-wrap{ position:absolute; right:6%; bottom:18px; display:inline-block; pointer-events:none; }
+.trace-star{ position:absolute; width:22px; height:auto; left:-6px; bottom:-4px; }
 .trace-dedication{ display:inline-block; font-size:13px; color:var(--rose-deep); letter-spacing:.03em; margin-bottom:18px; padding:8px 18px; background:var(--rose-soft); border-radius:999px; }
 
 /* ---------- fit checklist ---------- */
@@ -473,7 +474,10 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
     <p class="final">
       <img src="img/mascot-pink.png" class="trace-mascot trace-mascot-l" alt="生活小夥伴白色彈吉他吉祥物玩偶">
       它陪你整理現在，陪你慢慢往前，也替你留下，一路走來的自己。
-      <img src="img/mascot-blue.png" class="trace-mascot trace-mascot-r" alt="生活小夥伴藍色巫師帽吉祥物玩偶">
+      <span class="trace-mascot-wrap">
+        <img src="img/mascot-blue.png" class="trace-mascot" style="position:static;" alt="生活小夥伴藍色巫師帽吉祥物玩偶">
+        <img src="img/star-badge.png" class="trace-star" alt="裝飾星星圖案">
+      </span>
     </p>
   </div>
 </section>
