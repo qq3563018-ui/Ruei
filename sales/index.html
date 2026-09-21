@@ -11,18 +11,21 @@
 :root{
   --paper:#FBF7F2; --paper-raised:#FFFFFF; --ink:#362F28; --ink-soft:#6B5E52; --ink-faint:#9C8F80;
   --line:#E8DDD0; --rose:#C97C93; --rose-deep:#A85B75; --rose-soft:#F3DEE4; --sage:#7E9A76; --sage-soft:#DCE6D8; --gold:#C9932F;
+  --sticky-blue:#E7F2FA;
   --shadow: 0 18px 40px -22px rgba(54,47,40,.35);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --paper:#211D18; --paper-raised:#2B2620; --ink:#F3EDE3; --ink-soft:#C9BDAE; --ink-faint:#8A7E70;
     --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --rose-soft:#3D2830; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
+    --sticky-blue:#243444;
     --shadow: 0 18px 40px -18px rgba(0,0,0,.55);
   }
 }
 :root[data-theme="dark"]{
   --paper:#211D18; --paper-raised:#2B2620; --ink:#F3EDE3; --ink-soft:#C9BDAE; --ink-faint:#8A7E70;
   --line:#3E362D; --rose:#E39BB0; --rose-deep:#EFB6C6; --rose-soft:#3D2830; --sage:#A8C2A0; --sage-soft:#33402F; --gold:#E8C170;
+  --sticky-blue:#243444;
   --shadow: 0 18px 40px -18px rgba(0,0,0,.55);
 }
 
@@ -239,7 +242,7 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
   position:fixed; left:0; right:0; bottom:0; z-index:210;
   display:flex; align-items:center; justify-content:space-between; gap:14px;
   padding:14px 20px calc(14px + env(safe-area-inset-bottom));
-  background:color-mix(in srgb, var(--paper) 92%, transparent);
+  background:color-mix(in srgb, var(--sticky-blue) 90%, transparent);
   backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   border-top:1px solid var(--line);
   box-shadow:0 -10px 24px -18px rgba(54,47,40,.35);
@@ -247,17 +250,19 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
   transition:opacity .25s ease, transform .25s ease;
 }
 .sticky-cta.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
-.sticky-cta-brand{
+.sticky-cta-brand{ display:flex; flex-direction:column; gap:2px; min-width:0; overflow:hidden; }
+.sc-name{
   font-family:"Noto Serif TC",serif; font-weight:900; font-size:15px; color:var(--ink);
-  display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+.sc-tagline{ font-size:10.5px; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sticky-cta-btn{
   display:inline-flex; align-items:center; gap:4px; min-height:44px; flex-shrink:0;
-  background:var(--rose-deep); color:#fff; padding:10px 20px; border-radius:999px;
+  background:var(--rose-soft); color:var(--rose-deep); padding:10px 20px; border-radius:999px;
   text-decoration:none; font-weight:700; font-size:13.5px; white-space:nowrap;
   box-shadow:var(--shadow);
 }
-.sticky-cta-btn .sc-price{ font-size:16px; font-weight:900; margin-left:2px; }
+.sticky-cta-btn .sc-price{ font-size:16px; font-weight:900; margin-right:2px; }
 </style>
 </head>
 <body>
@@ -634,9 +639,12 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
 </footer>
 
 <div class="sticky-cta" id="stickyCta">
-  <div class="sticky-cta-brand">🌱 生活小夥伴</div>
+  <div class="sticky-cta-brand">
+    <div class="sc-name">🌱 生活小夥伴</div>
+    <div class="sc-tagline">一款陪你過生活的小夥伴</div>
+  </div>
   <a class="sticky-cta-btn" href="#pricing" aria-label="查看生活小夥伴早鳥價與購買方式">
-    早鳥價 <span class="sc-price">NT$299</span> →
+    <span class="sc-price">NT$299</span>限時早鳥價 →
   </a>
 </div>
 
