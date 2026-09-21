@@ -254,8 +254,14 @@ header.top{
 }
 .closer-media .cta-hit span{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
 
-footer{ border-top:1px solid var(--line); padding-block:26px; text-align:center; }
+footer{ border-top:1px solid var(--line); padding:32px 22px 26px; text-align:center; }
 footer p{ font-size:12.5px; color:var(--ink-faint); }
+.footer-copyright{ font-size:12px; color:var(--ink-faint); }
+.footer-license{
+  margin-top:10px; max-width:440px; margin-inline:auto; text-align:left;
+  font-size:12.5px; line-height:1.9; color:var(--ink-soft);
+}
+.footer-signoff{ margin-top:22px; }
 
 /* ---------- sticky bottom cta (mobile) ---------- */
 body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
@@ -691,7 +697,9 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
 </section>
 
 <footer>
-  <p>生活小夥伴 · 為生活留下溫柔的紀錄</p>
+  <p class="footer-copyright">© 2026 生活小夥伴・版權所有</p>
+  <p class="footer-license">本產品僅授權購買者本人使用。未經授權，請勿轉售、轉讓、出租、分享使用連結或檔案，亦不得重製、公開散布或以本產品內容另行販售。</p>
+  <p class="footer-signoff">生活小夥伴 · 為生活留下溫柔的紀錄</p>
 </footer>
 
 <div class="sticky-cta" id="stickyCta">
