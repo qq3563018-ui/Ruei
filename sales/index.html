@@ -44,6 +44,7 @@ p{ margin:0; word-break:keep-all; overflow-wrap:break-word; }
 a{ color:inherit; }
 .wrap{ max-width:1040px; margin:0 auto; padding-inline:22px; }
 section[id]{ scroll-margin-top:76px; }
+#pricing{ scroll-margin-top:76px; }
 .nb{ white-space:nowrap; }
 
 /* ---------- header ---------- */
@@ -558,7 +559,7 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
 </section>
 
 <!-- 購買內容＋唯一價格區 -->
-<section class="pricing" id="pricing">
+<section class="pricing">
   <div class="wrap">
     <div class="price-card">
       <h2>🌱 生活小夥伴</h2>
@@ -589,7 +590,7 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
         <span style="background:#EE7C2B"></span>
       </div>
       <div class="price-block">
-        <div class="price-name">生活小夥伴・首發早鳥價</div>
+        <div class="price-name" id="pricing">生活小夥伴・首發早鳥價</div>
         <div class="price-amount">NT$299</div>
         <div class="price-extra">【限時10位額滿後將恢復原價<span style="white-space:nowrap">NT$690】</span></div>
         <div class="price-note">一次買斷，不用每個月付費。</div>
@@ -716,7 +717,7 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
 (function(){
   var bar = document.getElementById('stickyCta');
   var hero = document.querySelector('.hero');
-  var pricing = document.getElementById('pricing');
+  var pricing = document.querySelector('.pricing');
   if(!bar || !hero || !pricing) return;
   var pastHero = false, inPricing = false;
   function update(){
