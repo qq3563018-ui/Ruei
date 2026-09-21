@@ -259,10 +259,11 @@ body{ padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
 .sticky-cta-btn{
   display:inline-flex; align-items:center; gap:4px; min-height:44px; flex-shrink:0;
   background:var(--rose-soft); color:var(--rose-deep); padding:10px 20px; border-radius:999px;
-  text-decoration:underline; text-underline-offset:3px; font-weight:700; font-size:13.5px; white-space:nowrap;
+  text-decoration:none; font-weight:700; font-size:13.5px; white-space:nowrap;
   box-shadow:var(--shadow);
 }
-.sticky-cta-btn .sc-price{ font-size:16px; font-weight:900; margin-right:2px; text-decoration:inherit; text-decoration-thickness:1.5px; }
+.sticky-cta-btn .sc-label{ display:inline-block; line-height:1; border-bottom:1.5px solid currentColor; padding-bottom:4px; }
+.sticky-cta-btn .sc-price{ font-size:16px; font-weight:900; margin-right:2px; }
 </style>
 </head>
 <body>
