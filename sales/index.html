@@ -232,6 +232,15 @@ header.top{
 
 footer{ border-top:1px solid var(--line); padding-block:26px; text-align:center; }
 footer p{ font-size:12.5px; color:var(--ink-faint); }
+
+.jump-price{
+  position:fixed; right:16px; bottom:calc(16px + env(safe-area-inset-bottom)); z-index:200;
+  display:flex; align-items:center; gap:6px;
+  background:var(--rose-deep); color:#fff; padding:13px 20px; border-radius:999px;
+  font-size:14px; font-weight:800; text-decoration:none;
+  box-shadow:0 10px 24px rgba(0,0,0,.22);
+}
+.jump-price svg{ width:16px; height:16px; flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -499,7 +508,7 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
 </section>
 
 <!-- 購買內容＋唯一價格區 -->
-<section class="pricing">
+<section class="pricing" id="pricing">
   <div class="wrap">
     <div class="price-card">
       <h2>🌱 生活小夥伴</h2>
@@ -606,6 +615,11 @@ footer p{ font-size:12.5px; color:var(--ink-faint); }
 <footer>
   <p>生活小夥伴 · 為生活留下溫柔的紀錄</p>
 </footer>
+
+<a class="jump-price" href="#pricing">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+  查看方案
+</a>
 
 </body>
 </html>
