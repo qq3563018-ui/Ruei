@@ -2327,15 +2327,6 @@ function renderLedger(){
   }
   if(ledgerSubView==="budget") renderBudgetTab();
 }
-function categoryPaceMessageNew(cat, dateStr){
-  const mk = (dateStr||todayStr()).slice(0,7);
-  const b = getBudget(mk);
-  if(!b || !b.categoryBudgets || !b.categoryBudgets[cat]) return null;
-  const budget = b.categoryBudgets[cat];
-  const used = categoryActualForMonth(mk, cat);
-  if(used > budget) return `這個月「${cat}」已經超過分類預算囉，可以到「記帳 → 💡本月預算」看看整體狀況。`;
-  return null;
-}
 function openTxForm(editId){
   const editing = editId ? DB.transactions.find(x=>x.id===editId) : null;
   openSheet(`
@@ -2390,8 +2381,7 @@ function openTxForm(editId){
     }else{
       DB.transactions.push({id:uid(), date, amount, type, category, name, note});
       save(); closeSheet(); renderAll();
-      const paceMsg = type==="expense" ? categoryPaceMessageNew(category, date) : null;
-      toast(paceMsg || ("已記錄一筆"+(type==="income"?"收入":"支出")));
+      toast("已記錄一筆"+(type==="income"?"收入":"支出"));
     }
   });
 }
@@ -2765,9 +2755,6 @@ function bucketActuals(mk){
   const debt = fixed.reduce((s,t)=>s+t.amount,0) + debtPaymentsForMonth(mk);
   return {necessary, debt, savings:0, free};
 }
-function categoryActualForMonth(mk, cat){
-  return DB.transactions.filter(t=>t.type==="expense" && t.category===cat && t.date.startsWith(mk)).reduce((s,t)=>s+t.amount,0);
-}
 function fixedExpenseExpectedForMonth(){
   const items = [];
   DB.recurringTx.filter(r=>r.type==="expense" && !r.paused).forEach(r=>{
@@ -2796,14 +2783,16 @@ function daysLeftInfo(mk){
 }
 
 function createBudget(mk, data, carriedFrom){
-  const snap = {available:data.available||0, allocations:Object.assign(blankAllocations(), data.allocations||{}), categoryBudgets:Object.assign({}, data.categoryBudgets||{})};
+  const snap = {available:data.available||0, allocations:Object.assign(blankAllocations(), data.allocations||{})};
   DB.budgetsByMonth[mk] = {
     mk,
     available: snap.available,
     allocations: deepClone(snap.allocations),
-    categoryBudgets: deepClone(snap.categoryBudgets),
+    categoryBudgets: deepClone(data.categoryBudgets||{}),
+    calcItems: deepClone(data.calcItems||{}),
     original: deepClone(snap),
     reviews: {},
+    selfReview: null,
     carriedFrom: carriedFrom||null,
     createdAt: todayStr(), updatedAt: todayStr(),
   };
@@ -2814,7 +2803,7 @@ function updateBudget(mk, patch){
   if(!b) return;
   if(patch.available!=null) b.available = patch.available;
   if(patch.allocations) Object.assign(b.allocations, patch.allocations);
-  if(patch.categoryBudgets) b.categoryBudgets = patch.categoryBudgets;
+  if(patch.calcItems) b.calcItems = patch.calcItems;
   b.updatedAt = todayStr();
   save();
 }
@@ -2863,7 +2852,7 @@ function renderBudgetTab(){
     `;
     const carryBtn = document.getElementById("btnCarryOverBudget");
     if(carryBtn) carryBtn.addEventListener("click", ()=>{
-      createBudget(mk, {available:prevB.available, allocations:prevB.allocations, categoryBudgets:prevB.categoryBudgets}, prevMk);
+      createBudget(mk, {available:prevB.available, allocations:prevB.allocations, categoryBudgets:prevB.categoryBudgets, calcItems:prevB.calcItems}, prevMk);
       renderBudgetTab(); toast("已沿用上個月的預算，內容都可以再調整");
     });
     document.getElementById("btnFreshBudget").addEventListener("click", ()=>openBudgetSetupForm(mk));
@@ -2896,20 +2885,6 @@ function renderBudgetTab(){
   const dinfo = daysLeftInfo(mk);
   const perDay = dinfo.isPast ? null : (dinfo.daysLeft>0 ? Math.floor(Math.max(0,remainUsable)/dinfo.daysLeft) : Math.max(0,remainUsable));
 
-  const catEntries = Object.entries(b.categoryBudgets||{});
-  const catHTML = catEntries.length ? catEntries.map(([cat,budget])=>{
-    const actual = categoryActualForMonth(mk, cat);
-    const ratio = budget>0 ? Math.min(100, Math.round(actual/budget*100)) : (actual>0?100:0);
-    const remain = budget - actual;
-    return `
-      <div style="margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span>${escapeHtml(cat)}</span><span>$${actual.toLocaleString()} ／ ${budget.toLocaleString()}</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${ratio}%; ${actual>budget?'background:#C96A5C;':''}"></div></div>
-        <div class="muted">${remain>=0? `剩餘 NT$${remain.toLocaleString()}` : `超過 NT$${Math.abs(remain).toLocaleString()}`}</div>
-      </div>
-    `;
-  }).join("") : `<div class="empty-state">還沒有設定分類預算，這是可選的功能</div>`;
-
   box.innerHTML = `
     <div class="stat-grid" style="margin-bottom:6px;">
       <div class="stat-box"><div class="stat-num">${b.available.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
@@ -2928,49 +2903,153 @@ function renderBudgetTab(){
       </div>
     ` : ""}
 
-    <div style="border-top:1px solid var(--line); padding-top:12px; margin-top:4px;">
-      <div class="card-title" style="margin-bottom:8px;">分類預算（可選） <button class="small-link" id="btnEditCatBudget">設定</button></div>
-      ${catHTML}
-    </div>
-
     <div style="display:flex; gap:8px; margin-top:14px;">
-      <button class="btn-ghost" id="btnBudgetReviewNew" style="flex:1;">🌤 本月財務復盤</button>
+      <button class="btn-ghost" id="btnBudgetReviewNew" style="flex:1;">🌙 本月財務復盤</button>
     </div>
   `;
   document.getElementById("btnEditBudgetOverview").addEventListener("click", ()=>openBudgetSetupForm(mk));
-  document.getElementById("btnEditCatBudget").addEventListener("click", ()=>openCategoryBudgetFormNew(mk));
   document.getElementById("btnBudgetReviewNew").addEventListener("click", ()=>openBudgetReviewNew(mk));
 }
 
 /* ============ 設定／調整本月可運用＋四大類分配 ============ */
+function captureWizFromForm(wiz){
+  const availEl = document.getElementById("bg_available");
+  if(availEl) wiz.available = parseFloat(availEl.value)||0;
+  document.querySelectorAll(".bg_alloc").forEach(inp=>{ wiz.allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
+}
 function openBudgetSetupForm(mk, wizIn){
   const existing = getBudget(mk);
-  const wiz = wizIn || (existing ? {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations)} : {available: monthlyAvailableDefault(mk), allocations: blankAllocations()});
+  const wiz = wizIn || (existing
+    ? {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations), calcItems:deepClone(existing.calcItems||{})}
+    : {available: monthlyAvailableDefault(mk), allocations: blankAllocations(), calcItems:{}});
   openSheet(`
     <div class="sheet-head"><h3>${existing?"調整":"設定"}本月預算</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>本月可運用金額</label><input id="bg_available" type="number" placeholder="0" value="${wiz.available||""}"></div>
     <div class="muted" style="margin-bottom:10px;">預設抓這個月已記錄的收入，但可以自己改，不會被收入鎖住。</div>
     <div class="card-title" style="margin:10px 0 8px;">分配到四大類</div>
     ${BUCKET_DEFS.map(bd=>`
-      <div class="field"><label>${bd.emoji} ${bd.label}</label><input class="bg_alloc" data-key="${bd.key}" type="number" placeholder="0" value="${wiz.allocations[bd.key]||""}"></div>
+      <div class="field">
+        <label style="display:flex; justify-content:space-between; align-items:center;">
+          <span>${bd.emoji} ${bd.label}</span>
+          <button type="button" class="small-link calc-help-btn" data-key="${bd.key}" style="font-weight:400;">幫我計算 ›</button>
+        </label>
+        <input class="bg_alloc" data-key="${bd.key}" type="number" placeholder="0" value="${wiz.allocations[bd.key]||""}">
+      </div>
     `).join("")}
     <button class="btn-ghost" id="bg_importFixed" style="width:100%; margin-bottom:10px;">把固定收支／負債帶入「還款/固定責任」</button>
     <button class="btn-main" id="bg_submit">儲存</button>
   `);
+  document.querySelectorAll(".bg_alloc").forEach(inp=>{
+    inp.dataset.lastval = inp.value || "0";
+    inp.addEventListener("change", ()=>{
+      const key = inp.dataset.key;
+      const items = (wiz.calcItems && wiz.calcItems[key]) || [];
+      const newVal = parseFloat(inp.value)||0;
+      if(!items.length){ inp.dataset.lastval = String(newVal); return; }
+      const itemSum = items.reduce((s,it)=>s+(Number(it.amount)||0),0);
+      if(newVal===itemSum){ inp.dataset.lastval = String(newVal); return; }
+      const prevVal = inp.dataset.lastval;
+      captureWizFromForm(wiz);
+      wiz.allocations[key] = newVal;
+      openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal);
+    });
+  });
+  document.querySelectorAll(".calc-help-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      captureWizFromForm(wiz);
+      openCalcItemsSheet(mk, btn.dataset.key, wiz);
+    });
+  });
   document.getElementById("bg_importFixed").addEventListener("click", ()=>{
-    wiz.available = parseFloat(document.getElementById("bg_available").value)||0;
-    document.querySelectorAll(".bg_alloc").forEach(inp=>{ wiz.allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
+    captureWizFromForm(wiz);
     openFixedImportPrompt(mk, wiz);
   });
   document.getElementById("bg_submit").addEventListener("click", ()=>{
     const available = parseFloat(document.getElementById("bg_available").value)||0;
     const allocations = blankAllocations();
     document.querySelectorAll(".bg_alloc").forEach(inp=>{ allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
-    if(existing){ updateBudget(mk, {available, allocations}); }
-    else{ createBudget(mk, {available, allocations, categoryBudgets:{}}); }
+    const calcItems = wiz.calcItems || {};
+    if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
+    else{ createBudget(mk, {available, allocations, calcItems}); }
     closeSheet(); renderBudgetTab(); renderHomeStats(); toast("已更新本月預算");
   });
 }
+function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
+  const bd = BUCKET_DEFS.find(x=>x.key===key);
+  const cancel = ()=>{ wiz.allocations[key] = parseFloat(prevVal)||0; openBudgetSetupForm(mk, wiz); };
+  openSheet(`
+    <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="amc_x">✕</button></div>
+    <div class="muted" style="margin-bottom:16px; line-height:1.7;">你剛把「${bd.label}」改成 NT$${newVal.toLocaleString()}，但原本的細項加總是 NT$${itemSum.toLocaleString()}，要怎麼處理呢？</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="btn-main" id="amc_keep">保留 NT$${newVal.toLocaleString()}</button>
+      <button class="btn-ghost" id="amc_edit">回到細項調整</button>
+      <button class="btn-ghost" id="amc_cancel">取消</button>
+    </div>
+  `);
+  document.getElementById("amc_x").addEventListener("click", cancel);
+  document.getElementById("amc_cancel").addEventListener("click", cancel);
+  document.getElementById("amc_keep").addEventListener("click", ()=>openBudgetSetupForm(mk, wiz));
+  document.getElementById("amc_edit").addEventListener("click", ()=>openCalcItemsSheet(mk, key, wiz));
+}
+
+/* ============ 幫我計算：四大類的計算小工具，只負責幫忙加總、帶入總額，不是分類預算 ============ */
+function openCalcItemsSheet(mk, bucketKey, wiz){
+  const bd = BUCKET_DEFS.find(x=>x.key===bucketKey);
+  const items = deepClone((wiz.calcItems && wiz.calcItems[bucketKey]) || []);
+  const outerTotal = wiz.allocations[bucketKey]||0;
+  const itemsSumInit = items.reduce((s,it)=>s+(Number(it.amount)||0),0);
+  const showMismatch = items.length>0 && outerTotal!==itemsSumInit;
+  const rowHTML = (it)=>`
+    <div class="item-row calc-item-row" data-id="${it.id}">
+      <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1; border:none; background:transparent; font-size:14px; padding:4px;">
+      <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="width:90px; border:none; background:transparent; text-align:right; font-size:14px; padding:4px;">
+      <button class="del-btn calc-item-del" data-id="${it.id}">✕</button>
+    </div>`;
+  openSheet(`
+    <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">把這個月預計需要的項目填進來，小夥伴幫你加總 🤍</div>
+    ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
+    <div id="ci_list">${items.map(rowHTML).join("")}</div>
+    <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增項目</button>
+    <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
+      <span class="muted">目前合計</span><span id="ci_total" style="font-size:17px; font-weight:900;">NT$ ${itemsSumInit.toLocaleString()}</span>
+    </div>
+    <button class="btn-main" id="ci_confirm" style="width:100%;">帶入 NT$${itemsSumInit.toLocaleString()}</button>
+  `);
+  function recalc(){
+    let sum = 0;
+    document.querySelectorAll(".calc-item-amt").forEach(inp=>{ sum += parseFloat(inp.value)||0; });
+    document.getElementById("ci_total").textContent = "NT$ " + sum.toLocaleString();
+    document.getElementById("ci_confirm").textContent = "帶入 NT$" + sum.toLocaleString();
+  }
+  document.getElementById("ci_list").addEventListener("input", (e)=>{
+    if(e.target.classList.contains("calc-item-amt")) recalc();
+  });
+  document.getElementById("ci_list").addEventListener("click", (e)=>{
+    if(e.target.classList.contains("calc-item-del")){
+      e.target.closest(".calc-item-row").remove();
+      recalc();
+    }
+  });
+  document.getElementById("ci_add").addEventListener("click", ()=>{
+    document.getElementById("ci_list").insertAdjacentHTML("beforeend", rowHTML({id:uid(), name:"", amount:""}));
+    recalc();
+  });
+  document.getElementById("ci_confirm").addEventListener("click", ()=>{
+    const newItems = [...document.querySelectorAll(".calc-item-row")].map(row=>({
+      id: row.dataset.id,
+      name: row.querySelector(".calc-item-name").value.trim(),
+      amount: parseFloat(row.querySelector(".calc-item-amt").value)||0,
+    })).filter(it=>it.name || it.amount);
+    const sum = newItems.reduce((s,it)=>s+it.amount,0);
+    wiz.calcItems = wiz.calcItems || {};
+    wiz.calcItems[bucketKey] = newItems;
+    wiz.allocations[bucketKey] = sum;
+    openBudgetSetupForm(mk, wiz);
+  });
+  document.getElementById("ci_back").addEventListener("click", ()=>openBudgetSetupForm(mk, wiz));
+}
+
 function openFixedImportPrompt(mk, wiz){
   const {items, total} = fixedExpenseExpectedForMonth();
   if(!items.length){ toast("目前沒有設定固定收支或還款中的負債"); openBudgetSetupForm(mk, wiz); return; }
@@ -3007,46 +3086,9 @@ function openFixedImportPrompt(mk, wiz){
   });
 }
 
-/* ============ 分類預算（可選），顯示上個月參考數字 ============ */
-function openCategoryBudgetFormNew(mk){
-  const b = getBudget(mk);
-  if(!b) return;
-  const prevMk = prevMonthKeyOf(mk);
-  const prevB = getBudget(prevMk);
-  const cats = [...EXPENSE_CATS, ...DB.customCategories.expense.filter(c=>!EXPENSE_CATS.includes(c))];
-  openSheet(`
-    <div class="sheet-head"><h3>設定分類預算（可選）</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">幫幾個常花錢的類別設一個大概的每月額度，留空代表這個類別先不設限。</div>
-    ${cats.map(c=>{
-      const prevBudget = prevB && prevB.categoryBudgets ? prevB.categoryBudgets[c] : null;
-      const prevActual = prevB ? categoryActualForMonth(prevMk, c) : null;
-      const prevReview = prevB && prevB.reviews ? prevB.reviews[c] : null;
-      let refLine = "";
-      if(prevBudget!=null || prevActual){
-        refLine = `<div class="muted" style="margin-top:2px;">上個月：預算 ${prevBudget!=null?prevBudget.toLocaleString():"—"} ／ 實際 ${(prevActual||0).toLocaleString()}${prevReview?`（曾記錄原因：${escapeHtml(prevReview.reason||"")}）`:""}</div>`;
-      }
-      return `
-        <div class="field">
-          <label>${escapeHtml(c)}</label>
-          <input type="number" class="catbudget-input" data-cat="${escapeHtml(c)}" placeholder="不設限" value="${b.categoryBudgets&&b.categoryBudgets[c]?b.categoryBudgets[c]:""}">
-          ${refLine}
-        </div>
-      `;
-    }).join("")}
-    <button class="btn-main" id="f_savecatbudget">儲存</button>
-  `);
-  document.getElementById("f_savecatbudget").addEventListener("click", ()=>{
-    const newBudgets = {};
-    document.querySelectorAll(".catbudget-input").forEach(inp=>{
-      const v = parseFloat(inp.value);
-      if(v>0) newBudgets[inp.dataset.cat] = v;
-    });
-    updateBudget(mk, {categoryBudgets:newBudgets});
-    closeSheet(); renderBudgetTab(); toast("已更新分類預算");
-  });
-}
-
-/* ============ 本月財務復盤：只給客觀數字，不做評價／建議 ============ */
+/* ============ 本月財務復盤：客觀數字＋實際支出分布，不做評價／建議 ============ */
+const OVERSPEND_REASONS = ["這個月有特殊活動／聚餐","原本預算抓得太低","臨時支出比較多","沒有特別注意花費","其他"];
+const OVERSPEND_INTENTIONS = ["維持原本預算","調高預算","重新分配預算","下個月再決定"];
 function openBudgetReviewNew(mk){
   const b = getBudget(mk);
   if(!b) return;
@@ -3055,40 +3097,52 @@ function openBudgetReviewNew(mk){
   const allocatedTotal = Object.values(b.allocations).reduce((s,v)=>s+v,0);
   const originalTotal = b.original ? Object.values(b.original.allocations).reduce((s,v)=>s+v,0) : allocatedTotal;
   const remainOrOver = b.available - actualTotal;
+  const isOver = remainOrOver < 0;
 
   const bucketOver = BUCKET_DEFS.map(bd=>({...bd, budget:b.allocations[bd.key]||0, actual:actuals[bd.key]||0}))
     .filter(x=>x.actual > x.budget)
-    .map(x=>({key:x.key, label:`${x.emoji} ${x.label}`, over: x.actual - x.budget}));
+    .map(x=>({label:`${x.emoji} ${x.label}`, over: x.actual - x.budget}));
 
-  const catOver = Object.entries(b.categoryBudgets||{})
-    .map(([cat,budget])=>({cat, budget, actual:categoryActualForMonth(mk,cat)}))
-    .filter(x=>x.actual > x.budget)
-    .map(x=>({cat:x.cat, over: x.actual - x.budget}));
+  const catTotals = {};
+  txsForMonth(mk).filter(t=>t.type==="expense").forEach(t=>{ catTotals[t.category] = (catTotals[t.category]||0)+t.amount; });
+  const catArr = Object.entries(catTotals).sort((a,c)=>c[1]-a[1]);
+  const prevReview = b.selfReview;
 
   openSheet(`
-    <div class="sheet-head"><h3>🌤 本月財務復盤</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="sheet-head"><h3>🌙 本月財務復盤</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="stat-grid" style="margin-bottom:10px;">
       <div class="stat-box"><div class="stat-num">${b.available.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
       <div class="stat-box"><div class="stat-num">${allocatedTotal.toLocaleString()}</div><div class="stat-label">最終預算</div></div>
       <div class="stat-box"><div class="stat-num">${actualTotal.toLocaleString()}</div><div class="stat-label">實際支出</div></div>
     </div>
-    <div class="networth-line"><span class="label">${remainOrOver>=0?"剩餘":"超支"}</span><span class="value">NT$ ${Math.abs(remainOrOver).toLocaleString()}</span></div>
+    <div class="networth-line"><span class="label">${isOver?"超支":"剩餘"}</span><span class="value">NT$ ${Math.abs(remainOrOver).toLocaleString()}</span></div>
     ${originalTotal!==allocatedTotal ? `<div class="muted" style="margin-top:4px;">原始預算安排總額：NT$${originalTotal.toLocaleString()}（後續調整過）</div>` : ""}
     ${bucketOver.length ? `
       <div class="card-title" style="margin-top:16px; margin-bottom:8px;">超出預算的類別（四大類）</div>
       ${bucketOver.map(x=>`<div class="networth-line"><span class="label">${x.label}</span><span class="value">超 NT$${x.over.toLocaleString()}</span></div>`).join("")}
     ` : ""}
-    ${catOver.length ? `
-      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">超出分類預算的項目（點擊查看明細）</div>
-      ${catOver.map(x=>`<div class="item-row cat-over-row" data-cat="${escapeHtml(x.cat)}" style="cursor:pointer;"><div class="item-title" style="flex:1;">${escapeHtml(x.cat)}</div><div style="font-weight:700; color:#C96A5C;">超 NT$${x.over.toLocaleString()}</div></div>`).join("")}
+    ${isOver ? `
+      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">本月實際支出分布</div>
+      ${catArr.length ? catArr.map(([cat,amt])=>`<div class="item-row review-cat-row" data-cat="${escapeHtml(cat)}" style="cursor:pointer;"><div class="item-title" style="flex:1;">${escapeHtml(cat)}</div><div style="font-weight:700;">$${amt.toLocaleString()}</div></div>`).join("") : `<div class="empty-state">本月還沒有支出紀錄</div>`}
+      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">你覺得這個月超支主要是什麼原因？</div>
+      <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
+      <div class="card-title" style="margin-top:10px; margin-bottom:8px;">下個月想怎麼處理？</div>
+      <div class="field"><select id="rv_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.intention===r?"selected":""}>${r}</option>`).join("")}</select></div>
+      <button class="btn-main" id="rv_saveReview" style="width:100%; margin-top:6px;">儲存這次的復盤</button>
+      ${prevReview?`<div class="muted" style="margin-top:8px; text-align:center;">上次記錄時間：${prevReview.savedAt}</div>`:""}
     ` : ""}
   `);
-  document.querySelectorAll(".cat-over-row").forEach(el=>{
+  document.querySelectorAll(".review-cat-row").forEach(el=>{
     el.addEventListener("click", ()=>openOverspendDetail(mk, el.dataset.cat));
+  });
+  const saveBtn = document.getElementById("rv_saveReview");
+  if(saveBtn) saveBtn.addEventListener("click", ()=>{
+    b.selfReview = { reason: document.getElementById("rv_reason").value, intention: document.getElementById("rv_intention").value, savedAt: todayStr() };
+    save(); toast("已儲存這次的復盤記錄");
   });
 }
 
-/* ============ 查看造成超支的實際明細 ============ */
+/* ============ 查看本月實際支出的交易明細 ============ */
 function openOverspendDetail(mk, cat){
   const txs = DB.transactions.filter(t=>t.type==="expense" && t.category===cat && t.date.startsWith(mk)).sort((a,b)=>b.date.localeCompare(a.date));
   openSheet(`
@@ -3100,33 +3154,7 @@ function openOverspendDetail(mk, cat){
         <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
       </div>
     `).join("") : `<div class="empty-state">這個類別本月沒有明細</div>`}
-    <button class="btn-ghost" id="ov_selfReview" style="width:100%; margin-top:14px;">記錄這次超支的原因（可選）</button>
   `);
-  document.getElementById("ov_selfReview").addEventListener("click", ()=>openOverspendSelfReview(mk, cat));
-}
-
-/* ============ 讓使用者自己做超支復盤（僅供參考，不會自動改預算） ============ */
-const OVERSPEND_REASONS = ["非預期的臨時支出","預算原本就設太低","忘記算進其他開銷","單純這個月比較常花","其他"];
-const OVERSPEND_INTENTIONS = ["下個月調高這個類別的預算","下個月留意這個類別的花費","先觀察，之後再決定","其他"];
-function openOverspendSelfReview(mk, cat){
-  const b = getBudget(mk);
-  const prev = (b.reviews && b.reviews[cat]) || {};
-  openSheet(`
-    <div class="sheet-head"><h3>${escapeHtml(cat)}｜超支小記錄</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">這裡只是幫你自己留個記錄，之後想調整分類預算時可以參考，小夥伴不會自動幫你改預算。</div>
-    <div class="field"><label>這次超支比較接近哪個原因？</label>
-      <select id="ov_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prev.reason===r?"selected":""}>${r}</option>`).join("")}</select>
-    </div>
-    <div class="field"><label>下個月打算怎麼做？</label>
-      <select id="ov_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prev.intention===r?"selected":""}>${r}</option>`).join("")}</select>
-    </div>
-    <button class="btn-main" id="ov_save">儲存記錄</button>
-  `);
-  document.getElementById("ov_save").addEventListener("click", ()=>{
-    if(!b.reviews) b.reviews = {};
-    b.reviews[cat] = {reason: document.getElementById("ov_reason").value, intention: document.getElementById("ov_intention").value, savedAt: todayStr()};
-    save(); closeSheet(); toast("已儲存這次的記錄");
-  });
 }
 
 
