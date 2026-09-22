@@ -460,39 +460,51 @@ emoji-picker{
 
 <!-- 5. 記帳 -->
 <div class="view" id="view-ledger">
-  <div class="card">
-    <div class="cal-head" style="margin-bottom:10px;">
-      <button class="cal-nav-btn" id="ledgerPrev">‹</button>
-      <h3 class="cal-title-btn" id="ledgerMonthLabel">本月概況</h3>
-      <button class="cal-nav-btn" id="ledgerNext">›</button>
+  <div class="seg" id="ledgerSubTabs" style="margin-bottom:14px;">
+    <button type="button" data-sub="ledger" class="active">📒 記帳</button>
+    <button type="button" data-sub="budget">💡 本月預算</button>
+  </div>
+  <div id="ledgerSubPanel">
+    <div class="card">
+      <div class="cal-head" style="margin-bottom:10px;">
+        <button class="cal-nav-btn" id="ledgerPrev">‹</button>
+        <h3 class="cal-title-btn" id="ledgerMonthLabel">本月概況</h3>
+        <button class="cal-nav-btn" id="ledgerNext">›</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num" id="ledgerIncome">0</div><div class="stat-label">收入</div></div>
+        <div class="stat-box"><div class="stat-num" id="ledgerExpense">0</div><div class="stat-label">支出</div></div>
+        <div class="stat-box"><div class="stat-num" id="ledgerLeft">0</div><div class="stat-label">剩餘</div></div>
+      </div>
+      <button class="btn-ghost" id="btnShowReport" style="width:100%; margin-top:12px;">📊 產生帳務報表與分析</button>
     </div>
-    <div class="stat-grid">
-      <div class="stat-box"><div class="stat-num" id="ledgerIncome">0</div><div class="stat-label">收入</div></div>
-      <div class="stat-box"><div class="stat-num" id="ledgerExpense">0</div><div class="stat-label">支出</div></div>
-      <div class="stat-box"><div class="stat-num" id="ledgerLeft">0</div><div class="stat-label">剩餘</div></div>
+    <div class="card">
+      <div class="card-title">🔄 固定收支 <button class="small-link" id="btnAddRecurring">＋ 新增</button></div>
+      <div class="muted" style="margin-bottom:10px;">設定後，小夥伴會按照你的週期，自動幫你建立記帳紀錄，不會另外提醒或加入待辦。</div>
+      <div id="recurringTxList"></div>
     </div>
-    <button class="btn-ghost" id="btnShowReport" style="width:100%; margin-top:12px;">📊 產生帳務報表與分析</button>
+    <div class="card">
+      <div class="card-title">支出分類統計</div>
+      <div id="ledgerCategoryStats"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">收入分類統計</div>
+      <div id="ledgerIncomeCategoryStats"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">本月明細</div>
+      <div id="ledgerList"></div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-title">🔄 固定收支 <button class="small-link" id="btnAddRecurring">＋ 新增</button></div>
-    <div class="muted" style="margin-bottom:10px;">設定後，小夥伴會按照你的週期，自動幫你建立記帳紀錄，不會另外提醒或加入待辦。</div>
-    <div id="recurringTxList"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">💡 本月預算 <button class="small-link" id="btnSetBudget">調整預算</button></div>
-    <div id="budgetSummary"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">支出分類統計</div>
-    <div id="ledgerCategoryStats"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">收入分類統計</div>
-    <div id="ledgerIncomeCategoryStats"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">本月明細</div>
-    <div id="ledgerList"></div>
+  <div id="budgetSubPanel" style="display:none;">
+    <div class="card">
+      <div class="cal-head" style="margin-bottom:10px;">
+        <button class="cal-nav-btn" id="budgetPrev">‹</button>
+        <h3 class="cal-title-btn" id="budgetMonthLabel">本月預算</h3>
+        <button class="cal-nav-btn" id="budgetNext">›</button>
+      </div>
+      <div id="budgetContent"></div>
+    </div>
   </div>
 </div>
 
@@ -609,7 +621,7 @@ function loadDB(){
 function withDefaults(obj){
   return Object.assign({
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
-    customCategories:{expense:[], income:[]}, budget:null, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
+    customCategories:{expense:[], income:[]}, budget:null, budgetsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
     seenDiscoveryNotices:[],
     emergencyFund:{
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
@@ -1424,9 +1436,21 @@ function renderHomeStats(){
   const todays = DB.todos.filter(t=>t.date===todayStr());
   const done = todays.filter(t=>t.done).length;
   document.getElementById("homeTodoRate").textContent = todays.length? Math.round(done/todays.length*100)+"%":"0%";
-  const {income, expense} = monthSummary(new Date());
-  document.getElementById("homeMoneyLeft").textContent = (income-expense).toLocaleString();
+  const now = new Date();
+  const {income, expense} = monthSummary(now);
+  const realMk = monthKey(now);
+  const budget = getBudget(realMk);
+  let moneyLeft = income - expense;
+  if(budget){
+    const actuals = bucketActuals(realMk);
+    moneyLeft = budget.available - (actuals.necessary + actuals.debt + actuals.free);
+  }
+  document.getElementById("homeMoneyLeft").textContent = moneyLeft.toLocaleString();
 }
+document.getElementById("homeMoneyLeft").parentElement.style.cursor = "pointer";
+document.getElementById("homeMoneyLeft").parentElement.addEventListener("click", ()=>{
+  switchView("ledger"); showLedgerSub("budget");
+});
 
 /* ============ 打卡 ============ */
 function getStreak(){
@@ -2278,7 +2302,16 @@ function renderLedger(){
       });
     });
   }
-  renderBudgetSummary();
+  if(ledgerSubView==="budget") renderBudgetTab();
+}
+function categoryPaceMessageNew(cat, dateStr){
+  const mk = (dateStr||todayStr()).slice(0,7);
+  const b = getBudget(mk);
+  if(!b || !b.categoryBudgets || !b.categoryBudgets[cat]) return null;
+  const budget = b.categoryBudgets[cat];
+  const used = categoryActualForMonth(mk, cat);
+  if(used > budget) return `這個月「${cat}」已經超過分類預算囉，可以到「記帳 → 💡本月預算」看看整體狀況。`;
+  return null;
 }
 function openTxForm(editId){
   const editing = editId ? DB.transactions.find(x=>x.id===editId) : null;
@@ -2334,7 +2367,7 @@ function openTxForm(editId){
     }else{
       DB.transactions.push({id:uid(), date, amount, type, category, name, note});
       save(); closeSheet(); renderAll();
-      const paceMsg = type==="expense" ? categoryPaceMessage(category) : null;
+      const paceMsg = type==="expense" ? categoryPaceMessageNew(category, date) : null;
       toast(paceMsg || ("已記錄一筆"+(type==="income"?"收入":"支出")));
     }
   });
@@ -2665,281 +2698,314 @@ document.getElementById("ledgerMonthLabel").addEventListener("click", ()=>{
   openMonthJumpPicker(ledgerYear, ledgerMonth, (y,m)=>{ ledgerYear=y; ledgerMonth=m; renderLedger(); });
 });
 
-/* ============ 預算規劃 ============ */
-// 設計原則：不是把收入硬套進固定比例（例如 50/30/20），而是先問清楚使用者的
-// 收支結構與目前最重要的財務目標，再依「必要支出是否吃緊」「有沒有負債」
-// 「這個月想優先做到什麼」決定彈性資金怎麼分配。任何時候都可以重新調整，
-// 也不要求使用者一定要把每一塊錢分配完。
-const FINANCIAL_GOALS = [
-  {key:"emergency",   label:"建立緊急預備金",   emoji:"🛟"},
-  {key:"debt",         label:"優先還債",         emoji:"💳"},
-  {key:"start_saving", label:"開始存錢",         emoji:"🌱"},
-  {key:"stop_tight",   label:"擺脫月光",         emoji:"🌙"},
-  {key:"build_assets", label:"累積資產",         emoji:"📈"},
-  {key:"specific",     label:"為特定目標存錢",   emoji:"🎯"},
-  {key:"stability",    label:"維持目前生活穩定", emoji:"🌿"},
-  {key:"unsure",       label:"我還不知道",       emoji:"🤔"},
+/* ============ 本月預算（獨立頁籤，與記帳共用同一份交易資料） ============
+   設計原則：
+   - 預算資料獨立存在 DB.budgetsByMonth，用 "YYYY-MM" 當 key，每個月互不影響。
+   - 「實際使用」永遠即時從 DB.transactions／DB.debts[].payments 算出來，
+     不另外存一份記帳資料，記帳新增/編輯/刪除後這裡會自動反映。
+   - 固定收支（recurringRuleId 標記的交易）與負債還款，只算進「還款/固定責任」，
+     不會同時又被算進「必要生活」或「自由使用」，避免重複計算。
+   - 預算內容（本月可運用／四大類分配／分類預算）隨時可以修改；每個月第一次
+     建立時會留一份 original 快照，之後不管怎麼調整都不會去動這份快照，
+     用來之後回顧「原始預算 vs 調整後 vs 實際」。
+   - 使用者自己做的超支復盤（原因／下個月打算）只存起來當參考，系統不會拿
+     這些答案自動去改任何預算數字。 */
+const BUCKET_DEFS = [
+  {key:"necessary", emoji:"🏠", label:"必要生活"},
+  {key:"debt",       emoji:"💳", label:"還款/固定責任"},
+  {key:"savings",    emoji:"🌱", label:"儲蓄與目標"},
+  {key:"free",       emoji:"🌷", label:"自由使用"},
 ];
-function goalLabel(key){ const g = FINANCIAL_GOALS.find(x=>x.key===key); return g?g.label:"還在探索中"; }
+const NECESSARY_BUCKET_CATS = ["居住","醫療","學習"];
 
-// 依收入、必要支出、負債、財務目標，計算「這個月的錢大概怎麼安排比較合理」。
-// 不會因為現金流吃緊，就硬要使用者存錢或多還債；優先順序永遠是先顧好基本生活。
-function computeBudgetPlan(b){
-  const debtMonthly = DB.debts.filter(d=>d.remainingInstallments>0).reduce((s,d)=>s+d.installmentAmount,0);
-  const necessary = (b.fixedExpenses||0) + (b.livingExpenses||0);
-  const afterNecessary = (b.income||0) - necessary;
-  const flexible = afterNecessary - debtMonthly;
-  let savings=0, free=0, tight=false, extremeTight=false, note="";
+function pad2(n){ return String(n).padStart(2,"0"); }
+function budgetMonthKeyOf(year, month0){ return `${year}-${pad2(month0+1)}`; }
+function prevMonthKeyOf(mk){
+  const [y,m] = mk.split("-").map(Number);
+  const d = new Date(y, m-2, 1);
+  return budgetMonthKeyOf(d.getFullYear(), d.getMonth());
+}
+function deepClone(obj){ return JSON.parse(JSON.stringify(obj)); }
+function getBudget(mk){ return DB.budgetsByMonth[mk] || null; }
+function blankAllocations(){ return {necessary:0, debt:0, savings:0, free:0}; }
 
-  if(afterNecessary <= 0){
-    extremeTight = true;
-    note = `目前必要支出（固定＋生活必要）大約 NT$${necessary.toLocaleString()}，已經達到或超過收入。${debtMonthly>0?`加上每月還款 NT$${debtMonthly.toLocaleString()}，負擔又更重一些。`:""}這個月最重要的是先確保基本生活與現金流不斷炊，不用勉強自己存錢，之後有空可以檢視固定支出，看看有沒有能調整的地方。`;
-  }else if(flexible <= 0){
-    tight = true;
-    free = Math.max(0, afterNecessary - debtMonthly);
-    note = `扣除必要支出後剩下 NT$${afterNecessary.toLocaleString()}，但每月還款需要 NT$${debtMonthly.toLocaleString()}，目前現金流偏緊。這個月建議優先確保基本生活與還款，暫時不用額外存錢，自由支出也先降到最低就好。`;
-  }else{
-    let ratio;
-    switch(b.goal){
-      case "emergency":   ratio = 0.6; break;
-      case "debt":         ratio = b.hasDebt ? 0.55 : 0.35; break;
-      case "start_saving": ratio = 0.5; break;
-      case "stop_tight":   ratio = 0.35; break;
-      case "build_assets": ratio = 0.5; break;
-      case "specific":     ratio = 0.45; break;
-      case "stability":    ratio = 0.2; break;
-      default:              ratio = 0.3;
-    }
-    // 彈性金額本來就不多的時候，不硬拉高儲蓄比例，多留一點空間給生活運用
-    if(flexible < (b.income||0)*0.15) ratio = Math.min(ratio, 0.3);
-    savings = Math.round(flexible*ratio);
-    free = flexible - savings;
-    note = buildPlanNote(b, debtMonthly, flexible);
-  }
-  return {necessary, debtMonthly, afterNecessary, flexible, savings, free, tight, extremeTight, note};
+function txsForMonth(mk){ return DB.transactions.filter(t=>t.date.startsWith(mk)); }
+function debtPaymentsForMonth(mk){
+  return DB.debts.reduce((s,d)=>s + (d.payments||[]).filter(p=>p.date.startsWith(mk)).reduce((s2,p)=>s2+p.amount,0), 0);
 }
-function buildPlanNote(b, debtMonthly, flexible){
-  let base = `扣除必要支出${debtMonthly>0?`與每月還款（NT$${debtMonthly.toLocaleString()}）`:""}後，這個月大約有 NT$${flexible.toLocaleString()} 可以彈性運用。`;
-  let goalText;
-  switch(b.goal){
-    case "emergency":   goalText = "因為你目前的目標是建立緊急預備金，這筆錢會先多留一些在「儲蓄」，剩下的才是可以自由運用的部分。"; break;
-    case "debt":         goalText = "因為你目前想優先還債，這筆錢會多留一些用來加碼還款或存下來備用，剩下的才是自由運用的部分。"; break;
-    case "start_saving": goalText = "因為你想開始存錢，這筆錢會分一半放進儲蓄，養成慢慢存的習慣。"; break;
-    case "stop_tight":   goalText = "因為你想擺脫月光，這筆錢會先留一部分當緩衝，其他的自由運用，之後手頭比較寬裕了再慢慢拉高儲蓄比例。"; break;
-    case "build_assets": goalText = "因為你想累積資產，這筆錢會分一半放進儲蓄／投資準備金。實際要不要投資、投資什麼，屬於比較重大的決定，建議之後再另外評估風險，這裡先幫你把錢留下來就好。"; break;
-    case "specific":     goalText = `因為你有特定的存錢目標${b.goalNote?`（${b.goalNote}）`:""}，這筆錢會多留一些，幫你朝目標前進。`; break;
-    case "stability":    goalText = "因為你目前想維持生活穩定，這筆錢大部分會留給日常自由運用，只留一小部分做基本儲蓄。"; break;
-    default:              goalText = "因為你還不確定目前最重要的財務目標，先抓一個溫和的比例：一部分存起來，大部分留給生活運用，之後想清楚了隨時都可以調整。";
-  }
-  return base + goalText;
+function bucketActuals(mk){
+  const txs = txsForMonth(mk).filter(t=>t.type==="expense");
+  const fixed = txs.filter(t=>t.recurringRuleId);
+  const nonFixed = txs.filter(t=>!t.recurringRuleId);
+  const necessary = nonFixed.filter(t=>NECESSARY_BUCKET_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
+  const free = nonFixed.filter(t=>!NECESSARY_BUCKET_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
+  const debt = fixed.reduce((s,t)=>s+t.amount,0) + debtPaymentsForMonth(mk);
+  return {necessary, debt, savings:0, free};
 }
-
-/* ---- 建立／調整預算：用幾個簡單問題，一步一步問，而不是一次丟一張表單 ---- */
-function openBudgetWizard(){
-  const cur = (DB.budget && DB.budget.version===2) ? DB.budget : null;
-  const wiz = {
-    income: cur ? cur.income : null,
-    fixedExpenses: cur ? cur.fixedExpenses : null,
-    livingExpenses: cur ? cur.livingExpenses : null,
-    hasDebt: cur ? cur.hasDebt : (DB.debts.length>0),
-    goal: cur ? cur.goal : null,
-    goalNote: cur ? (cur.goalNote||"") : "",
-  };
-  let step = 1;
-
-  function dots(){
-    return Array.from({length:5},(_,i)=>`<span style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;background:${i<step?'var(--accent)':'var(--soft-accent)'}"></span>`).join("");
-  }
-  function wrap(title, intro, body, opts){
-    opts = opts || {};
-    openSheet(`
-      <div class="sheet-head"><h3>${title}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-      <div style="margin-bottom:12px;">${dots()} <span class="muted" style="margin-left:4px;">${Math.min(step,5)}／5</span></div>
-      ${intro?`<div class="muted" style="margin-bottom:12px; line-height:1.6;">${intro}</div>`:""}
-      ${body}
-      <div style="display:flex; gap:8px; margin-top:16px;">
-        ${step>1?`<button class="btn-ghost" id="wizBack" style="flex:1;">上一步</button>`:""}
-        <button class="btn-main" id="wizNext" style="flex:2;">${opts.nextLabel||"下一步"}</button>
-      </div>
-    `);
-    if(step>1) document.getElementById("wizBack").addEventListener("click", ()=>{ step--; renderStep(); });
-  }
-  function renderStep(){
-    if(step===1) return stepIncome();
-    if(step===2) return stepFixed();
-    if(step===3) return stepLiving();
-    if(step===4) return stepDebt();
-    if(step===5) return stepGoal();
-    return stepSummary();
-  }
-  function stepIncome(){
-    wrap("💡 一起安排這個月的預算", "先抓一個大概的數字就好，不用精算，之後隨時可以更新。",
-      `<div class="field"><label>本月可用收入</label><input id="wz_income" type="number" placeholder="例如：40000" value="${wiz.income??""}"></div>`
-    );
-    document.getElementById("wizNext").addEventListener("click", ()=>{
-      const v = parseFloat(document.getElementById("wz_income").value);
-      if(!v || v<=0){ toast("先抓一個大概的收入數字，才能幫你安排這個月的預算喔"); return; }
-      wiz.income = v; step=2; renderStep();
-    });
-  }
-  function stepFixed(){
-    wrap("🏠 每月固定必要支出", "像是房租／房貸、保險、學費、訂閱等每個月金額固定的支出。不確定的話可以先跳過。",
-      `<div class="field"><label>每月固定必要支出</label><input id="wz_fixed" type="number" placeholder="0" value="${wiz.fixedExpenses??""}"></div>
-       <button class="btn-ghost" id="wizSkip" style="width:100%;">先不知道，跳過這題</button>`
-    );
-    document.getElementById("wizSkip").addEventListener("click", ()=>{ wiz.fixedExpenses = wiz.fixedExpenses||0; step=3; renderStep(); });
-    document.getElementById("wizNext").addEventListener("click", ()=>{
-      const v = parseFloat(document.getElementById("wz_fixed").value);
-      wiz.fixedExpenses = v||0; step=3; renderStep();
-    });
-  }
-  function stepLiving(){
-    wrap("🍚 每月生活必要支出", "像是餐飲、交通、日用品這類維持基本生活會用到的花費，抓一個大概的月金額就好。",
-      `<div class="field"><label>每月生活必要支出</label><input id="wz_living" type="number" placeholder="0" value="${wiz.livingExpenses??""}"></div>
-       <button class="btn-ghost" id="wizSkip" style="width:100%;">先不知道，跳過這題</button>`
-    );
-    document.getElementById("wizSkip").addEventListener("click", ()=>{ wiz.livingExpenses = wiz.livingExpenses||0; step=4; renderStep(); });
-    document.getElementById("wizNext").addEventListener("click", ()=>{
-      const v = parseFloat(document.getElementById("wz_living").value);
-      wiz.livingExpenses = v||0; step=4; renderStep();
-    });
-  }
-  function stepDebt(){
-    wrap("💳 目前是否有負債？", "這裡指任何目前還在還的錢（信用卡、貸款等），不限於已經記錄在「資產盤點」裡的項目。",
-      `<div class="seg" id="wz_debtSeg">
-        <button type="button" data-v="1" class="${wiz.hasDebt?'active':''}">有負債</button>
-        <button type="button" data-v="0" class="${!wiz.hasDebt?'active':''}">沒有負債</button>
-      </div>`
-    );
-    let val = wiz.hasDebt ? 1 : 0;
-    document.querySelectorAll("#wz_debtSeg button").forEach(b=>{
-      b.addEventListener("click", ()=>{
-        document.querySelectorAll("#wz_debtSeg button").forEach(x=>x.classList.remove("active"));
-        b.classList.add("active"); val = +b.dataset.v;
-      });
-    });
-    document.getElementById("wizNext").addEventListener("click", ()=>{
-      wiz.hasDebt = !!val; step=5; renderStep();
-    });
-  }
-  function stepGoal(){
-    wrap("🎯 目前最重要的財務目標", "選一個現在對你來說最重要的就好，之後隨時可以改。",
-      `<div style="display:flex; flex-direction:column; gap:8px;" id="wz_goalList">
-        ${FINANCIAL_GOALS.map(g=>`<button type="button" data-v="${g.key}" class="btn-ghost wz-goal-btn" style="text-align:left; ${wiz.goal===g.key?'background:var(--accent); color:var(--on-accent);':''}">${g.emoji} ${g.label}</button>`).join("")}
-      </div>
-      <div class="field" id="wz_goalNoteWrap" style="margin-top:12px; ${wiz.goal==='specific'?'':'display:none;'}">
-        <label>想存錢的目標是？（可選）</label>
-        <input id="wz_goalNote" placeholder="例如：出國旅遊、結婚基金" value="${escapeHtml(wiz.goalNote||"")}">
-      </div>`
-    );
-    let selected = wiz.goal;
-    document.querySelectorAll(".wz-goal-btn").forEach(b=>{
-      b.addEventListener("click", ()=>{
-        document.querySelectorAll(".wz-goal-btn").forEach(x=>{ x.style.background=""; x.style.color=""; });
-        b.style.background = "var(--accent)"; b.style.color = "#fff";
-        selected = b.dataset.v;
-        document.getElementById("wz_goalNoteWrap").style.display = selected==="specific" ? "block" : "none";
-      });
-    });
-    document.getElementById("wizNext").addEventListener("click", ()=>{
-      if(!selected){ toast("選一個目前最重要的財務目標，或選「我還不知道」也可以"); return; }
-      wiz.goal = selected;
-      const noteEl = document.getElementById("wz_goalNote");
-      wiz.goalNote = noteEl ? noteEl.value.trim() : "";
-      step=6; renderStep();
-    });
-  }
-  function stepSummary(){
-    const plan = computeBudgetPlan(wiz);
-    wrap("✅ 這是幫你安排的這個月預算", null, `
-      <div class="muted" style="margin-bottom:12px; line-height:1.7;">${escapeHtml(plan.note)}</div>
-      <div class="stat-grid" style="margin-bottom:10px;">
-        <div class="stat-box"><div class="stat-num">${plan.necessary.toLocaleString()}</div><div class="stat-label">必要支出</div></div>
-        <div class="stat-box"><div class="stat-num">${plan.debtMonthly.toLocaleString()}</div><div class="stat-label">每月還款</div></div>
-        <div class="stat-box"><div class="stat-num">${(plan.savings+plan.free).toLocaleString()}</div><div class="stat-label">可自由安排</div></div>
-      </div>
-      <div class="networth-line"><span class="label">💰 儲蓄／目標</span><span class="value">NT$ ${plan.savings.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">🌷 自由支出</span><span class="value">NT$ ${plan.free.toLocaleString()}</span></div>
-      <div class="muted" style="margin-top:10px; line-height:1.6;">之後隨時可以按「調整預算」重新設定，實際花費跟預算不一樣也沒關係，不用要求自己每個月都做到完美。</div>
-    `, {nextLabel: cur ? "更新我的預算" : "建立我的預算"});
-    document.getElementById("wizNext").addEventListener("click", ()=>{
-      DB.budget = {
-        version: 2,
-        income: wiz.income, fixedExpenses: wiz.fixedExpenses||0, livingExpenses: wiz.livingExpenses||0,
-        hasDebt: !!wiz.hasDebt, goal: wiz.goal, goalNote: wiz.goalNote||"",
-        categoryBudgets: (cur && cur.categoryBudgets) || {},
-        createdAt: (cur && cur.createdAt) || todayStr(),
-        updatedAt: todayStr(),
-      };
-      budgetSuggestionDismissed = null;
-      save(); closeSheet(); renderAll(); toast("已更新你的預算規劃");
-      maybeOfferGoalTodo(wiz.goal, plan);
-    });
-  }
-  renderStep();
-}
-document.getElementById("btnSetBudget").addEventListener("click", openBudgetWizard);
-
-// 依財務目標，主動提議轉成一個簡單可執行的待辦（使用者可以選擇不要）
-function maybeOfferGoalTodo(goal, plan){
-  if(goal==="unsure" || goal==="stability") return;
-  if(plan.extremeTight || plan.tight) return; // 現金流吃緊時，不主動加壓力
-  let title = null;
-  if(goal==="emergency")        title = `本月存入緊急預備金 NT$${plan.savings.toLocaleString()}`;
-  else if(goal==="debt")        title = `本月加碼還款／存下 NT$${plan.savings.toLocaleString()}`;
-  else if(goal==="start_saving")title = `本月存下 NT$${plan.savings.toLocaleString()}`;
-  else if(goal==="build_assets")title = `本月撥 NT$${plan.savings.toLocaleString()} 到資產累積準備`;
-  else if(goal==="specific")    title = `為「${DB.budget.goalNote||"目標"}」存下 NT$${plan.savings.toLocaleString()}`;
-  else if(goal==="stop_tight")  title = `月底檢查這個月有沒有存到一點緩衝金`;
-  if(!title || plan.savings<=0) return;
-  setTimeout(()=>{
-    openSheet(`
-      <div class="sheet-head"><h3>要加入待辦嗎？</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-      <div class="muted" style="margin-bottom:16px; line-height:1.6;">要不要把「${escapeHtml(goalLabel(goal))}」這件事，變成一個簡單的待辦，提醒自己這個月執行？</div>
-      <div class="item-row" style="margin-bottom:16px;"><div class="item-title">${escapeHtml(title)}</div></div>
-      <div class="confirm-actions">
-        <button class="btn-ghost" id="skipGoalTodo">先不用</button>
-        <button class="btn-main" id="addGoalTodo">加入待辦</button>
-      </div>
-    `);
-    document.getElementById("skipGoalTodo").addEventListener("click", closeSheet);
-    document.getElementById("addGoalTodo").addEventListener("click", ()=>{
-      DB.todos.push({id:uid(), title, date: todayStr(), done:false, doneAt:null, color:null});
-      save(); closeSheet(); renderAll(); toast("已加入待辦");
-    });
-  }, 300);
-}
-
-/* ---- 分類預算（可選）：只給常花錢的類別設個大概額度，換算成好執行的每週／每日參考額度 ---- */
-function daysElapsedRatio(){
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  return now.getDate()/daysInMonth;
-}
-function weeksLeftInMonth(){
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const daysLeft = daysInMonth - now.getDate() + 1;
-  return Math.max(daysLeft/7, 0.3);
-}
-function categoryActualThisMonth(cat){
-  const mk = monthKey(new Date());
+function categoryActualForMonth(mk, cat){
   return DB.transactions.filter(t=>t.type==="expense" && t.category===cat && t.date.startsWith(mk)).reduce((s,t)=>s+t.amount,0);
 }
-function openCategoryBudgetForm(opts){
-  opts = opts || {};
-  const b = DB.budget;
-  if(!b || b.version!==2){ toast("請先設定本月預算"); return; }
+function fixedExpenseExpectedForMonth(){
+  const items = [];
+  DB.recurringTx.filter(r=>r.type==="expense" && !r.paused).forEach(r=>{
+    const amt = r.freq==="monthly" ? r.amount : Math.round(r.amount/12);
+    items.push({label:r.name, amount:amt, source:"recurring", id:r.id});
+  });
+  DB.debts.filter(d=>(d.remainingInstallments||0)>0).forEach(d=>{
+    items.push({label:d.name, amount:Number(d.installmentAmount)||0, source:"debt", id:d.id});
+  });
+  const total = items.reduce((s,i)=>s+i.amount,0);
+  return {items, total};
+}
+function monthlyAvailableDefault(mk){
+  const [y,m] = mk.split("-").map(Number);
+  const {income} = monthSummary(new Date(y, m-1, 1));
+  return income;
+}
+function daysLeftInfo(mk){
+  const [y,m] = mk.split("-").map(Number);
+  const dim = daysInMonth(y, m);
+  const realMk = monthKey(new Date());
+  if(mk < realMk) return {daysInMonth:dim, daysLeft:0, isPast:true};
+  if(mk > realMk) return {daysInMonth:dim, daysLeft:dim, isPast:false};
+  const today = new Date();
+  return {daysInMonth:dim, daysLeft: dim - today.getDate() + 1, isPast:false};
+}
+
+function createBudget(mk, data, carriedFrom){
+  const snap = {available:data.available||0, allocations:Object.assign(blankAllocations(), data.allocations||{}), categoryBudgets:Object.assign({}, data.categoryBudgets||{})};
+  DB.budgetsByMonth[mk] = {
+    mk,
+    available: snap.available,
+    allocations: deepClone(snap.allocations),
+    categoryBudgets: deepClone(snap.categoryBudgets),
+    original: deepClone(snap),
+    reviews: {},
+    carriedFrom: carriedFrom||null,
+    createdAt: todayStr(), updatedAt: todayStr(),
+  };
+  save();
+}
+function updateBudget(mk, patch){
+  const b = getBudget(mk);
+  if(!b) return;
+  if(patch.available!=null) b.available = patch.available;
+  if(patch.allocations) Object.assign(b.allocations, patch.allocations);
+  if(patch.categoryBudgets) b.categoryBudgets = patch.categoryBudgets;
+  b.updatedAt = todayStr();
+  save();
+}
+
+/* ============ 記帳／本月預算 頁籤切換（沿用資產盤點的 sub-view 模式，共用 ledgerYear/ledgerMonth） ============ */
+let ledgerSubView = "ledger"; // ledger | budget
+function showLedgerSub(name){
+  ledgerSubView = name;
+  document.getElementById("ledgerSubPanel").style.display = name==="ledger" ? "block" : "none";
+  document.getElementById("budgetSubPanel").style.display = name==="budget" ? "block" : "none";
+  document.querySelectorAll("#ledgerSubTabs button").forEach(b=>b.classList.toggle("active", b.dataset.sub===name));
+  if(name==="budget") renderBudgetTab();
+}
+document.querySelectorAll("#ledgerSubTabs button").forEach(b=>{
+  b.addEventListener("click", ()=>showLedgerSub(b.dataset.sub));
+});
+document.getElementById("budgetPrev").addEventListener("click", ()=>{
+  ledgerMonth--; if(ledgerMonth<0){ ledgerMonth=11; ledgerYear--; } renderLedger();
+});
+document.getElementById("budgetNext").addEventListener("click", ()=>{
+  ledgerMonth++; if(ledgerMonth>11){ ledgerMonth=0; ledgerYear++; } renderLedger();
+});
+document.getElementById("budgetMonthLabel").addEventListener("click", ()=>{
+  openMonthJumpPicker(ledgerYear, ledgerMonth, (y,m)=>{ ledgerYear=y; ledgerMonth=m; renderLedger(); });
+});
+
+/* ============ 本月預算：總覽渲染 ============ */
+function renderBudgetTab(){
+  const mk = budgetMonthKeyOf(ledgerYear, ledgerMonth);
+  document.getElementById("budgetMonthLabel").textContent = `${ledgerYear}年 ${ledgerMonth+1}月預算`;
+  const box = document.getElementById("budgetContent");
+  const b = getBudget(mk);
+  if(!b){
+    const prevMk = prevMonthKeyOf(mk);
+    const prevB = getBudget(prevMk);
+    box.innerHTML = `
+      <div class="empty-state" style="margin-bottom:14px;">這個月還沒有設定預算，設定後才會開始追蹤這個月的預算與實際花費。</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${prevB ? `<button class="btn-ghost" id="btnCarryOverBudget" style="flex:1;">沿用上個月預算</button>` : ""}
+        <button class="btn-main" id="btnFreshBudget" style="flex:1;">重新設定這個月</button>
+      </div>
+    `;
+    const carryBtn = document.getElementById("btnCarryOverBudget");
+    if(carryBtn) carryBtn.addEventListener("click", ()=>{
+      createBudget(mk, {available:prevB.available, allocations:prevB.allocations, categoryBudgets:prevB.categoryBudgets}, prevMk);
+      renderBudgetTab(); toast("已沿用上個月的預算，內容都可以再調整");
+    });
+    document.getElementById("btnFreshBudget").addEventListener("click", ()=>openBudgetSetupForm(mk));
+    return;
+  }
+
+  const actuals = bucketActuals(mk);
+  const allocatedTotal = Object.values(b.allocations).reduce((s,v)=>s+v,0);
+  const actualTotal = actuals.necessary + actuals.debt + actuals.free; // 儲蓄不算花費
+  const leftToAllocate = b.available - allocatedTotal;
+  const remainUsable = b.available - actualTotal;
+  const allocRatio = b.available>0 ? Math.min(100, Math.round(allocatedTotal/b.available*100)) : 0;
+
+  const bucketRows = BUCKET_DEFS.map(bd=>{
+    const budget = b.allocations[bd.key]||0;
+    const actual = actuals[bd.key]||0;
+    const remain = budget - actual;
+    const ratio = budget>0 ? Math.min(100, Math.round(actual/budget*100)) : (actual>0?100:0);
+    return `
+      <div style="margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; margin-bottom:4px;">
+          <span>${bd.emoji} ${bd.label}</span><span>$${actual.toLocaleString()} ／ ${budget.toLocaleString()}</span>
+        </div>
+        <div class="progress-bar" style="margin-bottom:4px;"><div class="progress-fill" style="width:${ratio}%; ${actual>budget?'background:#C96A5C;':''}"></div></div>
+        <div class="muted">${remain>=0? `剩餘 NT$${remain.toLocaleString()}` : `超過 NT$${Math.abs(remain).toLocaleString()}`} · 使用比例 ${ratio}%</div>
+      </div>
+    `;
+  }).join("");
+
+  const dinfo = daysLeftInfo(mk);
+  const perDay = dinfo.isPast ? null : (dinfo.daysLeft>0 ? Math.floor(Math.max(0,remainUsable)/dinfo.daysLeft) : Math.max(0,remainUsable));
+
+  const catEntries = Object.entries(b.categoryBudgets||{});
+  const catHTML = catEntries.length ? catEntries.map(([cat,budget])=>{
+    const actual = categoryActualForMonth(mk, cat);
+    const ratio = budget>0 ? Math.min(100, Math.round(actual/budget*100)) : (actual>0?100:0);
+    const remain = budget - actual;
+    return `
+      <div style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span>${escapeHtml(cat)}</span><span>$${actual.toLocaleString()} ／ ${budget.toLocaleString()}</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${ratio}%; ${actual>budget?'background:#C96A5C;':''}"></div></div>
+        <div class="muted">${remain>=0? `剩餘 NT$${remain.toLocaleString()}` : `超過 NT$${Math.abs(remain).toLocaleString()}`}</div>
+      </div>
+    `;
+  }).join("") : `<div class="empty-state">還沒有設定分類預算，這是可選的功能</div>`;
+
+  box.innerHTML = `
+    <div class="stat-grid" style="margin-bottom:6px;">
+      <div class="stat-box"><div class="stat-num">${b.available.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
+      <div class="stat-box"><div class="stat-num">${allocatedTotal.toLocaleString()}</div><div class="stat-label">已安排</div></div>
+      <div class="stat-box"><div class="stat-num">${leftToAllocate.toLocaleString()}</div><div class="stat-label">尚可安排</div></div>
+    </div>
+    <div class="progress-bar" style="margin-bottom:14px;"><div class="progress-fill" style="width:${allocRatio}%"></div></div>
+    <button class="small-link" id="btnEditBudgetOverview" style="margin-bottom:14px;">調整本月可運用／分配</button>
+
+    <div style="border-top:1px solid var(--line); padding-top:12px;">${bucketRows}</div>
+
+    ${perDay!=null ? `
+      <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin:6px 0 14px; text-align:center;">
+        <div class="muted">這個月還能花多少</div>
+        <div style="font-size:17px; font-weight:900; margin-top:2px;">剩餘 NT$${Math.max(0,remainUsable).toLocaleString()} ÷ 剩餘 ${dinfo.daysLeft} 天 ≈ 每天 NT$${perDay.toLocaleString()}</div>
+      </div>
+    ` : ""}
+
+    <div style="border-top:1px solid var(--line); padding-top:12px; margin-top:4px;">
+      <div class="card-title" style="margin-bottom:8px;">分類預算（可選） <button class="small-link" id="btnEditCatBudget">設定</button></div>
+      ${catHTML}
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:14px;">
+      <button class="btn-ghost" id="btnBudgetReviewNew" style="flex:1;">🌤 本月財務復盤</button>
+    </div>
+  `;
+  document.getElementById("btnEditBudgetOverview").addEventListener("click", ()=>openBudgetSetupForm(mk));
+  document.getElementById("btnEditCatBudget").addEventListener("click", ()=>openCategoryBudgetFormNew(mk));
+  document.getElementById("btnBudgetReviewNew").addEventListener("click", ()=>openBudgetReviewNew(mk));
+}
+
+/* ============ 設定／調整本月可運用＋四大類分配 ============ */
+function openBudgetSetupForm(mk, wizIn){
+  const existing = getBudget(mk);
+  const wiz = wizIn || (existing ? {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations)} : {available: monthlyAvailableDefault(mk), allocations: blankAllocations()});
+  openSheet(`
+    <div class="sheet-head"><h3>${existing?"調整":"設定"}本月預算</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>本月可運用金額</label><input id="bg_available" type="number" placeholder="0" value="${wiz.available||""}"></div>
+    <div class="muted" style="margin-bottom:10px;">預設抓這個月已記錄的收入，但可以自己改，不會被收入鎖住。</div>
+    <div class="card-title" style="margin:10px 0 8px;">分配到四大類</div>
+    ${BUCKET_DEFS.map(bd=>`
+      <div class="field"><label>${bd.emoji} ${bd.label}</label><input class="bg_alloc" data-key="${bd.key}" type="number" placeholder="0" value="${wiz.allocations[bd.key]||""}"></div>
+    `).join("")}
+    <button class="btn-ghost" id="bg_importFixed" style="width:100%; margin-bottom:10px;">把固定收支／負債帶入「還款/固定責任」</button>
+    <button class="btn-main" id="bg_submit">儲存</button>
+  `);
+  document.getElementById("bg_importFixed").addEventListener("click", ()=>{
+    wiz.available = parseFloat(document.getElementById("bg_available").value)||0;
+    document.querySelectorAll(".bg_alloc").forEach(inp=>{ wiz.allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
+    openFixedImportPrompt(mk, wiz);
+  });
+  document.getElementById("bg_submit").addEventListener("click", ()=>{
+    const available = parseFloat(document.getElementById("bg_available").value)||0;
+    const allocations = blankAllocations();
+    document.querySelectorAll(".bg_alloc").forEach(inp=>{ allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
+    if(existing){ updateBudget(mk, {available, allocations}); }
+    else{ createBudget(mk, {available, allocations, categoryBudgets:{}}); }
+    closeSheet(); renderBudgetTab(); renderHomeStats(); toast("已更新本月預算");
+  });
+}
+function openFixedImportPrompt(mk, wiz){
+  const {items, total} = fixedExpenseExpectedForMonth();
+  if(!items.length){ toast("目前沒有設定固定收支或還款中的負債"); openBudgetSetupForm(mk, wiz); return; }
+  openSheet(`
+    <div class="sheet-head"><h3>帶入固定收支／負債</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">只是幫「還款/固定責任」抓一個建議金額，不會另外建立任何記帳紀錄。</div>
+    <div class="confirm-actions" style="margin-bottom:14px;">
+      <button class="btn-ghost" id="fi_pick">自己選擇</button>
+      <button class="btn-main" id="fi_all">全部帶入（NT$${total.toLocaleString()}）</button>
+    </div>
+  `);
+  document.getElementById("fi_all").addEventListener("click", ()=>{
+    wiz.allocations.debt = total;
+    openBudgetSetupForm(mk, wiz);
+  });
+  document.getElementById("fi_pick").addEventListener("click", ()=>{
+    openSheet(`
+      <div class="sheet-head"><h3>選擇要帶入的項目</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+      ${items.map((it,i)=>`
+        <label class="item-row" style="cursor:pointer;">
+          <input type="checkbox" class="fi_item" data-amt="${it.amount}" checked style="margin-right:8px;">
+          <div style="flex:1;">${escapeHtml(it.label)}</div>
+          <div style="font-weight:700;">$${it.amount.toLocaleString()}</div>
+        </label>
+      `).join("")}
+      <button class="btn-main" id="fi_confirm" style="margin-top:14px;">帶入選擇的項目</button>
+    `);
+    document.getElementById("fi_confirm").addEventListener("click", ()=>{
+      let sum = 0;
+      document.querySelectorAll(".fi_item").forEach(cb=>{ if(cb.checked) sum += Number(cb.dataset.amt); });
+      wiz.allocations.debt = sum;
+      openBudgetSetupForm(mk, wiz);
+    });
+  });
+}
+
+/* ============ 分類預算（可選），顯示上個月參考數字 ============ */
+function openCategoryBudgetFormNew(mk){
+  const b = getBudget(mk);
+  if(!b) return;
+  const prevMk = prevMonthKeyOf(mk);
+  const prevB = getBudget(prevMk);
   const cats = [...EXPENSE_CATS, ...DB.customCategories.expense.filter(c=>!EXPENSE_CATS.includes(c))];
   openSheet(`
     <div class="sheet-head"><h3>設定分類預算（可選）</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">幫幾個常花錢的類別設一個大概的每月額度就好，不用每一類都填，留空代表這個類別先不設限。</div>
-    ${cats.map(c=>`
-      <div class="field">
-        <label>${escapeHtml(c)}${opts.focus&&opts.focus.includes(c)?" 🔎":""}</label>
-        <input type="number" class="catbudget-input" data-cat="${escapeHtml(c)}" placeholder="不設限" value="${b.categoryBudgets&&b.categoryBudgets[c]?b.categoryBudgets[c]:""}">
-      </div>
-    `).join("")}
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">幫幾個常花錢的類別設一個大概的每月額度，留空代表這個類別先不設限。</div>
+    ${cats.map(c=>{
+      const prevBudget = prevB && prevB.categoryBudgets ? prevB.categoryBudgets[c] : null;
+      const prevActual = prevB ? categoryActualForMonth(prevMk, c) : null;
+      const prevReview = prevB && prevB.reviews ? prevB.reviews[c] : null;
+      let refLine = "";
+      if(prevBudget!=null || prevActual){
+        refLine = `<div class="muted" style="margin-top:2px;">上個月：預算 ${prevBudget!=null?prevBudget.toLocaleString():"—"} ／ 實際 ${(prevActual||0).toLocaleString()}${prevReview?`（曾記錄原因：${escapeHtml(prevReview.reason||"")}）`:""}</div>`;
+      }
+      return `
+        <div class="field">
+          <label>${escapeHtml(c)}</label>
+          <input type="number" class="catbudget-input" data-cat="${escapeHtml(c)}" placeholder="不設限" value="${b.categoryBudgets&&b.categoryBudgets[c]?b.categoryBudgets[c]:""}">
+          ${refLine}
+        </div>
+      `;
+    }).join("")}
     <button class="btn-main" id="f_savecatbudget">儲存</button>
   `);
   document.getElementById("f_savecatbudget").addEventListener("click", ()=>{
@@ -2948,201 +3014,94 @@ function openCategoryBudgetForm(opts){
       const v = parseFloat(inp.value);
       if(v>0) newBudgets[inp.dataset.cat] = v;
     });
-    DB.budget.categoryBudgets = newBudgets;
-    DB.budget.updatedAt = todayStr();
-    budgetSuggestionDismissed = null;
-    save(); closeSheet(); renderAll(); toast("已更新分類預算");
+    updateBudget(mk, {categoryBudgets:newBudgets});
+    closeSheet(); renderBudgetTab(); toast("已更新分類預算");
   });
-}
-// 記帳當下的溫和提醒：只有明顯超支或步調偏快時才出聲，其餘時候維持安靜
-function categoryPaceMessage(cat){
-  const b = DB.budget;
-  if(!b || b.version!==2 || !b.categoryBudgets || !b.categoryBudgets[cat]) return null;
-  const budget = b.categoryBudgets[cat];
-  const used = categoryActualThisMonth(cat);
-  const ratio = daysElapsedRatio();
-  if(used > budget) return `這個月「${cat}」已經超過原本的預算囉，不用太緊張，可以到「記帳」頁面看看本月預算的整體狀況。`;
-  if(budget>0 && used/budget > ratio + 0.2) return `目前「${cat}」支出比原本預計快一些，可以留意接下來的花費。`;
-  return null;
-}
-function renderBudgetCategoryList(catBudgets){
-  const entries = Object.entries(catBudgets||{}).filter(([,amt])=>amt>0);
-  if(!entries.length) return "";
-  const ratio = daysElapsedRatio();
-  const rows = entries.map(([cat,budget])=>{
-    const used = categoryActualThisMonth(cat);
-    const remain = budget - used;
-    const weekly = Math.round(budget/4.345);
-    const pace = budget>0 ? used/budget : 0;
-    let hint;
-    if(remain<0) hint = `已經超過預算 NT$${Math.abs(remain).toLocaleString()}，可以隨時調整這個類別的額度。`;
-    else if(pace > ratio + 0.15) hint = `目前支出比原本預計快一些，可以留意接下來的花費。`;
-    else hint = `這個月還有 NT$${remain.toLocaleString()} 可以使用。`;
-    return `
-      <div style="margin-bottom:14px;">
-        <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; margin-bottom:4px;"><span>${escapeHtml(cat)}</span><span>NT$${used.toLocaleString()} ／ ${budget.toLocaleString()}</span></div>
-        <div class="progress-bar" style="margin-bottom:5px;"><div class="progress-fill" style="width:${Math.min(100, pace*100)}%; ${remain<0?'background:#C96A5C;':''}"></div></div>
-        <div class="muted">${hint}<br><span style="opacity:.75;">每週約 NT$${weekly.toLocaleString()}（僅供參考，不代表每天／每週一定只能花這個金額）</span></div>
-      </div>
-    `;
-  }).join("");
-  return `<div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);"><div class="card-title" style="margin-bottom:10px;">分類預算進度</div>${rows}</div>`;
 }
 
-/* ---- 預算調整建議：實際花費跟預算差比較多時，溫和詢問要不要重新分配（不會自動改） ---- */
-let budgetSuggestionDismissed = null;
-function computeBudgetAdjustmentSuggestion(){
-  const b = DB.budget;
-  if(!b || b.version!==2 || !b.categoryBudgets) return null;
-  const entries = Object.entries(b.categoryBudgets).filter(([,amt])=>amt>0);
-  if(entries.length<2) return null;
-  const ratio = daysElapsedRatio();
-  if(ratio < 0.5) return null; // 月初資料還太少，先不建議調整
-  const stats = entries.map(([cat,budget])=>{
-    const used = categoryActualThisMonth(cat);
-    const diffRatio = budget>0 ? (used/ratio - budget)/budget : 0;
-    return {cat, budget, used, diffRatio};
-  });
-  const over = stats.filter(s=>s.diffRatio>0.25).sort((a,b2)=>b2.diffRatio-a.diffRatio)[0];
-  const under = stats.filter(s=>s.diffRatio<-0.25 && (!over || s.cat!==over.cat)).sort((a,b2)=>a.diffRatio-b2.diffRatio)[0];
-  if(!over || !under) return null;
-  return {
-    overCat: over.cat, overAmt: Math.round(over.used - over.budget),
-    underCat: under.cat, underAmt: Math.round(under.budget - under.used),
-  };
-}
-function renderBudgetSuggestion(sugg){
-  if(!sugg) return "";
-  const key = sugg.overCat+"|"+sugg.underCat;
-  if(budgetSuggestionDismissed===key) return "";
-  return `
-    <div style="margin-top:14px; background:var(--light-accent); border-radius:12px; padding:12px 14px;">
-      <div style="font-size:13px; line-height:1.7; margin-bottom:10px;">你的實際花費和原本預算有些不同：「${escapeHtml(sugg.overCat)}」這個月大約多花了 NT$${Math.abs(sugg.overAmt).toLocaleString()}，「${escapeHtml(sugg.underCat)}」則少花了約 NT$${Math.abs(sugg.underAmt).toLocaleString()}，要不要重新調整這兩個類別？</div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn-ghost" id="budgetSuggKeep" style="flex:1;">維持原本預算</button>
-        <button class="btn-main" id="budgetSuggAdjust" style="flex:1;">調整預算</button>
-      </div>
-    </div>
-  `;
-}
+/* ============ 本月財務復盤：只給客觀數字，不做評價／建議 ============ */
+function openBudgetReviewNew(mk){
+  const b = getBudget(mk);
+  if(!b) return;
+  const actuals = bucketActuals(mk);
+  const actualTotal = actuals.necessary + actuals.debt + actuals.free;
+  const allocatedTotal = Object.values(b.allocations).reduce((s,v)=>s+v,0);
+  const originalTotal = b.original ? Object.values(b.original.allocations).reduce((s,v)=>s+v,0) : allocatedTotal;
+  const remainOrOver = b.available - actualTotal;
 
-/* ---- 月底財務小復盤：不做複雜報表，只給看得懂的幾句話 ---- */
-function openBudgetReview(){
-  const b = DB.budget;
-  if(!b || b.version!==2){ toast("請先設定本月預算"); return; }
-  const now = new Date();
-  const thisMk = monthKey(now);
-  const lastMk = monthKey(new Date(now.getFullYear(), now.getMonth()-1, 1));
-  function actualIn(mk, cat){
-    return DB.transactions.filter(t=>t.type==="expense" && t.category===cat && t.date.startsWith(mk)).reduce((s,t)=>s+t.amount,0);
-  }
-  const cats = Object.entries(b.categoryBudgets||{}).filter(([,amt])=>amt>0);
-  let goodLines=[], overLines=[], mismatchLines=[], totalOver=0, totalUnder=0;
-  cats.forEach(([cat,budget])=>{
-    const used = actualIn(thisMk, cat);
-    const diff = used - budget;
-    if(diff>0) totalOver += diff; else totalUnder += -diff;
-    if(diff<=0){
-      goodLines.push(`「${cat}」控制得不錯，這個月花了 NT$${used.toLocaleString()}，在預算內。`);
-    }else{
-      const lastUsed = actualIn(lastMk, cat);
-      if(lastUsed > budget){
-        mismatchLines.push(`你連續兩個月「${cat}」都超過原本設定（這個月多 NT$${diff.toLocaleString()}），可能代表這個預算偏低。下個月可以適度調高這個類別的預算，再從其他彈性類別調整回來。`);
-      }else{
-        overLines.push(`「${cat}」這個月比預算多花了 NT$${diff.toLocaleString()}，看起來比較像單月的狀況，先觀察下個月是否恢復就好，不用太緊張。`);
-      }
-    }
-  });
-  const plan = computeBudgetPlan(b);
-  const {expense: totalExpenseThis} = monthSummary(now);
-  const plannedTotal = plan.necessary + plan.debtMonthly + plan.savings + plan.free;
-  const totalDiff = totalExpenseThis - plannedTotal;
-  let overallLine;
-  if(cats.length===0 && totalExpenseThis===0){
-    overallLine = "這個月還沒有記帳紀錄，先記幾筆之後，就能看到完整的財務小復盤。";
-  }else if(cats.length===0){
-    overallLine = plannedTotal<=0 ? "目前的預算安排還不夠完整，先到「調整預算」補上必要支出的數字，之後復盤會更準確。" :
-      (Math.abs(totalDiff) <= plannedTotal*0.1 ? "整體支出跟原本的預算安排差不多，這個月抓得蠻準的。" :
-        (totalDiff>0 ? `整體支出比預算安排多了大約 NT$${totalDiff.toLocaleString()}，可以留意一下是哪裡花得比較多，或是到「支出分類統計」看看。` : `整體支出比預算安排少了大約 NT$${Math.abs(totalDiff).toLocaleString()}，這個月過得算輕鬆。`));
-  }else if(totalOver>0 && totalUnder>0 && totalOver<=totalUnder*1.3){
-    overallLine = "有些類別超出、有些類別省下，整體支出仍然接近原本的預算安排，算是控制得不錯的一個月。";
-  }else if(totalOver>totalUnder){
-    overallLine = "這個月整體支出比預算安排稍微多一些，不用太自責，看看下面的細節，下個月再慢慢調整就好。";
-  }else{
-    overallLine = "這個月整體支出比預算安排少，代表這份預算目前抓得還算合理，或這個月剛好比較節省。";
-  }
+  const bucketOver = BUCKET_DEFS.map(bd=>({...bd, budget:b.allocations[bd.key]||0, actual:actuals[bd.key]||0}))
+    .filter(x=>x.actual > x.budget)
+    .map(x=>({key:x.key, label:`${x.emoji} ${x.label}`, over: x.actual - x.budget}));
+
+  const catOver = Object.entries(b.categoryBudgets||{})
+    .map(([cat,budget])=>({cat, budget, actual:categoryActualForMonth(mk,cat)}))
+    .filter(x=>x.actual > x.budget)
+    .map(x=>({cat:x.cat, over: x.actual - x.budget}));
+
   openSheet(`
-    <div class="sheet-head"><h3>🌤 本月財務小復盤</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="prompt-box" style="margin-bottom:14px;">${escapeHtml(overallLine)}</div>
-    ${goodLines.length?`<div class="muted" style="font-weight:700; margin-bottom:6px;">做得不錯的地方</div><div style="margin-bottom:14px; font-size:13px; line-height:1.8;">${goodLines.map(l=>"・"+escapeHtml(l)).join("<br>")}</div>`:""}
-    ${overLines.length?`<div class="muted" style="font-weight:700; margin-bottom:6px;">超出預算，但可能只是單月狀況</div><div style="margin-bottom:14px; font-size:13px; line-height:1.8;">${overLines.map(l=>"・"+escapeHtml(l)).join("<br>")}</div>`:""}
-    ${mismatchLines.length?`<div class="muted" style="font-weight:700; margin-bottom:6px;">可能該調整預算的地方</div><div style="margin-bottom:14px; font-size:13px; line-height:1.8;">${mismatchLines.map(l=>"・"+escapeHtml(l)).join("<br>")}</div>`:""}
-    ${!cats.length?`<div class="muted" style="margin-bottom:12px; line-height:1.6;">目前還沒有設定分類預算，如果想看到更細的復盤，可以到「設定分類預算」加上幾個常花錢的類別。</div>`:""}
-    <div class="muted" style="text-align:center; margin-top:6px; line-height:1.6;">不用要求自己每個月都做到完美，能看清楚錢去哪裡，就已經很有幫助了。</div>
-    ${mismatchLines.length?`<button class="btn-main" id="reviewAdjustBtn" style="margin-top:14px; width:100%;">調整這些類別的預算</button>`:""}
+    <div class="sheet-head"><h3>🌤 本月財務復盤</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="stat-grid" style="margin-bottom:10px;">
+      <div class="stat-box"><div class="stat-num">${b.available.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
+      <div class="stat-box"><div class="stat-num">${allocatedTotal.toLocaleString()}</div><div class="stat-label">最終預算</div></div>
+      <div class="stat-box"><div class="stat-num">${actualTotal.toLocaleString()}</div><div class="stat-label">實際支出</div></div>
+    </div>
+    <div class="networth-line"><span class="label">${remainOrOver>=0?"剩餘":"超支"}</span><span class="value">NT$ ${Math.abs(remainOrOver).toLocaleString()}</span></div>
+    ${originalTotal!==allocatedTotal ? `<div class="muted" style="margin-top:4px;">原始預算安排總額：NT$${originalTotal.toLocaleString()}（後續調整過）</div>` : ""}
+    ${bucketOver.length ? `
+      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">超出預算的類別（四大類）</div>
+      ${bucketOver.map(x=>`<div class="networth-line"><span class="label">${x.label}</span><span class="value">超 NT$${x.over.toLocaleString()}</span></div>`).join("")}
+    ` : ""}
+    ${catOver.length ? `
+      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">超出分類預算的項目（點擊查看明細）</div>
+      ${catOver.map(x=>`<div class="item-row cat-over-row" data-cat="${escapeHtml(x.cat)}" style="cursor:pointer;"><div class="item-title" style="flex:1;">${escapeHtml(x.cat)}</div><div style="font-weight:700; color:#C96A5C;">超 NT$${x.over.toLocaleString()}</div></div>`).join("")}
+    ` : ""}
   `);
-  if(mismatchLines.length){
-    document.getElementById("reviewAdjustBtn").addEventListener("click", ()=>openCategoryBudgetForm());
-  }
+  document.querySelectorAll(".cat-over-row").forEach(el=>{
+    el.addEventListener("click", ()=>openOverspendDetail(mk, el.dataset.cat));
+  });
 }
 
-/* ---- 預算首頁：收入／預計支出／可自由安排、本月分配、本週可以花多少 ---- */
-function renderBudgetSummary(){
-  const box = document.getElementById("budgetSummary");
-  if(!box) return;
-  const b = DB.budget;
-  if(!b || b.version!==2){
-    box.innerHTML = `<div class="empty-state">${b?"預算功能升級了，重新花幾分鐘設定一次，之後就能沿用囉":"還沒有設定本月預算，點上方「調整預算」，用幾個簡單問題幫你安排一份做得到的預算"}</div>`;
-    return;
-  }
-  const plan = computeBudgetPlan(b);
-  const plannedExpense = plan.necessary + plan.debtMonthly;
-  const freeToAllocate = plan.savings + plan.free;
-
-  const catEntries = Object.entries(b.categoryBudgets||{}).filter(([,amt])=>amt>0);
-  let weeklySpend;
-  if(catEntries.length){
-    const remainSum = catEntries.reduce((s,[cat,budget])=>s+(budget-categoryActualThisMonth(cat)),0);
-    weeklySpend = Math.max(0, Math.round(remainSum/weeksLeftInMonth()));
-  }else{
-    weeklySpend = Math.max(0, Math.round(plan.free/weeksLeftInMonth()));
-  }
-  const sugg = computeBudgetAdjustmentSuggestion();
-
-  box.innerHTML = `
-    <div class="stat-grid" style="margin-bottom:12px;">
-      <div class="stat-box"><div class="stat-num">${b.income.toLocaleString()}</div><div class="stat-label">收入</div></div>
-      <div class="stat-box"><div class="stat-num">${plannedExpense.toLocaleString()}</div><div class="stat-label">預計支出</div></div>
-      <div class="stat-box"><div class="stat-num">${freeToAllocate.toLocaleString()}</div><div class="stat-label">可自由安排</div></div>
-    </div>
-    <div style="border-top:1px solid var(--line); padding-top:12px;">
-      <div class="networth-line"><span class="label">🏠 必要生活</span><span class="value">NT$ ${plan.necessary.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">💰 儲蓄／目標</span><span class="value">NT$ ${plan.savings.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">💳 還款</span><span class="value">NT$ ${plan.debtMonthly.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">🌷 自由支出</span><span class="value">NT$ ${plan.free.toLocaleString()}</span></div>
-    </div>
-    <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-top:10px; text-align:center;">
-      <div class="muted">現在可以花多少？</div>
-      <div style="font-size:17px; font-weight:900; margin-top:2px;">本週可使用：約 NT$ ${weeklySpend.toLocaleString()}</div>
-    </div>
-    ${plan.note?`<div class="muted" style="margin-top:10px; line-height:1.7;">${escapeHtml(plan.note)}</div>`:""}
-    ${renderBudgetSuggestion(sugg)}
-    ${renderBudgetCategoryList(b.categoryBudgets)}
-    ${plan.savings>0?`<div class="muted" style="margin-top:14px; text-align:center;">這個月存下的錢，之後可以到「資產盤點」更新一下，看看變化 <button class="small-link" id="btnBudgetGoAsset" style="vertical-align:baseline;">前往看看</button></div>`:""}
-    <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
-      <button class="btn-ghost" id="btnCategoryBudget" style="flex:1;">設定分類預算</button>
-      <button class="btn-ghost" id="btnBudgetReview" style="flex:1;">查看本月復盤</button>
-    </div>
-  `;
-  document.getElementById("btnCategoryBudget").addEventListener("click", ()=>openCategoryBudgetForm());
-  document.getElementById("btnBudgetReview").addEventListener("click", openBudgetReview);
-  const goAssetBtn = document.getElementById("btnBudgetGoAsset");
-  if(goAssetBtn) goAssetBtn.addEventListener("click", ()=>switchView("debt"));
-  const keepBtn = document.getElementById("budgetSuggKeep");
-  if(keepBtn) keepBtn.addEventListener("click", ()=>{ budgetSuggestionDismissed = sugg.overCat+"|"+sugg.underCat; renderBudgetSummary(); });
-  const adjBtn = document.getElementById("budgetSuggAdjust");
-  if(adjBtn) adjBtn.addEventListener("click", ()=>{ closeSheet(); openCategoryBudgetForm({focus:[sugg.overCat, sugg.underCat]}); });
+/* ============ 查看造成超支的實際明細 ============ */
+function openOverspendDetail(mk, cat){
+  const txs = DB.transactions.filter(t=>t.type==="expense" && t.category===cat && t.date.startsWith(mk)).sort((a,b)=>b.date.localeCompare(a.date));
+  openSheet(`
+    <div class="sheet-head"><h3>${escapeHtml(cat)}｜本月明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    ${txs.length ? txs.map(t=>`
+      <div class="item-row">
+        <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
+        <div class="item-sub" style="margin-right:8px;">${t.date}${t.note?(" · "+escapeHtml(t.note)):""}</div>
+        <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
+      </div>
+    `).join("") : `<div class="empty-state">這個類別本月沒有明細</div>`}
+    <button class="btn-ghost" id="ov_selfReview" style="width:100%; margin-top:14px;">記錄這次超支的原因（可選）</button>
+  `);
+  document.getElementById("ov_selfReview").addEventListener("click", ()=>openOverspendSelfReview(mk, cat));
 }
+
+/* ============ 讓使用者自己做超支復盤（僅供參考，不會自動改預算） ============ */
+const OVERSPEND_REASONS = ["非預期的臨時支出","預算原本就設太低","忘記算進其他開銷","單純這個月比較常花","其他"];
+const OVERSPEND_INTENTIONS = ["下個月調高這個類別的預算","下個月留意這個類別的花費","先觀察，之後再決定","其他"];
+function openOverspendSelfReview(mk, cat){
+  const b = getBudget(mk);
+  const prev = (b.reviews && b.reviews[cat]) || {};
+  openSheet(`
+    <div class="sheet-head"><h3>${escapeHtml(cat)}｜超支小記錄</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">這裡只是幫你自己留個記錄，之後想調整分類預算時可以參考，小夥伴不會自動幫你改預算。</div>
+    <div class="field"><label>這次超支比較接近哪個原因？</label>
+      <select id="ov_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prev.reason===r?"selected":""}>${r}</option>`).join("")}</select>
+    </div>
+    <div class="field"><label>下個月打算怎麼做？</label>
+      <select id="ov_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prev.intention===r?"selected":""}>${r}</option>`).join("")}</select>
+    </div>
+    <button class="btn-main" id="ov_save">儲存記錄</button>
+  `);
+  document.getElementById("ov_save").addEventListener("click", ()=>{
+    if(!b.reviews) b.reviews = {};
+    b.reviews[cat] = {reason: document.getElementById("ov_reason").value, intention: document.getElementById("ov_intention").value, savedAt: todayStr()};
+    save(); closeSheet(); toast("已儲存這次的記錄");
+  });
+}
+
 
 /* ============ 資產盤點 ============ */
 const ASSET_CATEGORIES = [
@@ -3911,6 +3870,7 @@ function exportBackup(){
     {key:"appName", value:DB.appName||""},
     {key:"farmName", value:DB.farmName||""},
     {key:"budgetJSON", value:JSON.stringify(DB.budget||null)},
+    {key:"budgetsByMonthJSON", value:JSON.stringify(DB.budgetsByMonth||{})},
     {key:"customCategoriesJSON", value:JSON.stringify(DB.customCategories||{expense:[],income:[]})},
     {key:"insightsMemoryJSON", value:JSON.stringify(DB.insightsMemory||{})},
     {key:"emergencyFundJSON", value:JSON.stringify(DB.emergencyFund||null)},
@@ -3975,6 +3935,7 @@ function importBackupFromWorkbook(wb){
     todos, checkins, transactions, debts, goals, assets, journal, recurringTx,
     customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
     budget: safeJSONParse(settings.budgetJSON, null),
+    budgetsByMonth: safeJSONParse(settings.budgetsByMonthJSON, {}),
     insightsMemory: safeJSONParse(settings.insightsMemoryJSON, {}),
     emergencyFund: safeJSONParse(settings.emergencyFundJSON, {
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
