@@ -2730,6 +2730,12 @@ const BUCKET_DEFS = [
   {key:"free",       emoji:"🌷", label:"自由使用"},
 ];
 const NECESSARY_BUCKET_CATS = ["居住","醫療","學習"];
+const PRESET_CALC_ITEMS = {
+  necessary: ["房租／住宿","餐費","交通","手機／網路","水電／瓦斯","保險","醫療／藥品","孝親／家庭支出"],
+  debt:      ["信貸","信用卡還款","學貸","房貸","車貸","分期付款","親友借款","其他債務／固定責任"],
+  savings:   ["一般儲蓄","緊急預備金","投資／資產","旅遊基金","進修／學習基金","大額購買目標","其他目標"],
+  free:      ["購物","美容／保養","娛樂","聚餐／約會","興趣","訂閱／會員","旅行／玩樂"],
+};
 
 function pad2(n){ return String(n).padStart(2,"0"); }
 function budgetMonthKeyOf(year, month0){ return `${year}-${pad2(month0+1)}`; }
@@ -2995,22 +3001,36 @@ function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
 /* ============ 幫我計算：四大類的計算小工具，只負責幫忙加總、帶入總額，不是分類預算 ============ */
 function openCalcItemsSheet(mk, bucketKey, wiz){
   const bd = BUCKET_DEFS.find(x=>x.key===bucketKey);
-  const items = deepClone((wiz.calcItems && wiz.calcItems[bucketKey]) || []);
+  const saved = deepClone((wiz.calcItems && wiz.calcItems[bucketKey]) || []);
   const outerTotal = wiz.allocations[bucketKey]||0;
-  const itemsSumInit = items.reduce((s,it)=>s+(Number(it.amount)||0),0);
-  const showMismatch = items.length>0 && outerTotal!==itemsSumInit;
-  const rowHTML = (it)=>`
-    <div class="item-row calc-item-row" data-id="${it.id}">
+  const itemsSumInit = saved.reduce((s,it)=>s+(Number(it.amount)||0),0);
+  const showMismatch = saved.length>0 && outerTotal!==itemsSumInit;
+  const presetLabels = PRESET_CALC_ITEMS[bucketKey] || [];
+  const savedByName = {};
+  saved.forEach(it=>{ savedByName[it.name] = it; });
+  const customItems = saved.filter(it=>!presetLabels.includes(it.name));
+
+  const presetRowHTML = (name)=>{
+    const amt = savedByName[name] ? savedByName[name].amount : "";
+    return `
+    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(name)}">
+      <div style="flex:1; font-size:14px;">${escapeHtml(name)}</div>
+      <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="width:100px; border:none; background:transparent; text-align:right; font-size:14px; padding:4px;">
+    </div>`;
+  };
+  const customRowHTML = (it)=>`
+    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}">
       <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1; border:none; background:transparent; font-size:14px; padding:4px;">
       <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="width:90px; border:none; background:transparent; text-align:right; font-size:14px; padding:4px;">
       <button class="del-btn calc-item-del" data-id="${it.id}">✕</button>
     </div>`;
+
   openSheet(`
     <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">把這個月預計需要的項目填進來，小夥伴幫你加總 🤍</div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍</div>
     ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
-    <div id="ci_list">${items.map(rowHTML).join("")}</div>
-    <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增項目</button>
+    <div id="ci_list">${presetLabels.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
+    <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增其他項目</button>
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
       <span class="muted">目前合計</span><span id="ci_total" style="font-size:17px; font-weight:900;">NT$ ${itemsSumInit.toLocaleString()}</span>
     </div>
@@ -3032,15 +3052,21 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     }
   });
   document.getElementById("ci_add").addEventListener("click", ()=>{
-    document.getElementById("ci_list").insertAdjacentHTML("beforeend", rowHTML({id:uid(), name:"", amount:""}));
+    document.getElementById("ci_list").insertAdjacentHTML("beforeend", customRowHTML({id:uid(), name:"", amount:""}));
     recalc();
   });
   document.getElementById("ci_confirm").addEventListener("click", ()=>{
-    const newItems = [...document.querySelectorAll(".calc-item-row")].map(row=>({
-      id: row.dataset.id,
-      name: row.querySelector(".calc-item-name").value.trim(),
-      amount: parseFloat(row.querySelector(".calc-item-amt").value)||0,
-    })).filter(it=>it.name || it.amount);
+    const newItems = [];
+    document.querySelectorAll(".calc-preset-row").forEach(row=>{
+      const name = row.dataset.name;
+      const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
+      if(amount>0) newItems.push({id:name, name, amount});
+    });
+    document.querySelectorAll(".calc-custom-row").forEach(row=>{
+      const name = row.querySelector(".calc-item-name").value.trim();
+      const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
+      if(name || amount) newItems.push({id: row.dataset.id, name, amount});
+    });
     const sum = newItems.reduce((s,it)=>s+it.amount,0);
     wiz.calcItems = wiz.calcItems || {};
     wiz.calcItems[bucketKey] = newItems;
