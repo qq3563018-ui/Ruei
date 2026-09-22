@@ -460,11 +460,31 @@ emoji-picker{
 
 <!-- 5. 記帳 -->
 <div class="view" id="view-ledger">
-  <div class="seg" id="ledgerSubTabs" style="margin-bottom:14px;">
-    <button type="button" data-sub="ledger" class="active">📒 記帳</button>
-    <button type="button" data-sub="budget">💡 本月預算</button>
+
+  <!-- 財務功能入口 -->
+  <div id="ledgerHubPanel">
+    <div class="card nav-card" id="goLedgerCard">
+      <div class="nav-card-row">
+        <div>
+          <div class="card-title" style="margin-bottom:2px;">📒 記帳</div>
+          <div class="muted">記錄每天的收入與支出，查看收支、分類統計與明細。</div>
+        </div>
+        <div class="nav-card-arrow">›</div>
+      </div>
+    </div>
+    <div class="card nav-card" id="goBudgetCard">
+      <div class="nav-card-row">
+        <div>
+          <div class="card-title" style="margin-bottom:2px;">💡 本月預算</div>
+          <div class="muted">安排這個月的錢怎麼使用，掌握預算與剩餘金額。</div>
+        </div>
+        <div class="nav-card-arrow">›</div>
+      </div>
+    </div>
   </div>
-  <div id="ledgerSubPanel">
+
+  <div id="ledgerSubPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromLedger">‹ 返回記帳</button>
     <div class="card">
       <div class="cal-head" style="margin-bottom:10px;">
         <button class="cal-nav-btn" id="ledgerPrev">‹</button>
@@ -497,6 +517,7 @@ emoji-picker{
     </div>
   </div>
   <div id="budgetSubPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromBudget">‹ 返回記帳</button>
     <div class="card">
       <div class="cal-head" style="margin-bottom:10px;">
         <button class="cal-nav-btn" id="budgetPrev">‹</button>
@@ -1220,6 +1241,8 @@ function switchView(name){
   });
   if(name==="debt"){
     showAssetSub(assetSubView);
+  }else if(name==="ledger"){
+    showLedgerSub("hub");
   }else{
     document.getElementById("mainFab").style.display = (name==="goals" || name==="checkin" || name==="home")?"none":"flex";
   }
@@ -2796,18 +2819,22 @@ function updateBudget(mk, patch){
   save();
 }
 
-/* ============ 記帳／本月預算 頁籤切換（沿用資產盤點的 sub-view 模式，共用 ledgerYear/ledgerMonth） ============ */
-let ledgerSubView = "ledger"; // ledger | budget
+/* ============ 記帳：財務功能入口 → 記帳／本月預算（沿用資產盤點的 sub-view 模式，共用 ledgerYear/ledgerMonth） ============ */
+let ledgerSubView = "hub"; // hub | ledger | budget
 function showLedgerSub(name){
   ledgerSubView = name;
+  document.getElementById("ledgerHubPanel").style.display = name==="hub" ? "block" : "none";
   document.getElementById("ledgerSubPanel").style.display = name==="ledger" ? "block" : "none";
   document.getElementById("budgetSubPanel").style.display = name==="budget" ? "block" : "none";
-  document.querySelectorAll("#ledgerSubTabs button").forEach(b=>b.classList.toggle("active", b.dataset.sub===name));
+  const fab = document.getElementById("mainFab");
+  const onLedgerTab = views.find(v=>document.getElementById("view-"+v).classList.contains("active"))==="ledger";
+  if(onLedgerTab) fab.style.display = name==="ledger" ? "flex" : "none";
   if(name==="budget") renderBudgetTab();
 }
-document.querySelectorAll("#ledgerSubTabs button").forEach(b=>{
-  b.addEventListener("click", ()=>showLedgerSub(b.dataset.sub));
-});
+document.getElementById("goLedgerCard").addEventListener("click", ()=>showLedgerSub("ledger"));
+document.getElementById("goBudgetCard").addEventListener("click", ()=>showLedgerSub("budget"));
+document.getElementById("btnBackFromLedger").addEventListener("click", ()=>showLedgerSub("hub"));
+document.getElementById("btnBackFromBudget").addEventListener("click", ()=>showLedgerSub("hub"));
 document.getElementById("budgetPrev").addEventListener("click", ()=>{
   ledgerMonth--; if(ledgerMonth<0){ ledgerMonth=11; ledgerYear--; } renderLedger();
 });
