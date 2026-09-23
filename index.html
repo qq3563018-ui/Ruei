@@ -203,6 +203,11 @@ input,select,textarea{ font-family:inherit; }
   width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line); font-size:14px; background:var(--bg); color:var(--dark);
 }
 .field textarea{ resize:vertical; min-height:70px; }
+/* iOS Safari 的原生 date/time 輸入框，內建外觀在某些版本會忽略 width:100%，
+   導致框框比同一個表單裡其他欄位還寬、超出容器邊界；關掉原生外觀讓它老實吃我們的寬度設定。 */
+.field input[type="date"], .field input[type="time"], .field input[type="datetime-local"]{
+  -webkit-appearance:none; appearance:none; min-width:0; max-width:100%;
+}
 .color-picker{ display:flex; flex-wrap:wrap; gap:10px; }
 .color-swatch{ width:32px; height:32px; border-radius:50%; border:2px solid transparent; }
 .color-swatch.active{ border-color:var(--dark); transform:scale(1.08); }
