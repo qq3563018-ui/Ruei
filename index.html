@@ -465,6 +465,10 @@ emoji-picker{
 
   <!-- 財務功能入口 -->
   <div id="ledgerHubPanel">
+    <button class="btn-ghost" id="btnFinanceCycleSettings" style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:14px; overflow:hidden;">
+      <span style="flex:0 0 auto;">⚙️ 財務週期</span>
+      <span class="muted" id="financeCycleSummaryLabel" style="font-weight:400; flex:1 1 auto; min-width:0; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">目前：每月 1 日開始</span>
+    </button>
     <div class="card nav-card" id="goLedgerCard">
       <div class="nav-card-row">
         <div>
@@ -483,10 +487,6 @@ emoji-picker{
         <div class="nav-card-arrow">›</div>
       </div>
     </div>
-    <button class="btn-ghost" id="btnFinanceCycleSettings" style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center;">
-      <span>⚙️ 財務週期</span>
-      <span class="muted" id="financeCycleSummaryLabel" style="font-weight:400;">目前：每月 1 日開始</span>
-    </button>
   </div>
 
   <div id="ledgerSubPanel" style="display:none;">
@@ -3179,27 +3179,39 @@ function computeUnmatchedSpendByCategory(mk, baseline){
 }
 
 /* ============ 🌱🍀 財務小花園：純粹在既有「本月預算 vs 實際收支」結果之上，累積正向的整理紀錄 ============
-   完全不重新定義任何財務數字，只讀取每個月是否已經有比較基準（＝有預算＋有真實收支），
-   以及該月的實際總支出是否 <= 比較基準當時的本月預算，全部即時從既有資料重新計算，不額外快取判斷結果。 */
+   完全不重新定義任何財務數字，只讀取每個財務週期是否已經有比較基準（＝有預算＋有真實收支），
+   以及該週期的實際總支出是否 <= 比較基準當時的本月預算，全部即時從既有資料重新計算，不額外快取判斷結果。
+   財務小花園只呈現「已經完整結束」的財務週期成果，進行中的週期無論目前看起來是否在預算內，
+   一律不計入，避免使用者才剛開始記錄就被提前算成一次達成。是否結束一律依自訂財務週期的
+   起訖日判斷（financeCycleRange），不能用自然月／calendar month／月底簡化判斷。 */
+function isFinanceCycleEnded(mk){
+  return financeCycleRange(mk).endStr < todayStr();
+}
 function monthHasComparisonBaseline(mk){
   const rv = getReview(mk);
   return !!(rv && rv.comparisonBaseline);
 }
-// 「這個月有待在預算內」只比較 實際總支出 vs 比較基準的本月預算，不看收入、不看現金流，兩者是分開的判斷。
+// 小花園採計一個財務週期的前提：週期已完整結束＋有正式比較基準＋有實際財務資料，三者缺一都先排除，
+// 跟這個週期最後是否待在預算內是分開的兩件事。
+function isFinanceCycleFinalized(mk){
+  return isFinanceCycleEnded(mk) && monthHasComparisonBaseline(mk) && txsForCycle(mk).length > 0;
+}
+// 「這個週期有待在預算內」只比較 實際總支出 vs 比較基準的本月預算，不看收入、不看現金流，兩者是分開的判斷。
 function isMonthWithinBudget(mk){
   const rv = getReview(mk);
   if(!rv || !rv.comparisonBaseline) return false;
   return realExpenseTotalForMonth(mk) <= rv.comparisonBaseline.monthlyBudget;
 }
-// 待在預算內的月份自動算「已完成復盤」；超出預算的月份要等使用者填完既有的超支原因問答才算完成。
+// 待在預算內的週期自動算「已完成復盤」；超出預算的週期要等使用者填完既有的超支原因問答才算完成。
 function isMonthReviewCompleted(mk){
   const rv = getReview(mk);
   if(!rv || !rv.comparisonBaseline) return false;
   if(isMonthWithinBudget(mk)) return true;
   return !!rv.reasonReview;
 }
+// 只有已完整結束的財務週期才會進入小花園的統計來源，進行中的週期完全不會出現在這份清單裡。
 function reviewedMonthKeysSorted(){
-  return Object.keys(DB.reviewsByMonth).filter(monthHasComparisonBaseline).sort();
+  return Object.keys(DB.reviewsByMonth).filter(isFinanceCycleFinalized).sort();
 }
 // 全部由既有月份資料即時重新算出，不依賴任何快取結果，資料修改後自然會得到正確數字。
 function computeGardenStats(){
@@ -3268,7 +3280,8 @@ function updateBudget(mk, patch){
 let ledgerSubView = "hub"; // hub | ledger | budget
 function renderFinanceCycleSummaryLabel(){
   const day = financeCycleStartDay();
-  document.getElementById("financeCycleSummaryLabel").textContent = `目前：每月 ${day} 日開始`;
+  const mk = cycleKeyForDate(todayStr());
+  document.getElementById("financeCycleSummaryLabel").textContent = `${financeCycleLabel(mk)}｜每月 ${day} 日開始`;
 }
 function showLedgerSub(name){
   ledgerSubView = name;
@@ -3952,7 +3965,7 @@ function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedByCat,
       </div>
       <div class="card-title" style="margin-top:10px; margin-bottom:8px;">下個月你想怎麼做？</div>
       <div class="field"><select id="rv_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.intention===r?"selected":""}>${r}</option>`).join("")}</select></div>
-      <button class="btn-main" id="rv_saveReview" style="width:100%; margin-top:6px;">儲存這次的復盤</button>
+      <button class="btn-main" id="rv_saveReview" style="width:100%; margin-top:6px;">儲存我的回答</button>
       ${prevReview?`<div class="muted" style="margin-top:8px; text-align:center;">上次記錄時間：${prevReview.savedAt}</div>`:""}
       ${prevReview ? `
         <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-top:14px;">
