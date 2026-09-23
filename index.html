@@ -3146,7 +3146,8 @@ function openAllocationBreakdown(mk){
     <div class="networth-line"><span class="label">目前已分配</span><span class="value">NT$ ${allocatedTotal.toLocaleString()}</span></div>
     ${diff>0 ? `<div class="networth-line"><span class="label">目前超出</span><span class="value">NT$ ${diff.toLocaleString()}</span></div>` : ""}
     <div style="margin-top:6px;">${bucketBlocks}</div>
-    <div class="muted" style="margin-top:16px; line-height:1.7;">先看看目前的安排。如果能調整的都整理過了，還是不適合，也可以重新想想原本的分配方式，或本月可分配金額是否符合現在的生活。預算是拿來幫你安排生活的，不是把自己硬塞進一個不適合的數字裡。🤍</div>
+    <div style="margin-top:16px; font-weight:700; line-height:1.6;">這是目前的預算分配，可以展開每個分類看看細項。</div>
+    <div class="muted" style="margin-top:8px; line-height:1.7;">如果有想調整的地方，回到預算分配重新安排就好；如果目前的安排其實都符合你的需要，也可以重新看看本月可分配金額是否適合現在的生活！🌱</div>
     <button class="btn-main" id="ab_edit" style="width:100%; margin-top:16px;">回去調整預算</button>
   `);
   document.querySelectorAll(".alloc-view-head").forEach(head=>{
