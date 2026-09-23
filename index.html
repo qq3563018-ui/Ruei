@@ -3310,38 +3310,6 @@ function efMonthlyTotal(ef){
 function efInterruptionFund(ef){ return efMonthlyTotal(ef) * (ef.targetMonths||0); }
 function efTotalTarget(ef){ return efInterruptionFund(ef) + (ef.unexpectedFund||0); }
 
-function openEfCustomExpenseForm(editItem, onSave){
-  openSheet(`
-    <div class="sheet-head"><h3>${editItem?"編輯支出":"新增其他支出"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="field"><label>名稱</label><input id="ef_c_name" placeholder="例如：寵物基本開銷、停車位、管理費" value="${editItem?escapeHtml(editItem.name):""}"></div>
-    <div class="field"><label>每月金額</label><input id="ef_c_amount" type="number" placeholder="0" value="${editItem?editItem.amount:""}"></div>
-    <button class="btn-main" id="ef_c_save">儲存</button>
-  `);
-  document.getElementById("ef_c_save").addEventListener("click", ()=>{
-    const name = document.getElementById("ef_c_name").value.trim();
-    const amount = parseFloat(document.getElementById("ef_c_amount").value)||0;
-    if(!name){ toast("請輸入名稱"); return; }
-    onSave(name, amount);
-  });
-}
-
-// 手動新增的「其他必要還款」跟「我的負債」自動帶入的項目分開管理，避免同一筆錢被算兩次
-function openEfManualDebtForm(editItem, onSave){
-  openSheet(`
-    <div class="sheet-head"><h3>${editItem?"編輯必要還款":"新增其他必要還款"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:12px;">給還沒有登記在「我的負債」裡的必要還款用，例如親友借款、還沒建檔的分期。</div>
-    <div class="field"><label>名稱</label><input id="ef_d_name" placeholder="例如：手機分期、私人借款" value="${editItem?escapeHtml(editItem.name):""}"></div>
-    <div class="field"><label>每月還款金額</label><input id="ef_d_amount" type="number" placeholder="0" value="${editItem?editItem.amount:""}"></div>
-    <button class="btn-main" id="ef_d_save">儲存</button>
-  `);
-  document.getElementById("ef_d_save").addEventListener("click", ()=>{
-    const name = document.getElementById("ef_d_name").value.trim();
-    const amount = parseFloat(document.getElementById("ef_d_amount").value)||0;
-    if(!name){ toast("請輸入名稱"); return; }
-    onSave(name, amount);
-  });
-}
-
 // STEP 1 裡「💳 必要債務還款」欄位的內容：優先讀取「我的負債」目前仍在還款中的項目，
 // 讓使用者勾選要不要納入，勾選狀態存在 state.includedDebtIds；使用者也可以在下方
 // 手動新增「我的負債」裡還沒登記的必要還款。
@@ -3364,9 +3332,12 @@ function efRenderDebtSection(state){
     `).join("") + `</div>`;
   }
   const manualRowsHTML = (state.manualDebtPayments||[]).map((m,i)=>`
-    <div class="item-row" data-i="${i}">
-      <div class="ef-manual-debt-edit" data-i="${i}" style="flex:1; cursor:pointer;">${escapeHtml(m.name)} <span class="muted">NT$${(Number(m.amount)||0).toLocaleString()} / 月</span></div>
-      <button class="del-btn ef-manual-debt-del" data-i="${i}">✕</button>
+    <div class="field ef-manual-debt-row" data-i="${i}">
+      <label style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <input class="ef-manual-debt-name" data-i="${i}" value="${escapeHtml(m.name||"")}" placeholder="項目名稱" style="flex:1 1 auto; min-width:0; width:auto; border:none; background:transparent; padding:0; font-size:12.5px; font-weight:700; color:var(--medium);">
+        <button type="button" class="del-btn ef-manual-debt-del" data-i="${i}" style="flex:0 0 auto;">✕</button>
+      </label>
+      <input type="number" class="ef-manual-debt-amt" data-i="${i}" placeholder="0" value="${m.amount||""}">
     </div>
   `).join("");
   html += `<div id="efManualDebtList" style="margin-top:${validDebts.length?"6px":"0"};">${manualRowsHTML}</div>`;
@@ -3381,13 +3352,18 @@ function bindEfDebtSectionEvents(state, onChange){
       onChange();
     });
   });
-  document.querySelectorAll(".ef-manual-debt-edit").forEach(el=>{
-    el.addEventListener("click", ()=>{
-      const i = Number(el.dataset.i);
-      openEfManualDebtForm(state.manualDebtPayments[i], (name,amount)=>{
-        state.manualDebtPayments[i] = {...state.manualDebtPayments[i], name, amount};
-        onChange();
-      });
+  document.querySelectorAll(".ef-manual-debt-name").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      state.manualDebtPayments[Number(inp.dataset.i)].name = inp.value;
+    });
+  });
+  document.querySelectorAll(".ef-manual-debt-amt").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      state.manualDebtPayments[Number(inp.dataset.i)].amount = parseFloat(inp.value)||0;
+      const sub = document.getElementById("efDebtSubtotal");
+      if(sub) sub.textContent = `NT$${efDebtBreakdown(state).total.toLocaleString()}`;
+      const totalEl = document.getElementById("efMonthlyTotalDisplay");
+      if(totalEl) totalEl.textContent = `NT$ ${efMonthlyTotal(state).toLocaleString()}`;
     });
   });
   document.querySelectorAll(".ef-manual-debt-del").forEach(b=>{
@@ -3398,10 +3374,9 @@ function bindEfDebtSectionEvents(state, onChange){
   });
   const addBtn = document.getElementById("btnEfAddManualDebt");
   if(addBtn) addBtn.addEventListener("click", ()=>{
-    openEfManualDebtForm(null, (name,amount)=>{
-      state.manualDebtPayments.push({id:uid(), name, amount});
-      onChange();
-    });
+    state.manualDebtPayments = state.manualDebtPayments || [];
+    state.manualDebtPayments.push({id:uid(), name:"", amount:0});
+    onChange();
   });
 }
 
@@ -3459,9 +3434,12 @@ function openEmergencyWizard(){
       </div>`;
     }).join("");
     const customRowsHTML = w.customExpenses.map((c,i)=>`
-      <div class="item-row" data-i="${i}">
-        <div class="ef-custom-edit" data-i="${i}" style="flex:1; cursor:pointer;">${escapeHtml(c.name)} <span class="muted">NT$${(Number(c.amount)||0).toLocaleString()}</span></div>
-        <button class="del-btn ef-custom-del" data-i="${i}">✕</button>
+      <div class="field ef-custom-row" data-i="${i}">
+        <label style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <input class="ef-custom-name" data-i="${i}" value="${escapeHtml(c.name||"")}" placeholder="項目名稱" style="flex:1 1 auto; min-width:0; width:auto; border:none; background:transparent; padding:0; font-size:12.5px; font-weight:700; color:var(--medium);">
+          <button type="button" class="del-btn ef-custom-del" data-i="${i}" style="flex:0 0 auto;">✕</button>
+        </label>
+        <input type="number" class="ef-custom-amt" data-i="${i}" placeholder="0" value="${c.amount||""}">
       </div>
     `).join("");
     wrap("🏠 每月必要生活費", "填入即使暫時沒有收入，每個月仍然需要支付的基本支出。沒有的項目可以留白。",
@@ -3479,13 +3457,15 @@ function openEmergencyWizard(){
         document.getElementById("efMonthlyTotalDisplay").textContent = `NT$ ${efMonthlyTotal(w).toLocaleString()}`;
       });
     });
-    document.querySelectorAll(".ef-custom-edit").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        const i = Number(el.dataset.i);
-        openEfCustomExpenseForm(w.customExpenses[i], (name,amount)=>{
-          w.customExpenses[i] = {...w.customExpenses[i], name, amount};
-          stepExpenses();
-        });
+    document.querySelectorAll(".ef-custom-name").forEach(inp=>{
+      inp.addEventListener("input", ()=>{
+        w.customExpenses[Number(inp.dataset.i)].name = inp.value;
+      });
+    });
+    document.querySelectorAll(".ef-custom-amt").forEach(inp=>{
+      inp.addEventListener("input", ()=>{
+        w.customExpenses[Number(inp.dataset.i)].amount = parseFloat(inp.value)||0;
+        document.getElementById("efMonthlyTotalDisplay").textContent = `NT$ ${efMonthlyTotal(w).toLocaleString()}`;
       });
     });
     document.querySelectorAll(".ef-custom-del").forEach(b=>{
@@ -3495,10 +3475,8 @@ function openEmergencyWizard(){
       });
     });
     document.getElementById("btnEfAddCustom").addEventListener("click", ()=>{
-      openEfCustomExpenseForm(null, (name,amount)=>{
-        w.customExpenses.push({id:uid(), name, amount});
-        stepExpenses();
-      });
+      w.customExpenses.push({id:uid(), name:"", amount:0});
+      stepExpenses();
     });
     bindEfDebtSectionEvents(w, stepExpenses);
     document.getElementById("wizNext").addEventListener("click", ()=>{ step=2; renderStep(); });
