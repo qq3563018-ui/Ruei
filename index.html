@@ -3339,6 +3339,40 @@ function openFixedImportPrompt(mk, wiz){
 const OVERSPEND_REASONS = ["這個月有特殊活動／聚餐","原本預算抓得太低","有臨時／突發支出","這個月沒有特別注意花費","其他"];
 const OVERSPEND_INTENTIONS = ["維持現在的預算","調高預算","重新分配預算","下個月再決定"];
 
+// 完全沒有設定本月預算時的實際支出結構：只整理錢花在哪裡，不評價任何分類。
+function realExpenseStructureForMonth(mk){
+  const catTotals = {};
+  txsForMonth(mk).filter(t=>t.type==="expense").forEach(t=>{ catTotals[t.category] = (catTotals[t.category]||0)+t.amount; });
+  const arr = Object.entries(catTotals).map(([cat,amount])=>({cat, amount}));
+  const debtTotal = debtPaymentsForMonth(mk);
+  if(debtTotal>0) arr.push({cat:"💳 還款", amount:debtTotal});
+  return arr.sort((a,b)=>b.amount-a.amount);
+}
+// LEVEL 1：完全沒有設定本月預算。只整理實際收支，不做任何預算比較／超支判斷，
+// 也不強迫使用者去規劃預算——只是在合適的地方留一個可選擇的入口。
+function renderNoBudgetReviewCardHTML(mk, income, actualTotal, vsIncome){
+  const structure = realExpenseStructureForMonth(mk);
+  return `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:2px;">🌙 本月財務復盤</div>
+      <div class="muted" style="margin-bottom:14px;">看看這個月實際發生了什麼</div>
+      <div class="stat-grid" style="margin-bottom:12px;">
+        <div class="stat-box"><div class="stat-num">${income.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
+        <div class="stat-box"><div class="stat-num">${actualTotal.toLocaleString()}</div><div class="stat-label">實際總支出</div></div>
+        <div class="stat-box"><div class="stat-num">${Math.abs(vsIncome).toLocaleString()}</div><div class="stat-label">${vsIncome>=0?"本月實際剩餘":"支出已超過收入"}</div></div>
+      </div>
+      ${vsIncome<0 ? `<div class="networth-line"><span class="label">實際支出比本月可運用金額多</span><span class="value">NT$ ${Math.abs(vsIncome).toLocaleString()}</span></div>` : ""}
+      <div class="muted" style="margin:10px 0; line-height:1.7;">這個月還沒有設定預算，所以目前沒有預算可以進行比較～<br>小夥伴先幫你整理這個月實際發生的收支 🤍</div>
+      ${structure.length ? `
+        <div class="card-title" style="margin-bottom:8px;">本月實際支出</div>
+        ${structure.map(x=>`<div class="networth-line"><span class="label">${escapeHtml(x.cat)}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>`).join("")}
+      ` : ""}
+      <div class="muted" style="margin-top:14px; line-height:1.7;">如果你想更清楚知道自己的錢可以怎麼安排，也可以試著做一次本月預算規劃。<br>設定之後，小夥伴就能幫你把「預算分配」和「實際收支」放在一起看，之後也會更容易發現哪些地方和原本預期不太一樣。</div>
+      <button class="btn-ghost" id="btnGoSetupBudgetFromReview" style="width:100%; margin-top:10px;">去規劃本月預算 ›</button>
+    </div>
+  `;
+}
+
 function renderReviewCardHTML(mk){
   const income = realIncomeForMonth(mk);
   const actualTotal = realExpenseTotalForMonth(mk);
@@ -3346,19 +3380,7 @@ function renderReviewCardHTML(mk){
   const budget = getBudget(mk);
 
   if(!budget || !budget.available){
-    return `
-      <div class="card">
-        <div class="card-title" style="margin-bottom:2px;">🌙 本月財務復盤</div>
-        <div class="muted" style="margin-bottom:14px;">看看這個月實際發生了什麼</div>
-        <div class="stat-grid" style="margin-bottom:12px;">
-          <div class="stat-box"><div class="stat-num">${income.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
-          <div class="stat-box"><div class="stat-num">${actualTotal.toLocaleString()}</div><div class="stat-label">實際總支出</div></div>
-          <div class="stat-box"><div class="stat-num">${Math.abs(vsIncome).toLocaleString()}</div><div class="stat-label">${vsIncome>=0?"本月實際剩餘":"支出已超過收入"}</div></div>
-        </div>
-        <div class="muted" style="margin-bottom:10px;">這個月還沒有設定預算，因此目前先顯示實際收支狀況。</div>
-        <button class="btn-ghost" id="btnGoSetupBudgetFromReview" style="width:100%;">去設定本月預算 ›</button>
-      </div>
-    `;
+    return renderNoBudgetReviewCardHTML(mk, income, actualTotal, vsIncome);
   }
 
   const frozenBaseline = ensureComparisonBaseline(mk);
