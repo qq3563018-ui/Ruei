@@ -3168,6 +3168,15 @@ function computeUnmatchedActualSpend(mk, baseline){
   const txTotal = txsForMonth(mk).filter(t=>t.type==="expense" && !linkedCats.has(t.category)).reduce((s,t)=>s+t.amount,0);
   return txTotal + debtPaymentsForMonth(mk);
 }
+// 未對應到任何預算項目的實際支出，依記帳分類拆開列出（金額仍然計入總支出／現金流，只是拆給使用者看清楚花在哪裡）。
+function computeUnmatchedSpendByCategory(mk, baseline){
+  const linkedCats = new Set(baseline.items.filter(it=>it.linkedCategoryId).map(it=>it.linkedCategoryId));
+  const byCat = {};
+  txsForMonth(mk).filter(t=>t.type==="expense" && !linkedCats.has(t.category)).forEach(t=>{
+    byCat[t.category] = (byCat[t.category]||0) + t.amount;
+  });
+  return Object.entries(byCat).map(([category,amount])=>({category, amount})).sort((a,b)=>b.amount-a.amount);
+}
 
 /* ============ 🌱🍀 財務小花園：純粹在既有「本月預算 vs 實際收支」結果之上，累積正向的整理紀錄 ============
    完全不重新定義任何財務數字，只讀取每個月是否已經有比較基準（＝有預算＋有真實收支），
@@ -3334,7 +3343,7 @@ function renderAllocationCardHTML(mk){
         <span style="font-weight:700;">本月復盤已開始記錄 🤍</span>
         <button class="small-link" id="btnBaselineExplain" style="flex:0 0 auto;">這是什麼？</button>
       </div>
-      <div class="muted">你仍然可以調整現在的預算分配，但不會改變本月財務復盤已保留的比較基準。</div>
+      <div class="muted">你還是可以繼續調整現在的預算分配；財務復盤會保留第一次確認的預算，讓你之後看看「預算分配」和「實際收支」有哪些不同。</div>
     </div>
   ` : `
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:14px;">
@@ -3471,8 +3480,9 @@ function openBudgetSetupForm(mk, wizIn){
   const wiz = wizIn || (existing
     ? {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations), calcItems:deepClone(existing.calcItems||{})}
     : {available: 0, allocations: blankAllocations(), calcItems:{}});
-  // 這個月的比較基準還沒建立過，這次儲存就是可能正式建立 baseline 的那一次，
-  // 需要先讓使用者看說明並勾選確認，儲存鈕在勾選前維持 disabled。
+  // 這個月的比較基準還沒建立過：預算分配本身完全不受這件事影響，隨時可以自由填寫、調整、儲存。
+  // 只有使用者自己勾選確認框並按下儲存，才會在這次儲存的同時額外建立正式比較基準；
+  // 沒有勾選一樣可以正常存檔，只是這份預算目前仍屬於規劃中，儲存鈕永遠不會被這個勾選框鎖住。
   const needsBaselineConfirm = !getComparisonBaseline(mk);
   openSheet(`
     <div class="sheet-head"><h3>${existing?"調整":"設定"}本月預算分配</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
@@ -3491,21 +3501,17 @@ function openBudgetSetupForm(mk, wizIn){
     <button class="btn-ghost" id="bg_importFixed" style="width:100%; margin-bottom:10px;">把固定收支／負債帶入「還款/固定責任」</button>
     ${needsBaselineConfirm ? `
       <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-bottom:12px;">
-        <div style="font-weight:700; margin-bottom:6px;">本月復盤會從這份預算開始記錄 🤍</div>
-        <div class="muted" style="line-height:1.7; margin-bottom:10px;">儲存後，小夥伴會保留這次的預算分配，作為本月財務復盤的比較基準。之後你還是可以調整現在的預算分配，但不會改變這次保留下來的比較基準，這樣之後回頭看時，就能知道「預算分配」和「實際收支」有哪些不同。</div>
-        <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+        <div style="font-weight:700; margin-bottom:6px;">想先試著分配看看也可以 🤍</div>
+        <div class="muted" style="line-height:1.7; margin-bottom:10px;">你可以先自由安排、調整預算，不需要先建立財務復盤的比較基準。<br><br>如果你希望之後在「本月財務復盤」裡比較「預算分配」和「實際收支」，再勾選下面的確認框就可以了。</div>
+        <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; margin-bottom:10px;">
           <input type="checkbox" id="bg_confirmBaseline" style="margin-top:3px; flex-shrink:0;">
-          <span>我了解這份預算會作為本月財務復盤的比較基準</span>
+          <span>將這份預算作為本月財務復盤的比較基準</span>
         </label>
+        <div class="muted" style="line-height:1.7;">勾選並儲存後，小夥伴會保留這次的預算分配，作為本月財務復盤的比較基準。之後你還是可以調整目前的預算分配，不會影響這次保留下來的比較基準。</div>
       </div>
     ` : ""}
-    <button class="btn-main" id="bg_submit"${needsBaselineConfirm ? " disabled" : ""}>儲存</button>
+    <button class="btn-main" id="bg_submit">儲存本月預算</button>
   `);
-  if(needsBaselineConfirm){
-    const cb = document.getElementById("bg_confirmBaseline");
-    const submitBtn = document.getElementById("bg_submit");
-    cb.addEventListener("change", ()=>{ submitBtn.disabled = !cb.checked; });
-  }
   document.querySelectorAll(".bg_alloc").forEach(inp=>{
     inp.dataset.lastval = inp.value || "0";
     inp.addEventListener("change", ()=>{
@@ -3536,13 +3542,49 @@ function openBudgetSetupForm(mk, wizIn){
     const allocations = blankAllocations();
     document.querySelectorAll(".bg_alloc").forEach(inp=>{ allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
     const calcItems = wiz.calcItems || {};
-    if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
-    else{ createBudget(mk, {available, allocations, calcItems}); }
-    if(needsBaselineConfirm){
-      establishComparisonBaseline(mk, {available, allocations, calcItems});
+    // 只有「這個月還沒有正式比較基準」而且「使用者這次自己勾選了確認框」才會建立 baseline；
+    // 沒勾選、或勾了又取消，都只是單純儲存目前的預算規劃，不會建立、也不會動到任何比較基準。
+    const cb = document.getElementById("bg_confirmBaseline");
+    const wantsBaseline = needsBaselineConfirm && !!(cb && cb.checked);
+
+    const finalizeSave = ()=>{
+      if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
+      else{ createBudget(mk, {available, allocations, calcItems}); }
+      if(wantsBaseline){
+        establishComparisonBaseline(mk, {available, allocations, calcItems});
+      }
+      closeSheet(); renderBudgetTab(); renderHomeStats();
+      toast(wantsBaseline ? "已建立本月財務復盤的比較基準" : "已更新本月預算分配");
+    };
+
+    if(wantsBaseline){
+      const unmapped = [];
+      BUCKET_DEFS.forEach(bd=>{
+        (calcItems[bd.key]||[]).forEach(it=>{
+          if((Number(it.amount)||0) > 0 && !it.linkedCategoryId) unmapped.push(it);
+        });
+      });
+      if(unmapped.length){
+        openUnmappedItemsWarning(unmapped.length, mk, wiz, finalizeSave);
+        return;
+      }
     }
-    closeSheet(); renderBudgetTab(); renderHomeStats(); toast("已更新本月預算分配");
+    finalizeSave();
   });
+}
+// 第一次建立正式比較基準前，如果還有已填金額但沒對應記帳分類的細項，先提醒一下，
+// 但不強迫使用者一定要設定完成才能繼續——「仍然儲存」永遠可以選。
+function openUnmappedItemsWarning(count, mk, wiz, onProceed){
+  openSheet(`
+    <div class="sheet-head"><h3>有 ${count} 個預算項目還沒有對應記帳分類</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:18px; line-height:1.7;">這不會影響你儲存預算，但之後財務復盤可能無法比較這些項目的預算和實際支出。</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="btn-ghost" id="uw_goSet">去設定對應</button>
+      <button class="btn-main" id="uw_proceed">仍然儲存</button>
+    </div>
+  `);
+  document.getElementById("uw_goSet").addEventListener("click", ()=>openBudgetSetupForm(mk, wiz));
+  document.getElementById("uw_proceed").addEventListener("click", ()=>onProceed());
 }
 function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
   const bd = BUCKET_DEFS.find(x=>x.key===key);
@@ -3617,13 +3659,21 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
   saved.forEach(it=>{ savedByName[it.name] = it; });
   const customItems = saved.filter(it=>!presetNames.includes(it.name));
 
+  const linkcatButtonHTML = (idAttr, linkedCategoryId)=>
+    `<button type="button" class="small-link calc-item-linkcat" data-id="${idAttr}" data-linked="${linkedCategoryId?escapeHtml(linkedCategoryId):''}" style="align-self:flex-start; font-size:12px; font-weight:400;">${linkedCategoryId?`對應記帳分類：${escapeHtml(linkedCategoryId)}`:'尚未對應記帳分類・設定對應 ›'}</button>`;
   const presetRowHTML = (presetDef)=>{
     const existing = savedByName[presetDef.name];
     const amt = existing ? existing.amount : "";
+    // 已經存過的細項，用它自己存的 linkedCategoryId（可能是使用者自己改過的）；
+    // 還沒存過、第一次出現的預設項目，才用 PRESET_CALC_ITEMS 裡語意明確的預設對應。
+    const linkedCategoryId = existing && existing.linkedCategoryId !== undefined ? existing.linkedCategoryId : presetDef.linkedCategoryId;
     return `
-    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(presetDef.name)}" style="min-width:0;">
-      <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(presetDef.name)}</div>
-      <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
+    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(presetDef.name)}" style="min-width:0; flex-direction:column; align-items:stretch; gap:2px;">
+      <div style="display:flex; min-width:0; align-items:center;">
+        <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(presetDef.name)}</div>
+        <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
+      </div>
+      ${linkcatButtonHTML(escapeHtml(presetDef.name), linkedCategoryId)}
     </div>`;
   };
   const customRowHTML = (it)=>`
@@ -3635,12 +3685,13 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
         </div>
         <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
       </div>
-      <button type="button" class="small-link calc-item-linkcat" data-id="${it.id}" data-linked="${it.linkedCategoryId?escapeHtml(it.linkedCategoryId):''}" style="align-self:flex-start; font-size:12px; font-weight:400;">${it.linkedCategoryId?`對應：${escapeHtml(it.linkedCategoryId)}`:'設定對應的記帳分類 ›'}</button>
+      ${linkcatButtonHTML(it.id, it.linkedCategoryId)}
     </div>`;
 
   openSheet(`
     <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
     <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍</div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">還沒對應記帳分類也可以先儲存，只是之後財務復盤可能沒辦法比較那個項目的預算和實際支出。</div>
     ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
     <div id="ci_list" style="width:100%; min-width:0; overflow-x:hidden;">${presetDefs.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
     <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增其他項目</button>
@@ -3660,10 +3711,10 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     document.querySelectorAll(".calc-preset-row").forEach(row=>{
       const name = row.dataset.name;
       const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
-      if(amount>0){
-        const def = presetDefs.find(p=>p.name===name);
-        items.push({id:name, name, amount, linkedCategoryId: def?def.linkedCategoryId:null});
-      }
+      const linkBtn = row.querySelector(".calc-item-linkcat");
+      const linkedCategoryId = linkBtn && linkBtn.dataset.linked ? linkBtn.dataset.linked : null;
+      if(forSave && amount<=0) return;
+      items.push({id:name, name, amount, linkedCategoryId});
     });
     document.querySelectorAll(".calc-custom-row").forEach(row=>{
       const name = row.querySelector(".calc-item-name").value.trim();
@@ -3806,13 +3857,14 @@ function renderReviewCardHTML(mk){
   const overallDiff = actualTotal - baseline.monthlyBudget;
   const isOverBudget = overallDiff > 0;
   const itemComparisons = computeItemComparisons(mk, baseline);
-  const unmatchedSpend = computeUnmatchedActualSpend(mk, baseline);
+  const unmatchedByCat = computeUnmatchedSpendByCategory(mk, baseline);
+  const debtTotal = debtPaymentsForMonth(mk);
   const unlinkedItems = computeUnlinkedBudgetItems(baseline);
   const hasAnyItems = baseline.items.length > 0;
 
   const bodyHTML = isOverBudget
-    ? renderOverBudgetSectionHTML(mk, overallDiff, itemComparisons.filter(it=>it.diff>0), unmatchedSpend, hasAnyItems)
-    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedSpend, hasAnyItems);
+    ? renderOverBudgetSectionHTML(mk, overallDiff, itemComparisons.filter(it=>it.diff>0), unmatchedByCat, debtTotal, hasAnyItems)
+    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedByCat, debtTotal, hasAnyItems, mk);
 
   return `
     <div class="card">
@@ -3843,7 +3895,23 @@ function itemCompareRowHTML(it, showDetailLink){
   `;
 }
 
-function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffItems, unmatchedSpend, hasAnyItems){
+// 未對應到預算項目的實際支出：拆給使用者看清楚花在哪些記帳分類，每個分類都可以事後補設定對應，
+// 但這只會補上原本沒填的 linkedCategoryId，不會改動已經凍結的比較基準金額。
+function renderUnmatchedSpendBreakdownHTML(mk, unmatchedByCat, debtTotal){
+  if(!unmatchedByCat.length && !(debtTotal>0)) return "";
+  return `
+    <div style="margin-top:10px;">
+      <div class="muted" style="margin-bottom:6px;">還有實際支出沒有對應到任何預算項目，這些金額仍然計入上面的總支出：</div>
+      ${unmatchedByCat.map(x=>`
+        <div class="networth-line"><span class="label">${escapeHtml(x.category)}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
+        <div style="text-align:right; margin:-2px 0 6px;"><button class="small-link review-map-unmatched" data-cat="${escapeHtml(x.category)}" data-mk="${escapeHtml(mk)}">設定對應 ›</button></div>
+      `).join("")}
+      ${debtTotal>0 ? `<div class="networth-line"><span class="label">💳 還款／固定支出</span><span class="value">NT$ ${debtTotal.toLocaleString()}</span></div>` : ""}
+    </div>
+  `;
+}
+
+function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffItems, unmatchedByCat, debtTotal, hasAnyItems, mk){
   const itemRows = diffItems.map(it=>itemCompareRowHTML(it, it.diff>0)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
@@ -3859,12 +3927,12 @@ function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudge
       ${diffItems.length
         ? `<div class="muted" style="margin-bottom:4px;">有 ${diffItems.length} 個項目和原本的分配不太一樣</div>${itemRows}`
         : (hasAnyItems ? "" : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
-      ${unmatchedSpend>0 ? `<div class="muted" style="margin-top:10px;">未對應預算的支出 NT$${unmatchedSpend.toLocaleString()}</div>` : ""}
+      ${renderUnmatchedSpendBreakdownHTML(mk, unmatchedByCat, debtTotal)}
     </div>
   `;
 }
 
-function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedSpend, hasAnyItems){
+function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedByCat, debtTotal, hasAnyItems){
   const rv = getReview(mk);
   const prevReview = rv ? rv.reasonReview : null;
   const isOtherReason = !!(prevReview && prevReview.reason==="其他");
@@ -3875,7 +3943,7 @@ function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedSpend,
       ${overItems.length
         ? `<div class="card-title" style="margin-bottom:4px;">高於原本分配的項目</div>${itemRows}`
         : (hasAnyItems ? `<div class="muted">目前沒有單一項目特別偏高，可能是好幾個地方加起來多一點，或有還沒設定對應分類的支出。</div>` : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
-      ${unmatchedSpend>0 ? `<div class="muted" style="margin-top:10px;">未對應預算的支出 NT$${unmatchedSpend.toLocaleString()}</div>` : ""}
+      ${renderUnmatchedSpendBreakdownHTML(mk, unmatchedByCat, debtTotal)}
       <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要原因是什麼呢～</div>
       <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <div id="rv_reasonDetailWrap" class="field" style="display:${isOtherReason?"block":"none"};">
@@ -3908,6 +3976,34 @@ function renderUnlinkedItemsHTML(unlinkedItems){
       `).join("")}
     </div>
   `;
+}
+
+// 把一個「還沒對應到任何預算項目」的記帳分類，事後補接到比較基準裡某個「還沒對應記帳分類」的項目上。
+// 只補上那個項目原本空著的 linkedCategoryId，不會改動已經凍結的比較基準金額，也不會產生重複對應
+// （因為只列出目前還沒對應分類的項目，這個分類本身也還沒被任何項目使用）。
+function openUnmatchedCategoryMapPicker(mk, category){
+  const rv = getReview(mk);
+  const baseline = rv && rv.comparisonBaseline;
+  if(!baseline) return;
+  const unmappedItems = baseline.items.filter(it=>!it.linkedCategoryId);
+  openSheet(`
+    <div class="sheet-head"><h3>把「${escapeHtml(category)}」對應到預算項目</h3><button class="close-btn" id="umw_back">✕</button></div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">選一個還沒對應記帳分類的預算項目，之後財務復盤就能把「${escapeHtml(category)}」的實際支出和這個項目原本的分配放在一起比較。這不會改變這次已經保留的比較基準金額。</div>
+    ${unmappedItems.length ? `
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        ${unmappedItems.map(it=>`<button type="button" class="btn-ghost umw-pick-btn" data-id="${escapeHtml(it.id)}" style="text-align:left;">${escapeHtml(it.name)}（原本分配 NT$${it.budgetAmount.toLocaleString()}）</button>`).join("")}
+      </div>
+    ` : `<div class="empty-state">目前沒有還沒對應記帳分類的預算項目可以選了。</div>`}
+  `);
+  const back = ()=>{ closeSheet(); renderBudgetTab(); };
+  document.getElementById("umw_back").addEventListener("click", back);
+  document.querySelectorAll(".umw-pick-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const item = baseline.items.find(it=>it.id===btn.dataset.id);
+      if(item){ item.linkedCategoryId = category; save(); }
+      back();
+    });
+  });
 }
 
 /* ============ 🌱🍀 財務小花園卡片：純展示，不新增任何互動或財務判斷 ============ */
@@ -3974,6 +4070,9 @@ function wireReviewCard(mk){
         ()=>closeSheet()
       );
     });
+  });
+  document.querySelectorAll(".review-map-unmatched").forEach(el=>{
+    el.addEventListener("click", ()=>openUnmatchedCategoryMapPicker(el.dataset.mk, el.dataset.cat));
   });
   const reasonSelect = document.getElementById("rv_reason");
   if(reasonSelect) reasonSelect.addEventListener("change", ()=>{
