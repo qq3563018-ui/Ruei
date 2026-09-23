@@ -3013,23 +3013,25 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
   const presetRowHTML = (name)=>{
     const amt = savedByName[name] ? savedByName[name].amount : "";
     return `
-    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(name)}">
-      <div style="flex:1; font-size:14px;">${escapeHtml(name)}</div>
-      <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="width:100px; border:none; background:transparent; text-align:right; font-size:14px; padding:4px;">
+    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(name)}" style="min-width:0;">
+      <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(name)}</div>
+      <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
     </div>`;
   };
   const customRowHTML = (it)=>`
-    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}">
-      <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1; border:none; background:transparent; font-size:14px; padding:4px;">
-      <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="width:90px; border:none; background:transparent; text-align:right; font-size:14px; padding:4px;">
-      <button class="del-btn calc-item-del" data-id="${it.id}">✕</button>
+    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}" style="min-width:0;">
+      <div style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:4px;">
+        <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1 1 auto; min-width:0; border:none; background:transparent; font-size:14px; padding:4px 0;">
+        <button type="button" class="calc-item-del" data-id="${it.id}" style="flex:0 0 auto; background:none; border:none; color:var(--gray); font-size:14px; padding:2px 4px; line-height:1;">✕</button>
+      </div>
+      <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
     </div>`;
 
   openSheet(`
     <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
     <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍</div>
     ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
-    <div id="ci_list">${presetLabels.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
+    <div id="ci_list" style="width:100%; min-width:0; overflow-x:hidden;">${presetLabels.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
     <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增其他項目</button>
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
       <span class="muted">目前合計</span><span id="ci_total" style="font-size:17px; font-weight:900;">NT$ ${itemsSumInit.toLocaleString()}</span>
