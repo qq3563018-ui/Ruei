@@ -644,7 +644,7 @@ function withDefaults(obj){
   return Object.assign({
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
     customCategories:{expense:[], income:[]}, budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
-    seenDiscoveryNotices:[],
+    seenDiscoveryNotices:[], gardenAcknowledgedMilestone:0,
     emergencyFund:{
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
       customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
@@ -2876,6 +2876,66 @@ function computeUnmatchedActualSpend(mk, baseline){
   return txTotal + debtPaymentsForMonth(mk);
 }
 
+/* ============ 🌱🍀 財務小花園：純粹在既有「本月預算 vs 實際收支」結果之上，累積正向的整理紀錄 ============
+   完全不重新定義任何財務數字，只讀取每個月是否已經有比較基準（＝有預算＋有真實收支），
+   以及該月的實際總支出是否 <= 比較基準當時的本月預算，全部即時從既有資料重新計算，不額外快取判斷結果。 */
+function monthHasComparisonBaseline(mk){
+  const rv = getReview(mk);
+  return !!(rv && rv.comparisonBaseline);
+}
+// 「這個月有待在預算內」只比較 實際總支出 vs 比較基準的本月預算，不看收入、不看現金流，兩者是分開的判斷。
+function isMonthWithinBudget(mk){
+  const rv = getReview(mk);
+  if(!rv || !rv.comparisonBaseline) return false;
+  return realExpenseTotalForMonth(mk) <= rv.comparisonBaseline.monthlyBudget;
+}
+// 待在預算內的月份自動算「已完成復盤」；超出預算的月份要等使用者填完既有的超支原因問答才算完成。
+function isMonthReviewCompleted(mk){
+  const rv = getReview(mk);
+  if(!rv || !rv.comparisonBaseline) return false;
+  if(isMonthWithinBudget(mk)) return true;
+  return !!rv.reasonReview;
+}
+function reviewedMonthKeysSorted(){
+  return Object.keys(DB.reviewsByMonth).filter(monthHasComparisonBaseline).sort();
+}
+// 全部由既有月份資料即時重新算出，不依賴任何快取結果，資料修改後自然會得到正確數字。
+function computeGardenStats(){
+  const monthKeys = reviewedMonthKeysSorted();
+  const currentYearPrefix = String(new Date().getFullYear()) + "-";
+  let thisYearWithin = 0, reviewCompleted = 0, longestStreak = 0, runningStreak = 0;
+  monthKeys.forEach(mk=>{
+    const within = isMonthWithinBudget(mk);
+    if(isMonthReviewCompleted(mk)) reviewCompleted++;
+    if(within && mk.startsWith(currentYearPrefix)) thisYearWithin++;
+    if(within){ runningStreak++; longestStreak = Math.max(longestStreak, runningStreak); }
+    else{ runningStreak = 0; }
+  });
+  return { monthKeys, thisYearWithin, reviewCompleted, longestStreak, currentStreak: runningStreak };
+}
+const GARDEN_MILESTONES = [
+  { months:1, emoji:"🌱",
+    celebrateTitle: "🌱 這個月有好好待在自己的預算裡",
+    celebrateBody: "開始慢慢找到適合自己的財務節奏了～🤍",
+    normalLabel: "🌱 已達成 1 個月里程碑" },
+  { months:3, emoji:"🍀",
+    celebrateTitle: "🍀 收到一株四葉幸運草",
+    celebrateBody: "已連續 3 個月待在預算內\n\n你正在慢慢找到適合自己的生活節奏。\n\n這株四葉幸運草送給認真整理生活的你，希望接下來也有很多好事，悄悄來到你身邊～🤍",
+    normalLabel: "🍀 已達成 3 個月里程碑" },
+  { months:6, emoji:"🌿",
+    celebrateTitle: "🌿 已經陪自己走了半年",
+    celebrateBody: "半年了～你已經累積了一段很完整的預算紀錄。\n\n慢慢回頭看，也許會發現自己對生活需要多少、錢通常花在哪裡，已經比以前更有概念了。🤍",
+    normalLabel: "🌿 已達成 6 個月里程碑" },
+  { months:9, emoji:"🪴",
+    celebrateTitle: "🪴 已經陪自己整理 9 個月了",
+    celebrateBody: "一路整理到現在，預算已經不只是幾個數字，而是你慢慢了解自己生活的一種方式。\n\n這盆小植物送給一路把生活好好照顧到現在的你～🤍",
+    normalLabel: "🪴 已達成 9 個月里程碑" },
+  { months:12, emoji:"🌳",
+    celebrateTitle: "🌳 和自己的預算一起走過一年了",
+    celebrateBody: "這一年不是每筆錢都要花得剛剛好，而是你一次一次整理、調整，慢慢找到了更適合自己的生活方式。\n\n你留下的不只是 12 次預算，而是一整年的生活軌跡。🤍",
+    normalLabel: "🌳 已達成 12 個月里程碑" },
+];
+
 function createBudget(mk, data, carriedFrom){
   const snap = {available:data.available||0, allocations:Object.assign(blankAllocations(), data.allocations||{})};
   DB.budgetsByMonth[mk] = {
@@ -2933,7 +2993,7 @@ function renderBudgetTab(){
   const mk = budgetMonthKeyOf(ledgerYear, ledgerMonth);
   document.getElementById("budgetMonthLabel").textContent = `${ledgerYear}年 ${ledgerMonth+1}月預算`;
   const box = document.getElementById("budgetContent");
-  box.innerHTML = renderAllocationCardHTML(mk) + `<div style="height:22px;"></div>` + renderReviewCardHTML(mk);
+  box.innerHTML = renderAllocationCardHTML(mk) + `<div style="height:22px;"></div>` + renderReviewCardHTML(mk) + `<div style="height:22px;"></div>` + renderGardenCardHTML();
   wireAllocationCard(mk);
   wireReviewCard(mk);
 }
@@ -3429,7 +3489,7 @@ function renderReviewCardHTML(mk){
 
   const bodyHTML = isOverBudget
     ? renderOverBudgetSectionHTML(mk, overallDiff, itemComparisons.filter(it=>it.diff>0), unmatchedSpend, hasAnyItems)
-    : renderWithinBudgetSectionHTML(baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedSpend, hasAnyItems);
+    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedSpend, hasAnyItems);
 
   return `
     <div class="card">
@@ -3460,10 +3520,17 @@ function itemCompareRowHTML(it, showDetailLink){
   `;
 }
 
-function renderWithinBudgetSectionHTML(remainVsBudget, diffItems, unmatchedSpend, hasAnyItems){
+function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffItems, unmatchedSpend, hasAnyItems){
   const itemRows = diffItems.map(it=>itemCompareRowHTML(it, it.diff>0)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
+      <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-bottom:14px;">
+        <div style="font-weight:700; margin-bottom:8px;">這個月有好好待在自己的預算裡 🌱</div>
+        <div class="networth-line"><span class="label">本月預算</span><span class="value">NT$ ${monthlyBudget.toLocaleString()}</span></div>
+        <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${actualTotal.toLocaleString()}</span></div>
+        <div class="networth-line"><span class="label">預算內尚餘</span><span class="value">NT$ ${remainVsBudget.toLocaleString()}</span></div>
+        <div class="muted" style="margin-top:8px; line-height:1.7;">不一定要把每一筆錢都花得完美，能慢慢找到適合自己的安排，就是很好的進步。🤍</div>
+      </div>
       <div style="font-weight:700; margin-bottom:4px;">整體仍在本月預算內 🤍</div>
       <div class="muted" style="margin-bottom:10px;">預算內尚餘 NT$${remainVsBudget.toLocaleString()}</div>
       ${diffItems.length
@@ -3491,6 +3558,12 @@ function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedSpend,
       <div class="field"><select id="rv_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.intention===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <button class="btn-main" id="rv_saveReview" style="width:100%; margin-top:6px;">儲存這次的復盤</button>
       ${prevReview?`<div class="muted" style="margin-top:8px; text-align:center;">上次記錄時間：${prevReview.savedAt}</div>`:""}
+      ${prevReview ? `
+        <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-top:14px;">
+          <div style="font-weight:700; margin-bottom:6px;">🌱 這個月和原本預期不太一樣，但你還是回來把它整理清楚了。</div>
+          <div class="muted" style="line-height:1.7;">每一次願意重新看看自己的生活，都會替下一次留下新的開始。🤍</div>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -3506,6 +3579,51 @@ function renderUnlinkedItemsHTML(unlinkedItems){
           <button class="small-link review-set-linkcat" data-id="${it.id}">設定對應 ›</button>
         </div>
       `).join("")}
+    </div>
+  `;
+}
+
+/* ============ 🌱🍀 財務小花園卡片：純展示，不新增任何互動或財務判斷 ============ */
+function renderGardenCardHTML(){
+  const stats = computeGardenStats();
+  const achievedMilestones = GARDEN_MILESTONES.filter(m=>stats.longestStreak >= m.months);
+  const newestAchieved = achievedMilestones.length ? achievedMilestones[achievedMilestones.length-1] : null;
+  const isFreshlyAchieved = !!(newestAchieved && newestAchieved.months > (DB.gardenAcknowledgedMilestone||0));
+  if(isFreshlyAchieved){
+    DB.gardenAcknowledgedMilestone = newestAchieved.months;
+    save();
+  }
+
+  const milestoneRow = GARDEN_MILESTONES.map(m=>{
+    const done = stats.longestStreak >= m.months;
+    return `<span style="font-size:22px; opacity:${done?"1":"0.25"};" title="${m.months} 個月">${m.emoji}</span>`;
+  }).join(" ");
+
+  const celebrateHTML = isFreshlyAchieved ? `
+    <div style="background:var(--light-accent); border-radius:12px; padding:14px; margin-bottom:14px;">
+      <div style="font-weight:700; margin-bottom:6px;">${newestAchieved.celebrateTitle}</div>
+      <div class="muted" style="line-height:1.8; white-space:pre-line;">${newestAchieved.celebrateBody}</div>
+    </div>
+  ` : "";
+
+  const hasAnyData = stats.monthKeys.length > 0;
+
+  return `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:2px;">🌱🍀 財務小花園</div>
+      <div class="muted" style="margin-bottom:14px;">你慢慢整理生活留下的痕跡</div>
+      ${celebrateHTML}
+      ${hasAnyData ? `
+        <div style="text-align:center; margin-bottom:14px; letter-spacing:6px;">${milestoneRow}</div>
+        <div class="networth-line"><span class="label">🌱 目前連續</span><span class="value">${stats.currentStreak} 個月</span></div>
+        <div class="networth-line"><span class="label">🍀 今年待在預算內</span><span class="value">${stats.thisYearWithin} 個月</span></div>
+        <div class="networth-line"><span class="label">🌿 最長連續紀錄</span><span class="value">${stats.longestStreak} 個月</span></div>
+        <div class="networth-line"><span class="label">🤍 已完成財務復盤</span><span class="value">${stats.reviewCompleted} 個月</span></div>
+        ${newestAchieved && !isFreshlyAchieved ? `<div class="muted" style="margin-top:10px;">${newestAchieved.normalLabel}</div>` : ""}
+        <div class="muted" style="margin-top:12px; line-height:1.7;">你整理好的每一點生活，都偷偷替未來留了一點好運。</div>
+      ` : `
+        <div class="empty-state">還沒有完成任何一個月的財務復盤，先從這個月開始慢慢整理看看吧 🌱</div>
+      `}
     </div>
   `;
 }
@@ -4305,6 +4423,7 @@ function exportBackup(){
     {key:"insightsMemoryJSON", value:JSON.stringify(DB.insightsMemory||{})},
     {key:"emergencyFundJSON", value:JSON.stringify(DB.emergencyFund||null)},
     {key:"seenDiscoveryNoticesJSON", value:JSON.stringify(DB.seenDiscoveryNotices||[])},
+    {key:"gardenAcknowledgedMilestone", value:DB.gardenAcknowledgedMilestone||0},
   ]);
   XLSX.writeFile(wb, `生活小夥伴備份_${todayStr()}.xlsx`);
   toast("備份已下載");
@@ -4375,6 +4494,7 @@ function importBackupFromWorkbook(wb){
       includedDebtIds:null, manualDebtPayments:[]
     }),
     seenDiscoveryNotices: safeJSONParse(settings.seenDiscoveryNoticesJSON, []),
+    gardenAcknowledgedMilestone: parseInt(settings.gardenAcknowledgedMilestone, 10) || 0,
   });
   save();
   document.body.setAttribute("data-theme", DB.theme);
