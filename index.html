@@ -158,6 +158,7 @@ input,select,textarea{ font-family:inherit; }
   background:var(--accent); color:var(--on-accent); padding:12px 18px; border-radius:12px; font-weight:700; font-size:14px;
   width:100%; text-align:center;
 }
+.btn-main:disabled{ opacity:.4; cursor:not-allowed; }
 .btn-ghost{
   background:var(--light-accent); color:var(--medium); padding:10px 16px; border-radius:12px; font-weight:700; font-size:13px;
 }
@@ -2852,16 +2853,16 @@ function snapshotBudgetForComparison(budget){
   });
   return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, items };
 }
-// 預算比較基準要等「這個月真的開始有實際收支」才凍結，避免使用者都還在慢慢設定
-// 幫我計算細項時，第一次隨手存檔就把還沒填完的預算永久凍結成比較基準。
-// 在那之前，復盤畫面顯示的是目前預算分配的即時預覽，不會被 save() 進 DB。
-function ensureComparisonBaseline(mk){
+// 比較基準只在使用者於「本月預算分配」勾選確認並儲存時才正式建立（見 openBudgetSetupForm），
+// 不再因為「這個月剛好出現第一筆真實收支」就被系統偷偷建立。在那之前，復盤畫面顯示的是
+// 目前預算分配的即時預覽，不會被 save() 進 DB。
+function getComparisonBaseline(mk){
+  const rv = getReview(mk);
+  return (rv && rv.comparisonBaseline) || null;
+}
+function establishComparisonBaseline(mk, budget){
   const rv = ensureReview(mk);
-  if(rv.comparisonBaseline) return rv.comparisonBaseline;
-  const budget = getBudget(mk);
-  if(!budget || !budget.available) return null;
-  const hasRealActivity = realIncomeForMonth(mk) > 0 || realExpenseTotalForMonth(mk) > 0;
-  if(!hasRealActivity) return null;
+  if(rv.comparisonBaseline) return rv.comparisonBaseline; // 已經建立過，之後的儲存不能偷偷改寫
   rv.comparisonBaseline = {...snapshotBudgetForComparison(budget), capturedAt: todayStr()};
   save();
   return rv.comparisonBaseline;
@@ -3031,14 +3032,9 @@ function renderAllocationCardHTML(mk){
     <div class="networth-line"><span class="label">${bd.emoji} ${bd.label}</span><span class="value">NT$ ${(b.allocations[bd.key]||0).toLocaleString()}</span></div>
   `).join("");
 
-  // 預算比較基準狀態提示：純讀取既有的 ensureComparisonBaseline，不改變凍結時機／條件。
-  // 若這是本月第一次呼叫且真實收支剛好已經發生，這裡會讓比較基準在使用者一進入本月預算分配就完成建立，
-  // 避免「本月預算分配」卡片先畫出「規劃中」、緊接著下方「本月財務復盤」卡片才把基準凍結的顯示落差。
-  const hadBaselineBefore = !!(getReview(mk) && getReview(mk).comparisonBaseline);
-  const baseline = ensureComparisonBaseline(mk);
-  if(baseline && !hadBaselineBefore){
-    toast("這個月的預算開始記錄囉 🤍\n從第一筆實際收支開始，小夥伴會保留目前的預算分配，作為這個月財務復盤的比較基準。之後你還是可以調整預算分配，但不會改變這次保留下來的比較基準，這樣之後回頭看時，就能知道『預算分配』和『實際收支』有哪些不同。", 6000);
-  }
+  // 預算比較基準狀態提示：純讀取，是否已建立完全依「使用者是否已勾選確認並儲存本月預算」決定
+  // （見 openBudgetSetupForm／establishComparisonBaseline），跟這個月是否已經有實際收支無關。
+  const baseline = getComparisonBaseline(mk);
   const baselineStatusHTML = baseline ? `
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:14px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px;">
@@ -3050,7 +3046,7 @@ function renderAllocationCardHTML(mk){
   ` : `
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:14px;">
       <div style="font-weight:700; margin-bottom:4px;">目前還在規劃中～</div>
-      <div class="muted">在本月第一筆實際收支發生前，你都可以自由調整預算分配。</div>
+      <div class="muted">在你確認並儲存這份預算以前，都可以自由調整預算分配。</div>
     </div>
   `;
 
@@ -3100,7 +3096,7 @@ function wireAllocationCard(mk){
 function openComparisonBaselineExplainSheet(){
   openSheet(`
     <div class="sheet-head"><h3>這是什麼？</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="line-height:1.8;">為了讓你之後能看見預算分配和實際收支之間的變化，小夥伴會在本月第一筆真實收支發生時，保留當下的預算內容作為比較基準。所以之後即使調整預算分配，財務復盤仍會保留當時的版本，不會跟著被修改。</div>
+    <div class="muted" style="line-height:1.8;">為了讓你之後能看見預算分配和實際收支之間的變化，小夥伴會在你確認並儲存本月預算時，保留當下的預算內容作為比較基準。所以之後即使調整預算分配，財務復盤仍會保留當時的版本，不會跟著被修改。</div>
     <button class="btn-main" onclick="closeSheet()" style="width:100%; margin-top:16px;">知道了</button>
   `);
 }
@@ -3182,6 +3178,9 @@ function openBudgetSetupForm(mk, wizIn){
   const wiz = wizIn || (existing
     ? {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations), calcItems:deepClone(existing.calcItems||{})}
     : {available: 0, allocations: blankAllocations(), calcItems:{}});
+  // 這個月的比較基準還沒建立過，這次儲存就是可能正式建立 baseline 的那一次，
+  // 需要先讓使用者看說明並勾選確認，儲存鈕在勾選前維持 disabled。
+  const needsBaselineConfirm = !getComparisonBaseline(mk);
   openSheet(`
     <div class="sheet-head"><h3>${existing?"調整":"設定"}本月預算分配</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>本月可分配金額</label><input id="bg_available" type="number" placeholder="0" value="${wiz.available||""}"></div>
@@ -3197,8 +3196,23 @@ function openBudgetSetupForm(mk, wizIn){
       </div>
     `).join("")}
     <button class="btn-ghost" id="bg_importFixed" style="width:100%; margin-bottom:10px;">把固定收支／負債帶入「還款/固定責任」</button>
-    <button class="btn-main" id="bg_submit">儲存</button>
+    ${needsBaselineConfirm ? `
+      <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-bottom:12px;">
+        <div style="font-weight:700; margin-bottom:6px;">本月復盤會從這份預算開始記錄 🤍</div>
+        <div class="muted" style="line-height:1.7; margin-bottom:10px;">儲存後，小夥伴會保留這次的預算分配，作為本月財務復盤的比較基準。之後你還是可以調整現在的預算分配，但不會改變這次保留下來的比較基準，這樣之後回頭看時，就能知道「預算分配」和「實際收支」有哪些不同。</div>
+        <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="bg_confirmBaseline" style="margin-top:3px; flex-shrink:0;">
+          <span>我了解這份預算會作為本月財務復盤的比較基準</span>
+        </label>
+      </div>
+    ` : ""}
+    <button class="btn-main" id="bg_submit"${needsBaselineConfirm ? " disabled" : ""}>儲存</button>
   `);
+  if(needsBaselineConfirm){
+    const cb = document.getElementById("bg_confirmBaseline");
+    const submitBtn = document.getElementById("bg_submit");
+    cb.addEventListener("change", ()=>{ submitBtn.disabled = !cb.checked; });
+  }
   document.querySelectorAll(".bg_alloc").forEach(inp=>{
     inp.dataset.lastval = inp.value || "0";
     inp.addEventListener("change", ()=>{
@@ -3231,6 +3245,9 @@ function openBudgetSetupForm(mk, wizIn){
     const calcItems = wiz.calcItems || {};
     if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
     else{ createBudget(mk, {available, allocations, calcItems}); }
+    if(needsBaselineConfirm){
+      establishComparisonBaseline(mk, {available, allocations, calcItems});
+    }
     closeSheet(); renderBudgetTab(); renderHomeStats(); toast("已更新本月預算分配");
   });
 }
@@ -3481,14 +3498,16 @@ function renderReviewCardHTML(mk){
   const income = realIncomeForMonth(mk);
   const actualTotal = realExpenseTotalForMonth(mk);
   const vsIncome = income - actualTotal;
-  const budget = getBudget(mk);
 
-  if(!budget || !budget.available){
+  // 只有使用者已經確認並儲存過本月預算（＝比較基準已建立），才正式進入「預算分配 vs 實際收支」。
+  // 在那之前，即使預算頁已經填了一些還沒確認的數字，也一律維持「沒有正式預算可以比較」的整理模式，
+  // 不能拿還沒確認的內容拿來判斷超出預算／待在預算內。
+  const frozenBaseline = getComparisonBaseline(mk);
+  if(!frozenBaseline){
     return renderNoBudgetReviewCardHTML(mk, income, actualTotal, vsIncome);
   }
 
-  const frozenBaseline = ensureComparisonBaseline(mk);
-  const baseline = frozenBaseline || snapshotBudgetForComparison(budget);
+  const baseline = frozenBaseline;
   const overallDiff = actualTotal - baseline.monthlyBudget;
   const isOverBudget = overallDiff > 0;
   const itemComparisons = computeItemComparisons(mk, baseline);
@@ -3553,6 +3572,7 @@ function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudge
 function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedSpend, hasAnyItems){
   const rv = getReview(mk);
   const prevReview = rv ? rv.reasonReview : null;
+  const isOtherReason = !!(prevReview && prevReview.reason==="其他");
   const itemRows = overItems.map(it=>itemCompareRowHTML(it, true)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
@@ -3563,14 +3583,17 @@ function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedSpend,
       ${unmatchedSpend>0 ? `<div class="muted" style="margin-top:10px;">未對應預算的支出 NT$${unmatchedSpend.toLocaleString()}</div>` : ""}
       <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要原因是什麼呢～</div>
       <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
+      <div id="rv_reasonDetailWrap" class="field" style="display:${isOtherReason?"block":"none"};">
+        <label>想補充是什麼原因嗎？</label>
+        <textarea id="rv_reasonDetail" rows="2" placeholder="寫下這個月比較特別的情況⋯">${prevReview&&prevReview.reasonDetail?escapeHtml(prevReview.reasonDetail):""}</textarea>
+      </div>
       <div class="card-title" style="margin-top:10px; margin-bottom:8px;">下個月你想怎麼做？</div>
       <div class="field"><select id="rv_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.intention===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <button class="btn-main" id="rv_saveReview" style="width:100%; margin-top:6px;">儲存這次的復盤</button>
       ${prevReview?`<div class="muted" style="margin-top:8px; text-align:center;">上次記錄時間：${prevReview.savedAt}</div>`:""}
       ${prevReview ? `
         <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-top:14px;">
-          <div style="font-weight:700; margin-bottom:6px;">🌱 這個月和原本預期不太一樣，但你還是回來把它整理清楚了。</div>
-          <div class="muted" style="line-height:1.7;">每一次願意重新看看自己的生活，都會替下一次留下新的開始。🤍</div>
+          <div class="muted" style="line-height:1.7;">🌱 每一次願意重新看看自己的生活，都會替下一次留下新的開始。🤍</div>
         </div>
       ` : ""}
     </div>
@@ -3658,10 +3681,20 @@ function wireReviewCard(mk){
       );
     });
   });
+  const reasonSelect = document.getElementById("rv_reason");
+  if(reasonSelect) reasonSelect.addEventListener("change", ()=>{
+    const wrap = document.getElementById("rv_reasonDetailWrap");
+    if(wrap) wrap.style.display = reasonSelect.value==="其他" ? "block" : "none";
+  });
   const saveBtn = document.getElementById("rv_saveReview");
   if(saveBtn) saveBtn.addEventListener("click", ()=>{
     const rv = ensureReview(mk);
-    rv.reasonReview = { reason: document.getElementById("rv_reason").value, intention: document.getElementById("rv_intention").value, savedAt: todayStr() };
+    const reason = document.getElementById("rv_reason").value;
+    const detailEl = document.getElementById("rv_reasonDetail");
+    // 只有選「其他」時，補充說明才算目前有效的原因內容；換成別的原因就不留下舊的補充文字，
+    // 避免畫面選的是別的原因，資料卻還留著舊的「其他」補充造成不一致。
+    const reasonDetail = (reason==="其他" && detailEl) ? (detailEl.value.trim() || null) : null;
+    rv.reasonReview = { reason, reasonDetail, intention: document.getElementById("rv_intention").value, savedAt: todayStr() };
     rv.updatedAt = todayStr();
     save(); toast("已儲存這次的復盤記錄");
   });
