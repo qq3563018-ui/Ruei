@@ -2730,11 +2730,47 @@ const BUCKET_DEFS = [
   {key:"free",       emoji:"🌷", label:"自由使用"},
 ];
 const NECESSARY_BUCKET_CATS = ["居住","醫療","學習"];
+// linkedCategoryId 只在目前記帳分類（EXPENSE_CATS／自訂分類）有明確、單一對應時才預先建立，
+// 語意不明確或本來就不是一般消費的項目（負債還款、儲蓄、投資）一律留 null，不用文字相似度亂猜。
 const PRESET_CALC_ITEMS = {
-  necessary: ["房租／住宿","餐費","交通","手機／網路","水電／瓦斯","保險","醫療／藥品","孝親／家庭支出"],
-  debt:      ["信貸","信用卡還款","學貸","房貸","車貸","分期付款","親友借款","其他債務／固定責任"],
-  savings:   ["一般儲蓄","緊急預備金","投資／資產","旅遊基金","進修／學習基金","大額購買目標","其他目標"],
-  free:      ["購物","美容／保養","娛樂","聚餐／約會","興趣","訂閱／會員","旅行／玩樂"],
+  necessary: [
+    {name:"房租／住宿", linkedCategoryId:"居住"},
+    {name:"餐費", linkedCategoryId:"餐飲"},
+    {name:"交通", linkedCategoryId:"交通"},
+    {name:"手機／網路", linkedCategoryId:null},
+    {name:"水電／瓦斯", linkedCategoryId:null},
+    {name:"保險", linkedCategoryId:null},
+    {name:"醫療／藥品", linkedCategoryId:"醫療"},
+    {name:"孝親／家庭支出", linkedCategoryId:null},
+  ],
+  debt: [
+    {name:"信貸", linkedCategoryId:null},
+    {name:"信用卡還款", linkedCategoryId:null},
+    {name:"學貸", linkedCategoryId:null},
+    {name:"房貸", linkedCategoryId:null},
+    {name:"車貸", linkedCategoryId:null},
+    {name:"分期付款", linkedCategoryId:null},
+    {name:"親友借款", linkedCategoryId:null},
+    {name:"其他債務／固定責任", linkedCategoryId:null},
+  ],
+  savings: [
+    {name:"一般儲蓄", linkedCategoryId:null},
+    {name:"緊急預備金", linkedCategoryId:null},
+    {name:"投資／資產", linkedCategoryId:null},
+    {name:"旅遊基金", linkedCategoryId:null},
+    {name:"進修／學習基金", linkedCategoryId:null},
+    {name:"大額購買目標", linkedCategoryId:null},
+    {name:"其他目標", linkedCategoryId:null},
+  ],
+  free: [
+    {name:"購物", linkedCategoryId:"購物"},
+    {name:"美容／保養", linkedCategoryId:null},
+    {name:"娛樂", linkedCategoryId:"娛樂"},
+    {name:"聚餐／約會", linkedCategoryId:null},
+    {name:"興趣", linkedCategoryId:null},
+    {name:"訂閱／會員", linkedCategoryId:null},
+    {name:"旅行／玩樂", linkedCategoryId:null},
+  ],
 };
 
 function pad2(n){ return String(n).padStart(2,"0"); }
@@ -2773,11 +2809,11 @@ function fixedExpenseExpectedForMonth(){
   const total = items.reduce((s,i)=>s+i.amount,0);
   return {items, total};
 }
-/* ============ 本月財務復盤：獨立的真實資料，只在「匯入」時複製一次預算分配的數字 ============ */
+/* ============ 本月財務復盤：獨立的真實資料。預算比較基準第一次建立後保持固定，實際收支永遠即時計算 ============ */
 function getReview(mk){ return DB.reviewsByMonth[mk] || null; }
 function ensureReview(mk){
   if(!DB.reviewsByMonth[mk]){
-    DB.reviewsByMonth[mk] = {finalBudget:null, finalBudgetSource:null, reasonReview:null, createdAt:todayStr(), updatedAt:todayStr()};
+    DB.reviewsByMonth[mk] = {finalBudget:null, finalBudgetSource:null, comparisonBaseline:null, reasonReview:null, createdAt:todayStr(), updatedAt:todayStr()};
   }
   return DB.reviewsByMonth[mk];
 }
@@ -2789,22 +2825,54 @@ function realExpenseTotalForMonth(mk){
   const [y,m] = mk.split("-").map(Number);
   return monthSummary(new Date(y, m-1, 1)).expense + debtPaymentsForMonth(mk);
 }
-function categoryBreakdownForMonth(mk){
-  const catTotals = {};
-  txsForMonth(mk).filter(t=>t.type==="expense").forEach(t=>{ catTotals[t.category] = (catTotals[t.category]||0)+t.amount; });
-  const arr = Object.entries(catTotals).map(([cat,amount])=>({cat, amount, isDebt:false}));
-  const debtTotal = debtPaymentsForMonth(mk);
-  if(debtTotal>0) arr.push({cat:"💳 還款", amount:debtTotal, isDebt:true});
-  return arr.sort((a,b)=>b.amount-a.amount);
-}
-function debtPaymentDetailsForMonth(mk){
-  const rows = [];
-  DB.debts.forEach(d=>{
-    (d.payments||[]).filter(p=>p.date.startsWith(mk)).forEach(p=>{
-      rows.push({debtName:d.name, date:p.date, amount:p.amount});
+// 第一次有預算分配可以拿來比較時，把當時的本月總預算／四大類分配／幫我計算細項凍結成一份快照。
+// 之後預算分配再怎麼調整，這份快照都不會被偷偷改寫，只有實際收支資料是即時計算的。
+function snapshotBudgetForComparison(budget){
+  const allocatedTotal = Object.values(budget.allocations).reduce((s,v)=>s+v,0);
+  const items = [];
+  BUCKET_DEFS.forEach(bd=>{
+    ((budget.calcItems && budget.calcItems[bd.key]) || []).forEach(it=>{
+      if((Number(it.amount)||0) > 0){
+        items.push({
+          id: it.id, name: it.name, bucketKey: bd.key,
+          budgetAmount: Number(it.amount)||0,
+          linkedCategoryId: it.linkedCategoryId || null,
+        });
+      }
     });
   });
-  return rows.sort((a,b)=>b.date.localeCompare(a.date));
+  return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, items };
+}
+// 預算比較基準要等「這個月真的開始有實際收支」才凍結，避免使用者都還在慢慢設定
+// 幫我計算細項時，第一次隨手存檔就把還沒填完的預算永久凍結成比較基準。
+// 在那之前，復盤畫面顯示的是目前預算分配的即時預覽，不會被 save() 進 DB。
+function ensureComparisonBaseline(mk){
+  const rv = ensureReview(mk);
+  if(rv.comparisonBaseline) return rv.comparisonBaseline;
+  const budget = getBudget(mk);
+  if(!budget || !budget.available) return null;
+  const hasRealActivity = realIncomeForMonth(mk) > 0 || realExpenseTotalForMonth(mk) > 0;
+  if(!hasRealActivity) return null;
+  rv.comparisonBaseline = {...snapshotBudgetForComparison(budget), capturedAt: todayStr()};
+  save();
+  return rv.comparisonBaseline;
+}
+function actualAmountForLinkedCategory(mk, categoryId){
+  return DB.transactions.filter(t=>t.type==="expense" && t.category===categoryId && t.date.startsWith(mk)).reduce((s,t)=>s+t.amount,0);
+}
+function computeItemComparisons(mk, baseline){
+  return baseline.items.filter(it=>it.linkedCategoryId).map(it=>{
+    const actualAmount = actualAmountForLinkedCategory(mk, it.linkedCategoryId);
+    return {...it, actualAmount, diff: actualAmount - it.budgetAmount};
+  });
+}
+function computeUnlinkedBudgetItems(baseline){
+  return baseline.items.filter(it=>!it.linkedCategoryId);
+}
+function computeUnmatchedActualSpend(mk, baseline){
+  const linkedCats = new Set(baseline.items.filter(it=>it.linkedCategoryId).map(it=>it.linkedCategoryId));
+  const txTotal = txsForMonth(mk).filter(t=>t.type==="expense" && !linkedCats.has(t.category)).reduce((s,t)=>s+t.amount,0);
+  return txTotal + debtPaymentsForMonth(mk);
 }
 
 function createBudget(mk, data, carriedFrom){
@@ -3081,39 +3149,86 @@ function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
 }
 
 /* ============ 幫我計算：四大類的計算小工具，只負責幫忙加總、帶入總額，不是分類預算 ============ */
+/* ============ 分類對應：用穩定的記帳分類字串當 categoryId，不做文字相似度猜測 ============ */
+function calcAllLinkedCategoryUsage(wiz, excludeItemId){
+  const usage = {};
+  BUCKET_DEFS.forEach(bd=>{
+    (wiz.calcItems[bd.key]||[]).forEach(it=>{
+      if(it.linkedCategoryId && it.id!==excludeItemId) usage[it.linkedCategoryId] = it.name;
+    });
+  });
+  return usage;
+}
+function openLinkedCategoryPicker(currentCategoryId, usageMap, itemLabel, onPick, onCancel){
+  const cats = [...EXPENSE_CATS, ...DB.customCategories.expense.filter(c=>!EXPENSE_CATS.includes(c))];
+  openSheet(`
+    <div class="sheet-head"><h3>對應記帳分類</h3><button class="close-btn" id="lc_back">✕</button></div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">幫「${escapeHtml(itemLabel||"這個項目")}」選一個記帳分類，財務復盤才能比較這個項目原本分配跟實際花多少，也可以先不設定。</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${cats.map(c=>`<button type="button" class="btn-ghost lc-pick-btn" data-cat="${escapeHtml(c)}" style="text-align:left; ${currentCategoryId===c?'background:var(--accent); color:var(--on-accent);':''}">${escapeHtml(c)}</button>`).join("")}
+      <button type="button" class="btn-ghost" id="lc_clear">不設定對應</button>
+    </div>
+  `);
+  document.querySelectorAll(".lc-pick-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const cat = btn.dataset.cat;
+      const takenBy = usageMap[cat];
+      if(takenBy && cat!==currentCategoryId){
+        openSheet(`
+          <div class="sheet-head"><h3>這個分類已經在使用</h3><button class="close-btn" id="lcw_x">✕</button></div>
+          <div class="muted" style="line-height:1.7; margin-bottom:16px;">「${escapeHtml(cat)}」目前已對應到「${escapeHtml(takenBy)}」。為了避免同一筆支出被重複計算，一個記帳分類目前只能對應一個預算項目。</div>
+          <button class="btn-main" id="lcw_ok" style="width:100%;">知道了</button>
+        `);
+        const back = ()=>openLinkedCategoryPicker(currentCategoryId, usageMap, itemLabel, onPick, onCancel);
+        document.getElementById("lcw_x").addEventListener("click", back);
+        document.getElementById("lcw_ok").addEventListener("click", back);
+        return;
+      }
+      onPick(cat);
+    });
+  });
+  document.getElementById("lc_clear").addEventListener("click", ()=>onPick(null));
+  document.getElementById("lc_back").addEventListener("click", onCancel);
+}
+
 function openCalcItemsSheet(mk, bucketKey, wiz){
   const bd = BUCKET_DEFS.find(x=>x.key===bucketKey);
   const saved = deepClone((wiz.calcItems && wiz.calcItems[bucketKey]) || []);
   const outerTotal = wiz.allocations[bucketKey]||0;
   const itemsSumInit = saved.reduce((s,it)=>s+(Number(it.amount)||0),0);
   const showMismatch = saved.length>0 && outerTotal!==itemsSumInit;
-  const presetLabels = PRESET_CALC_ITEMS[bucketKey] || [];
+  const presetDefs = PRESET_CALC_ITEMS[bucketKey] || [];
+  const presetNames = presetDefs.map(p=>p.name);
   const savedByName = {};
   saved.forEach(it=>{ savedByName[it.name] = it; });
-  const customItems = saved.filter(it=>!presetLabels.includes(it.name));
+  const customItems = saved.filter(it=>!presetNames.includes(it.name));
 
-  const presetRowHTML = (name)=>{
-    const amt = savedByName[name] ? savedByName[name].amount : "";
+  const presetRowHTML = (presetDef)=>{
+    const existing = savedByName[presetDef.name];
+    const amt = existing ? existing.amount : "";
     return `
-    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(name)}" style="min-width:0;">
-      <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(name)}</div>
+    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(presetDef.name)}" style="min-width:0;">
+      <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(presetDef.name)}</div>
       <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
     </div>`;
   };
   const customRowHTML = (it)=>`
-    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}" style="min-width:0;">
-      <div style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:4px;">
-        <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1 1 auto; min-width:0; border:none; background:transparent; font-size:14px; padding:4px 0;">
-        <button type="button" class="calc-item-del" data-id="${it.id}" style="flex:0 0 auto; background:none; border:none; color:var(--gray); font-size:14px; padding:2px 4px; line-height:1;">✕</button>
+    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}" style="min-width:0; flex-direction:column; align-items:stretch; gap:2px;">
+      <div style="display:flex; min-width:0;">
+        <div style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:4px;">
+          <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1 1 auto; min-width:0; border:none; background:transparent; font-size:14px; padding:4px 0;">
+          <button type="button" class="calc-item-del" data-id="${it.id}" style="flex:0 0 auto; background:none; border:none; color:var(--gray); font-size:14px; padding:2px 4px; line-height:1;">✕</button>
+        </div>
+        <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
       </div>
-      <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
+      <button type="button" class="small-link calc-item-linkcat" data-id="${it.id}" data-linked="${it.linkedCategoryId?escapeHtml(it.linkedCategoryId):''}" style="align-self:flex-start; font-size:12px; font-weight:400;">${it.linkedCategoryId?`對應：${escapeHtml(it.linkedCategoryId)}`:'設定對應的記帳分類 ›'}</button>
     </div>`;
 
   openSheet(`
     <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
     <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍</div>
     ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
-    <div id="ci_list" style="width:100%; min-width:0; overflow-x:hidden;">${presetLabels.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
+    <div id="ci_list" style="width:100%; min-width:0; overflow-x:hidden;">${presetDefs.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
     <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增其他項目</button>
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
       <span class="muted">目前合計</span><span id="ci_total" style="font-size:17px; font-weight:900;">NT$ ${itemsSumInit.toLocaleString()}</span>
@@ -3126,6 +3241,28 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     document.getElementById("ci_total").textContent = "NT$ " + sum.toLocaleString();
     document.getElementById("ci_confirm").textContent = "帶入 NT$" + sum.toLocaleString();
   }
+  function captureFromSheet(forSave){
+    const items = [];
+    document.querySelectorAll(".calc-preset-row").forEach(row=>{
+      const name = row.dataset.name;
+      const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
+      if(amount>0){
+        const def = presetDefs.find(p=>p.name===name);
+        items.push({id:name, name, amount, linkedCategoryId: def?def.linkedCategoryId:null});
+      }
+    });
+    document.querySelectorAll(".calc-custom-row").forEach(row=>{
+      const name = row.querySelector(".calc-item-name").value.trim();
+      const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
+      const linkBtn = row.querySelector(".calc-item-linkcat");
+      const linkedCategoryId = linkBtn && linkBtn.dataset.linked ? linkBtn.dataset.linked : null;
+      if(forSave && !name && !amount) return;
+      items.push({id: row.dataset.id, name, amount, linkedCategoryId});
+    });
+    wiz.calcItems = wiz.calcItems || {};
+    wiz.calcItems[bucketKey] = items;
+    return items;
+  }
   document.getElementById("ci_list").addEventListener("input", (e)=>{
     if(e.target.classList.contains("calc-item-amt")) recalc();
   });
@@ -3133,27 +3270,29 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     if(e.target.classList.contains("calc-item-del")){
       e.target.closest(".calc-item-row").remove();
       recalc();
+      return;
+    }
+    if(e.target.classList.contains("calc-item-linkcat")){
+      const btn = e.target;
+      const itemId = btn.dataset.id;
+      captureFromSheet(false);
+      const item = wiz.calcItems[bucketKey].find(it=>it.id===itemId);
+      const usage = calcAllLinkedCategoryUsage(wiz, itemId);
+      const label = item ? (item.name || "這個項目") : "這個項目";
+      const curCat = item ? item.linkedCategoryId : null;
+      openLinkedCategoryPicker(curCat, usage, label,
+        (picked)=>{ if(item) item.linkedCategoryId = picked; openCalcItemsSheet(mk, bucketKey, wiz); },
+        ()=>openCalcItemsSheet(mk, bucketKey, wiz)
+      );
     }
   });
   document.getElementById("ci_add").addEventListener("click", ()=>{
-    document.getElementById("ci_list").insertAdjacentHTML("beforeend", customRowHTML({id:uid(), name:"", amount:""}));
+    document.getElementById("ci_list").insertAdjacentHTML("beforeend", customRowHTML({id:uid(), name:"", amount:"", linkedCategoryId:null}));
     recalc();
   });
   document.getElementById("ci_confirm").addEventListener("click", ()=>{
-    const newItems = [];
-    document.querySelectorAll(".calc-preset-row").forEach(row=>{
-      const name = row.dataset.name;
-      const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
-      if(amount>0) newItems.push({id:name, name, amount});
-    });
-    document.querySelectorAll(".calc-custom-row").forEach(row=>{
-      const name = row.querySelector(".calc-item-name").value.trim();
-      const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
-      if(name || amount) newItems.push({id: row.dataset.id, name, amount});
-    });
-    const sum = newItems.reduce((s,it)=>s+it.amount,0);
-    wiz.calcItems = wiz.calcItems || {};
-    wiz.calcItems[bucketKey] = newItems;
+    const items = captureFromSheet(true);
+    const sum = items.reduce((s,it)=>s+it.amount,0);
     wiz.allocations[bucketKey] = sum;
     openBudgetSetupForm(mk, wiz);
   });
@@ -3196,25 +3335,44 @@ function openFixedImportPrompt(mk, wiz){
   });
 }
 
-/* ============ 🌙 本月財務復盤（獨立的真實財務回顧，只在使用者主動匯入時複製一次預算分配的總額） ============ */
+/* ============ 🌙 本月財務復盤（原本規劃 vs 實際發生的比較，預算比較基準凍結，實際收支即時計算） ============ */
 const OVERSPEND_REASONS = ["這個月有特殊活動／聚餐","原本預算抓得太低","有臨時／突發支出","這個月沒有特別注意花費","其他"];
 const OVERSPEND_INTENTIONS = ["維持現在的預算","調高預算","重新分配預算","下個月再決定"];
 
 function renderReviewCardHTML(mk){
   const income = realIncomeForMonth(mk);
   const actualTotal = realExpenseTotalForMonth(mk);
-  const rv = getReview(mk);
-  const finalBudget = rv ? rv.finalBudget : null;
   const vsIncome = income - actualTotal;
+  const budget = getBudget(mk);
 
-  let vsBudgetLine = "";
-  let overspendSection = "";
-  if(finalBudget!=null){
-    const vsBudget = actualTotal - finalBudget;
-    const isOverBudget = vsBudget > 0;
-    vsBudgetLine = `<div class="networth-line"><span class="label">${isOverBudget?"超出最終預算":"距離最終預算還有"}</span><span class="value">NT$ ${Math.abs(vsBudget).toLocaleString()}</span></div>`;
-    if(isOverBudget) overspendSection = renderOverspendSectionHTML(mk, vsBudget, rv);
+  if(!budget || !budget.available){
+    return `
+      <div class="card">
+        <div class="card-title" style="margin-bottom:2px;">🌙 本月財務復盤</div>
+        <div class="muted" style="margin-bottom:14px;">看看這個月實際發生了什麼</div>
+        <div class="stat-grid" style="margin-bottom:12px;">
+          <div class="stat-box"><div class="stat-num">${income.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
+          <div class="stat-box"><div class="stat-num">${actualTotal.toLocaleString()}</div><div class="stat-label">實際總支出</div></div>
+          <div class="stat-box"><div class="stat-num">${Math.abs(vsIncome).toLocaleString()}</div><div class="stat-label">${vsIncome>=0?"本月實際剩餘":"支出已超過收入"}</div></div>
+        </div>
+        <div class="muted" style="margin-bottom:10px;">這個月還沒有設定預算，因此目前先顯示實際收支狀況。</div>
+        <button class="btn-ghost" id="btnGoSetupBudgetFromReview" style="width:100%;">去設定本月預算 ›</button>
+      </div>
+    `;
   }
+
+  const frozenBaseline = ensureComparisonBaseline(mk);
+  const baseline = frozenBaseline || snapshotBudgetForComparison(budget);
+  const overallDiff = actualTotal - baseline.monthlyBudget;
+  const isOverBudget = overallDiff > 0;
+  const itemComparisons = computeItemComparisons(mk, baseline);
+  const unmatchedSpend = computeUnmatchedActualSpend(mk, baseline);
+  const unlinkedItems = computeUnlinkedBudgetItems(baseline);
+  const hasAnyItems = baseline.items.length > 0;
+
+  const bodyHTML = isOverBudget
+    ? renderOverBudgetSectionHTML(mk, overallDiff, itemComparisons.filter(it=>it.diff>0), unmatchedSpend, hasAnyItems)
+    : renderWithinBudgetSectionHTML(baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedSpend, hasAnyItems);
 
   return `
     <div class="card">
@@ -3222,28 +3380,57 @@ function renderReviewCardHTML(mk){
       <div class="muted" style="margin-bottom:14px;">看看這個月實際發生了什麼</div>
       <div class="stat-grid" style="margin-bottom:12px;">
         <div class="stat-box"><div class="stat-num">${income.toLocaleString()}</div><div class="stat-label">本月可運用</div></div>
-        <div class="stat-box"><div class="stat-num">${finalBudget==null?"—":finalBudget.toLocaleString()}</div><div class="stat-label">最終預算</div></div>
+        <div class="stat-box"><div class="stat-num">${baseline.monthlyBudget.toLocaleString()}</div><div class="stat-label">本月預算</div></div>
         <div class="stat-box"><div class="stat-num">${actualTotal.toLocaleString()}</div><div class="stat-label">實際總支出</div></div>
       </div>
-      ${vsBudgetLine}
       <div class="networth-line"><span class="label">${vsIncome>=0?"本月實際剩餘":"實際支出已超過本月收入"}</span><span class="value">NT$ ${Math.abs(vsIncome).toLocaleString()}</span></div>
-      <button class="small-link" id="btnSetFinalBudget" style="margin-top:10px;">${finalBudget==null?"設定最終預算":"重新設定最終預算"}</button>
-      ${overspendSection}
+      ${bodyHTML}
+      ${frozenBaseline ? renderUnlinkedItemsHTML(unlinkedItems) : ""}
     </div>
   `;
 }
 
-function renderOverspendSectionHTML(mk, overAmount, rv){
-  const breakdown = categoryBreakdownForMonth(mk);
-  const prevReview = rv.reasonReview;
+function itemCompareRowHTML(it, showDetailLink){
+  const overUnder = it.diff>0 ? "多" : "少";
+  return `
+    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
+      <div style="font-weight:700; margin-bottom:4px;">${escapeHtml(it.name)}</div>
+      <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${it.budgetAmount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${it.actualAmount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">比原本分配${overUnder}</span><span class="value">NT$ ${Math.abs(it.diff).toLocaleString()}</span></div>
+      ${showDetailLink ? `<button class="small-link review-item-detail" data-cat="${escapeHtml(it.linkedCategoryId)}">查看明細 ›</button>` : ""}
+    </div>
+  `;
+}
+
+function renderWithinBudgetSectionHTML(remainVsBudget, diffItems, unmatchedSpend, hasAnyItems){
+  const itemRows = diffItems.map(it=>itemCompareRowHTML(it, it.diff>0)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
-      <div style="font-weight:700; margin-bottom:10px;">🌙 這個月實際支出比預算多 NT$${overAmount.toLocaleString()}</div>
-      <div class="card-title" style="margin-bottom:8px;">這個月的支出主要花在哪裡？</div>
-      ${breakdown.length ? breakdown.map(x=>`<div class="item-row review-cat-row" data-cat="${escapeHtml(x.cat)}" data-debt="${x.isDebt?1:0}" style="cursor:pointer;"><div class="item-title" style="flex:1;">${escapeHtml(x.cat)}</div><div style="font-weight:700;">$${x.amount.toLocaleString()}</div></div>`).join("") : `<div class="empty-state">本月還沒有支出紀錄</div>`}
-      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要是什麼原因？</div>
+      <div style="font-weight:700; margin-bottom:4px;">整體仍在本月預算內 🤍</div>
+      <div class="muted" style="margin-bottom:10px;">預算內尚餘 NT$${remainVsBudget.toLocaleString()}</div>
+      ${diffItems.length
+        ? `<div class="muted" style="margin-bottom:4px;">有 ${diffItems.length} 個項目和原本的分配不太一樣</div>${itemRows}`
+        : (hasAnyItems ? "" : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
+      ${unmatchedSpend>0 ? `<div class="muted" style="margin-top:10px;">未對應預算的支出 NT$${unmatchedSpend.toLocaleString()}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedSpend, hasAnyItems){
+  const rv = getReview(mk);
+  const prevReview = rv ? rv.reasonReview : null;
+  const itemRows = overItems.map(it=>itemCompareRowHTML(it, true)).join("");
+  return `
+    <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
+      <div style="font-weight:700; margin-bottom:10px;">本月實際支出比原本預算多 NT$${overallDiff.toLocaleString()}。</div>
+      ${overItems.length
+        ? `<div class="card-title" style="margin-bottom:4px;">高於原本分配的項目</div>${itemRows}`
+        : (hasAnyItems ? `<div class="muted">目前沒有單一項目特別偏高，可能是好幾個地方加起來多一點，或有還沒設定對應分類的支出。</div>` : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
+      ${unmatchedSpend>0 ? `<div class="muted" style="margin-top:10px;">未對應預算的支出 NT$${unmatchedSpend.toLocaleString()}</div>` : ""}
+      <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要原因是什麼呢～</div>
       <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
-      <div class="card-title" style="margin-top:10px; margin-bottom:8px;">那下個月你想怎麼做？</div>
+      <div class="card-title" style="margin-top:10px; margin-bottom:8px;">下個月你想怎麼做？</div>
       <div class="field"><select id="rv_intention">${OVERSPEND_INTENTIONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.intention===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <button class="btn-main" id="rv_saveReview" style="width:100%; margin-top:6px;">儲存這次的復盤</button>
       ${prevReview?`<div class="muted" style="margin-top:8px; text-align:center;">上次記錄時間：${prevReview.savedAt}</div>`:""}
@@ -3251,13 +3438,40 @@ function renderOverspendSectionHTML(mk, overAmount, rv){
   `;
 }
 
+function renderUnlinkedItemsHTML(unlinkedItems){
+  if(!unlinkedItems.length) return "";
+  return `
+    <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
+      ${unlinkedItems.map(it=>`
+        <div style="margin-bottom:10px;">
+          <div style="font-weight:700; margin-bottom:2px;">${escapeHtml(it.name)}</div>
+          <div class="muted" style="margin-bottom:4px;">原本分配 NT$${it.budgetAmount.toLocaleString()} · 尚未設定對應的記帳分類</div>
+          <button class="small-link review-set-linkcat" data-id="${it.id}">設定對應 ›</button>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function wireReviewCard(mk){
-  const setBtn = document.getElementById("btnSetFinalBudget");
-  if(setBtn) setBtn.addEventListener("click", ()=>openFinalBudgetForm(mk));
-  document.querySelectorAll(".review-cat-row").forEach(el=>{
+  const goBtn = document.getElementById("btnGoSetupBudgetFromReview");
+  if(goBtn) goBtn.addEventListener("click", ()=>openBudgetSetupForm(mk));
+  document.querySelectorAll(".review-item-detail").forEach(el=>{
+    el.addEventListener("click", ()=>openOverspendDetail(mk, el.dataset.cat));
+  });
+  document.querySelectorAll(".review-set-linkcat").forEach(el=>{
     el.addEventListener("click", ()=>{
-      if(el.dataset.debt==="1") openDebtPaymentsDetail(mk);
-      else openOverspendDetail(mk, el.dataset.cat);
+      const rv = getReview(mk);
+      const baseline = rv && rv.comparisonBaseline;
+      if(!baseline) return;
+      const item = baseline.items.find(it=>it.id===el.dataset.id);
+      if(!item) return;
+      const usage = {};
+      baseline.items.forEach(it=>{ if(it.linkedCategoryId && it.id!==item.id) usage[it.linkedCategoryId] = it.name; });
+      openLinkedCategoryPicker(item.linkedCategoryId, usage, item.name,
+        (picked)=>{ item.linkedCategoryId = picked; save(); closeSheet(); renderBudgetTab(); },
+        ()=>closeSheet()
+      );
     });
   });
   const saveBtn = document.getElementById("rv_saveReview");
@@ -3267,47 +3481,6 @@ function wireReviewCard(mk){
     rv.updatedAt = todayStr();
     save(); toast("已儲存這次的復盤記錄");
   });
-}
-
-function openFinalBudgetForm(mk){
-  const rv = ensureReview(mk);
-  const budget = getBudget(mk);
-  const allocatedTotal = budget ? Object.values(budget.allocations).reduce((s,v)=>s+v,0) : null;
-  openSheet(`
-    <div class="sheet-head"><h3>設定最終預算</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">這是你這個月實際想控制在多少支出內，跟「預算分配」是分開保存的數字，之後預算分配再調整也不會自動跟著變，要更新請再匯入一次。</div>
-    <div class="field"><label>最終預算金額</label><input id="fb_amount" type="number" placeholder="0" value="${rv.finalBudget??""}"></div>
-    ${allocatedTotal!=null ? `<button class="btn-ghost" id="fb_import" style="width:100%; margin-bottom:10px;">從預算分配匯入（NT$${allocatedTotal.toLocaleString()}）</button>` : ""}
-    <button class="btn-main" id="fb_save">儲存</button>
-  `);
-  let importedFlag = false;
-  const importBtn = document.getElementById("fb_import");
-  if(importBtn) importBtn.addEventListener("click", ()=>{
-    document.getElementById("fb_amount").value = allocatedTotal;
-    importedFlag = true;
-  });
-  document.getElementById("fb_amount").addEventListener("input", ()=>{ importedFlag = false; });
-  document.getElementById("fb_save").addEventListener("click", ()=>{
-    const val = parseFloat(document.getElementById("fb_amount").value)||0;
-    rv.finalBudget = val;
-    rv.finalBudgetSource = importedFlag ? "imported" : "manual";
-    rv.updatedAt = todayStr();
-    save(); closeSheet(); renderBudgetTab(); toast("已更新最終預算");
-  });
-}
-
-function openDebtPaymentsDetail(mk){
-  const rows = debtPaymentDetailsForMonth(mk);
-  openSheet(`
-    <div class="sheet-head"><h3>💳 還款｜本月明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    ${rows.length ? rows.map(r=>`
-      <div class="item-row">
-        <div class="item-title" style="flex:1;">${escapeHtml(r.debtName)}</div>
-        <div class="item-sub" style="margin-right:8px;">${r.date}</div>
-        <div style="font-weight:700;">$${r.amount.toLocaleString()}</div>
-      </div>
-    `).join("") : `<div class="empty-state">這個月沒有還款紀錄</div>`}
-  `);
 }
 
 /* ============ 查看本月實際支出的交易明細 ============ */
