@@ -657,7 +657,7 @@ function loadDB(){
 function withDefaults(obj){
   return Object.assign({
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
-    customCategories:{expense:[], income:[]}, budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
+    customCategories:{expense:[], income:[]}, customExpenseCategories:[], budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
     seenDiscoveryNotices:[], gardenAcknowledgedMilestone:0,
     financeCycleStartDay:1, financeCycleOverrides:{},
     emergencyFund:{
@@ -2288,7 +2288,8 @@ document.getElementById("btnAddGoalItem").addEventListener("click", ()=>openGoal
 document.getElementById("btnBackFromGoal").addEventListener("click", ()=>showGoalSub("list"));
 
 /* ============ 記帳 ============ */
-const EXPENSE_CATS = ["餐飲","交通","購物","娛樂","居住","醫療","學習","其他"];
+// EXPENSE_CATS 依賴後面定義的 BUCKET_DEFS／PRESET_CALC_ITEMS（記帳與預算細項共用同一份支出類別），
+// 實際指定在該區塊之後（搜尋「共用支出類別總表」），這裡先宣告 INCOME_CATS，收入分類跟預算規劃無關，維持獨立。
 const INCOME_CATS = ["薪資","獎金","兼職","投資","其他"];
 function monthKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
 /* ============ 財務週期：使用者可自訂每個財務月從第幾天開始，取代單純自然月 ============
@@ -2449,7 +2450,9 @@ function monthSummary(dateObj){
   const mk = monthKey(dateObj);
   const txs = txsForCycle(mk);
   const income = txs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-  const expense = txs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+  // 「支出」全站統一排除信用卡防重複的還款紀錄（見 actualExpenseTxs），確保記帳／首頁／
+  // 財務復盤看到的「實際支出」永遠是同一個數字，不會因為信用卡的記帳流程被算兩次。
+  const expense = actualExpenseTxs(txs).reduce((s,t)=>s+t.amount,0);
   return {income, expense, txs};
 }
 function renderCategoryStatsBox(elId, txList, emptyMsg){
@@ -2461,7 +2464,7 @@ function renderCategoryStatsBox(elId, txList, emptyMsg){
   const max = catArr[0][1];
   box.innerHTML = catArr.map(([cat,amt])=>`
     <div style="margin-bottom:9px;">
-      <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;"><span>${cat}</span><span>$${amt.toLocaleString()}</span></div>
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;"><span>${escapeHtml(expenseCategoryLabel(cat))}</span><span>$${amt.toLocaleString()}</span></div>
       <div class="progress-bar"><div class="progress-fill" style="width:${(amt/max*100)}%"></div></div>
     </div>
   `).join("");
@@ -2480,7 +2483,7 @@ function renderLedger(){
   document.getElementById("ledgerExpense").textContent = expense.toLocaleString();
   document.getElementById("ledgerLeft").textContent = (income-expense).toLocaleString();
 
-  renderCategoryStatsBox("ledgerCategoryStats", txs.filter(t=>t.type==="expense"), "本月還沒有支出紀錄");
+  renderCategoryStatsBox("ledgerCategoryStats", actualExpenseTxs(txs), "本月還沒有支出紀錄");
   renderCategoryStatsBox("ledgerIncomeCategoryStats", txs.filter(t=>t.type==="income"), "本月還沒有收入紀錄");
 
   const list = document.getElementById("ledgerList");
@@ -2492,7 +2495,7 @@ function renderLedger(){
         <div style="font-size:18px;">${t.type==='income'?'💵':'🧾'}</div>
         <div class="tx-edit-target" data-id="${t.id}" style="cursor:pointer;">
           <div class="item-title">${escapeHtml(t.name)}</div>
-          <div class="item-sub">${t.date} · ${t.category}${t.note?(" · "+escapeHtml(t.note)):""}</div>
+          <div class="item-sub">${t.date} · ${escapeHtml(expenseCategoryLabel(t.category))}${t.note?(" · "+escapeHtml(t.note)):""}</div>
         </div>
         <div class="item-right tx-edit-target" data-id="${t.id}" style="color:${t.type==='income'?'var(--sage)':'var(--dark)'}; font-weight:700; cursor:pointer;">
           ${t.type==='income'?'+':'-'}${t.amount.toLocaleString()}
@@ -2522,29 +2525,79 @@ function openTxForm(editId){
     </div>
     <div class="field"><label>項目名稱</label><input id="f_name" placeholder="例如：午餐" value="${editing?escapeHtml(editing.name):""}"></div>
     <div class="field"><label>金額</label><input id="f_amount" type="number" placeholder="0" value="${editing?editing.amount:""}"></div>
-    <div class="field"><label>消費類別</label><select id="f_cat"></select></div>
+    <div class="field"><label id="f_cat_label">支出類別</label><select id="f_cat"></select></div>
     <div class="field" id="f_customcat_wrap" style="display:none;"><label>自訂類別名稱</label><input id="f_customcat" placeholder="輸入你想要的類別名稱"></div>
+    <div class="field" id="f_paymethod_wrap">
+      <label>付款方式</label>
+      <div class="seg" id="f_paymethod">
+        <button type="button" data-v="cash" class="${(!editing||!editing.paymentMethod||editing.paymentMethod==='cash')?'active':''}">現金</button>
+        <button type="button" data-v="card" class="${editing&&editing.paymentMethod==='card'?'active':''}">金融卡／轉帳</button>
+        <button type="button" data-v="credit" class="${editing&&editing.paymentMethod==='credit'?'active':''}">信用卡</button>
+        <button type="button" data-v="other" class="${editing&&editing.paymentMethod==='other'?'active':''}">其他</button>
+      </div>
+    </div>
+    <div class="field" id="f_ccpay_wrap" style="display:none;">
+      <label>這筆信用卡還款主要是？</label>
+      <div class="seg" id="f_ccpay_type">
+        <button type="button" data-v="already_recorded" class="${editing&&editing.creditCardPaymentType==='already_recorded'?'active':''}">繳之前已記錄的刷卡消費</button>
+        <button type="button" data-v="new_debt" class="${editing&&editing.creditCardPaymentType==='new_debt'?'active':''}">償還之前的信用卡欠款</button>
+      </div>
+    </div>
     <div class="field"><label>日期</label><input id="f_date" type="date" value="${editing?editing.date:todayStr()}"></div>
     <div class="field"><label>備註（可選）</label><input id="f_note" placeholder="" value="${editing&&editing.note?escapeHtml(editing.note):""}"></div>
     <button class="btn-main" id="f_submit">儲存</button>
   `);
   let type = editing ? editing.type : "expense";
+  function toggleCreditCardQuestion(){
+    const cat = document.getElementById("f_cat").value;
+    document.getElementById("f_ccpay_wrap").style.display = (type==="expense" && cat===CREDIT_CARD_PAYMENT_CATEGORY) ? "block" : "none";
+  }
   function fillCats(){
     const sel = document.getElementById("f_cat");
-    const preset = type==="expense"?EXPENSE_CATS:INCOME_CATS;
-    const custom = type==="expense"?DB.customCategories.expense:DB.customCategories.income;
-    const cats = [...preset, ...custom.filter(c=>!preset.includes(c))];
-    sel.innerHTML = cats.map(c=>`<option value="${c}" ${editing&&editing.category===c?"selected":""}>${c}</option>`).join("") + `<option value="__custom__">➕ 自訂新類別...</option>`;
+    document.getElementById("f_cat_label").textContent = type==="expense" ? "支出類別" : "收入類別";
+    document.getElementById("f_paymethod_wrap").style.display = type==="expense" ? "block" : "none";
+    let optionsHTML;
+    if(type==="expense"){
+      // 記帳可選的支出類別＝預算細項本身（EXPENSE_CATS）＋使用者在「幫我計算」新增過的自訂細項
+      // （DB.customExpenseCategories，用穩定 id 當選項值）＋記帳自己既有的自訂分類，三者合併，
+      // 不需要任何「對應」步驟。
+      const customBudget = DB.customExpenseCategories || [];
+      const customLedger = DB.customCategories.expense.filter(c=>!EXPENSE_CATS.includes(c) && !customBudget.some(cb=>cb.id===c));
+      optionsHTML =
+        EXPENSE_CATS.map(c=>`<option value="${escapeHtml(c)}" ${editing&&editing.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("") +
+        customBudget.map(c=>`<option value="${escapeHtml(c.id)}" ${editing&&editing.category===c.id?"selected":""}>${escapeHtml(c.label)}</option>`).join("") +
+        customLedger.map(c=>`<option value="${escapeHtml(c)}" ${editing&&editing.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("");
+    }else{
+      const custom = DB.customCategories.income.filter(c=>!INCOME_CATS.includes(c));
+      optionsHTML = [...INCOME_CATS, ...custom].map(c=>`<option value="${escapeHtml(c)}" ${editing&&editing.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("");
+    }
+    sel.innerHTML = optionsHTML + `<option value="__custom__">➕ 自訂新類別...</option>`;
     document.getElementById("f_customcat_wrap").style.display = "none";
+    toggleCreditCardQuestion();
   }
   fillCats();
   document.getElementById("f_cat").addEventListener("change", (e)=>{
     document.getElementById("f_customcat_wrap").style.display = e.target.value==="__custom__" ? "block" : "none";
+    toggleCreditCardQuestion();
   });
   document.querySelectorAll("#f_type button").forEach(b=>{
     b.addEventListener("click", ()=>{
       document.querySelectorAll("#f_type button").forEach(x=>x.classList.remove("active"));
       b.classList.add("active"); type = b.dataset.v; fillCats();
+    });
+  });
+  document.querySelectorAll("#f_paymethod button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      document.querySelectorAll("#f_paymethod button").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active");
+    });
+  });
+  // 信用卡還款是哪一種，一律由使用者自己選，不依日期／金額／過去刷卡紀錄自動猜測，
+  // 所以這裡兩個選項都不預先給 active，儲存前一定要使用者自己點過一次。
+  document.querySelectorAll("#f_ccpay_type button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      document.querySelectorAll("#f_ccpay_type button").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active");
     });
   });
   document.getElementById("f_submit").addEventListener("click", ()=>{
@@ -2560,11 +2613,19 @@ function openTxForm(editId){
     const date = document.getElementById("f_date").value || todayStr();
     const note = document.getElementById("f_note").value.trim();
     if(!name || !amount || amount<=0){ toast("請輸入項目名稱與金額"); return; }
+    const paymentMethod = type==="expense" ? (document.querySelector("#f_paymethod button.active")?.dataset.v || "cash") : null;
+    let creditCardPaymentType = null;
+    if(type==="expense" && category===CREDIT_CARD_PAYMENT_CATEGORY){
+      const activeCcType = document.querySelector("#f_ccpay_type button.active");
+      if(!activeCcType){ toast("請選擇這筆信用卡還款的類型"); return; }
+      creditCardPaymentType = activeCcType.dataset.v;
+    }
     if(editing){
       editing.date=date; editing.amount=amount; editing.type=type; editing.category=category; editing.name=name; editing.note=note;
+      editing.paymentMethod = paymentMethod; editing.creditCardPaymentType = creditCardPaymentType;
       save(); closeSheet(); renderAll(); toast("已更新這筆記帳");
     }else{
-      DB.transactions.push({id:uid(), date, amount, type, category, name, note});
+      DB.transactions.push({id:uid(), date, amount, type, category, name, note, paymentMethod, creditCardPaymentType});
       save(); closeSheet(); renderAll();
       toast("已記錄一筆"+(type==="income"?"收入":"支出"));
     }
@@ -2642,7 +2703,7 @@ function renderRecurringTx(){
     <div class="item-row" data-id="${r.id}" style="${r.paused?'opacity:.55;':''}">
       <div class="recurring-edit-target" data-id="${r.id}" style="flex:1; cursor:pointer;">
         <div class="item-title">${escapeHtml(r.name)}${r.paused?'（已暫停）':''}</div>
-        <div class="item-sub">$${r.amount.toLocaleString()}／${r.freq==='monthly'?'月':'年'} · ${recurringFreqLabel(r)} · ${escapeHtml(r.category)}</div>
+        <div class="item-sub">$${r.amount.toLocaleString()}／${r.freq==='monthly'?'月':'年'} · ${recurringFreqLabel(r)} · ${escapeHtml(expenseCategoryLabel(r.category))}</div>
       </div>
       <button class="del-btn recurring-pause" data-id="${r.id}" title="${r.paused?'恢復':'暫停'}">${r.paused?'▶️':'⏸️'}</button>
       <button class="del-btn recurring-del" data-id="${r.id}">✕</button>
@@ -2720,10 +2781,20 @@ function openRecurringForm(editId){
   `);
   function fillCats(){
     const sel = document.getElementById("rf_cat");
-    const preset = type==="expense"?EXPENSE_CATS:INCOME_CATS;
-    const custom = type==="expense"?DB.customCategories.expense:DB.customCategories.income;
-    const cats = [...preset, ...custom.filter(c=>!preset.includes(c))];
-    sel.innerHTML = cats.map(c=>`<option value="${c}" ${editing&&editing.category===c?"selected":""}>${c}</option>`).join("") + `<option value="__custom__">➕ 自訂新類別...</option>`;
+    let optionsHTML;
+    if(type==="expense"){
+      // 固定收支跟一般記帳共用同一份支出類別（含預算細項與自訂細項），不重新建立第二套分類。
+      const customBudget = DB.customExpenseCategories || [];
+      const customLedger = DB.customCategories.expense.filter(c=>!EXPENSE_CATS.includes(c) && !customBudget.some(cb=>cb.id===c));
+      optionsHTML =
+        EXPENSE_CATS.map(c=>`<option value="${escapeHtml(c)}" ${editing&&editing.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("") +
+        customBudget.map(c=>`<option value="${escapeHtml(c.id)}" ${editing&&editing.category===c.id?"selected":""}>${escapeHtml(c.label)}</option>`).join("") +
+        customLedger.map(c=>`<option value="${escapeHtml(c)}" ${editing&&editing.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("");
+    }else{
+      const custom = DB.customCategories.income.filter(c=>!INCOME_CATS.includes(c));
+      optionsHTML = [...INCOME_CATS, ...custom].map(c=>`<option value="${escapeHtml(c)}" ${editing&&editing.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("");
+    }
+    sel.innerHTML = optionsHTML + `<option value="__custom__">➕ 自訂新類別...</option>`;
     document.getElementById("rf_customcat_wrap").style.display = "none";
   }
   fillCats();
@@ -2909,8 +2980,11 @@ function openReport(){
   }else{
     const total = reportType==="income" ? income : expense;
     const typeTxs = txs.filter(t=>t.type===reportType);
+    // 分類比例／圓餅圖只計「算進實際總支出」的那些交易，才會跟上面顯示的總額一致；
+    // 信用卡已經記錄過的刷卡消費還款不算，但明細清單仍然保留完整記錄，讓使用者查得到。
+    const statsTxs = reportType==="expense" ? actualExpenseTxs(typeTxs) : typeTxs;
     const catStats = {};
-    typeTxs.forEach(t=>{ catStats[t.category] = (catStats[t.category]||0)+t.amount; });
+    statsTxs.forEach(t=>{ catStats[t.category] = (catStats[t.category]||0)+t.amount; });
     const catArr = Object.entries(catStats).sort((a,b)=>b[1]-a[1]);
 
     const legendHTML = catArr.length ? catArr.map(([cat,amt],i)=>{
@@ -2918,7 +2992,7 @@ function openReport(){
       return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px;">
           <span style="width:10px; height:10px; border-radius:50%; background:${REPORT_COLORS[i % REPORT_COLORS.length]}; flex-shrink:0;"></span>
-          <span style="flex:1;">${escapeHtml(cat)}</span>
+          <span style="flex:1;">${escapeHtml(expenseCategoryLabel(cat))}</span>
           <span style="color:var(--gray);">${pct}%</span>
           <span style="font-weight:700; margin-left:6px;">$${amt.toLocaleString()}</span>
         </div>`;
@@ -2928,7 +3002,7 @@ function openReport(){
       ? [...typeTxs].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`
           <div class="item-row">
             <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
-            <div class="item-sub" style="margin-right:8px;">${t.date} · ${escapeHtml(t.category)}</div>
+            <div class="item-sub" style="margin-right:8px;">${t.date} · ${escapeHtml(expenseCategoryLabel(t.category))}</div>
             <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
           </div>`).join("")
       : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
@@ -3018,49 +3092,84 @@ const BUCKET_DEFS = [
   {key:"savings",    emoji:"🌱", label:"儲蓄與目標"},
   {key:"free",       emoji:"🌷", label:"自由使用"},
 ];
-const NECESSARY_BUCKET_CATS = ["居住","醫療","學習"];
-// linkedCategoryId 只在目前記帳分類（EXPENSE_CATS／自訂分類）有明確、單一對應時才預先建立，
-// 語意不明確或本來就不是一般消費的項目（負債還款、儲蓄、投資）一律留 null，不用文字相似度亂猜。
+const NECESSARY_BUCKET_CATS = ["房租／住宿","醫療／藥品","學習"];
+/* ============ 共用支出類別總表：預算細項本身就是記帳可以直接選擇的支出類別 ============
+   核心設計：不再有「預算細項」跟「記帳分類」兩套資料、也不再需要另外「對應」——
+   每個細項的 name 本身既是預算規劃裡的項目名稱，也是記帳 transaction.category 存的值，
+   兩邊共用同一個字串當作穩定的 categoryId，直接用嚴格相等比對，不做文字相似度猜測。
+   🏠必要生活／💳還款固定責任／🌱儲蓄與目標／🌷自由使用 這四個大分類本身只是規劃分組，
+   不會出現在記帳可選的類別清單裡（見 EXPENSE_CATS，只收集底下的細項）。
+   自訂細項則使用獨立的 uid 當 categoryId（見 DB.customExpenseCategories），
+   不是用使用者輸入的顯示文字本身，之後改名字也不會影響歷史資料的分類辨識。 */
 const PRESET_CALC_ITEMS = {
   necessary: [
-    {name:"房租／住宿", linkedCategoryId:"居住"},
-    {name:"餐費", linkedCategoryId:"餐飲"},
-    {name:"交通", linkedCategoryId:"交通"},
-    {name:"手機／網路", linkedCategoryId:null},
-    {name:"水電／瓦斯", linkedCategoryId:null},
-    {name:"保險", linkedCategoryId:null},
-    {name:"醫療／藥品", linkedCategoryId:"醫療"},
-    {name:"孝親／家庭支出", linkedCategoryId:null},
+    {name:"房租／住宿"}, {name:"餐費"}, {name:"交通"}, {name:"手機／網路"},
+    {name:"水電／瓦斯"}, {name:"保險"}, {name:"醫療／藥品"}, {name:"孝親／家庭支出"},
   ],
   debt: [
-    {name:"信貸", linkedCategoryId:null},
-    {name:"信用卡還款", linkedCategoryId:null},
-    {name:"學貸", linkedCategoryId:null},
-    {name:"房貸", linkedCategoryId:null},
-    {name:"車貸", linkedCategoryId:null},
-    {name:"分期付款", linkedCategoryId:null},
-    {name:"親友借款", linkedCategoryId:null},
-    {name:"其他債務／固定責任", linkedCategoryId:null},
+    {name:"信貸"}, {name:"信用卡還款"}, {name:"學貸"}, {name:"房貸"},
+    {name:"車貸"}, {name:"分期付款"}, {name:"親友借款"}, {name:"其他債務／固定責任"},
   ],
   savings: [
-    {name:"一般儲蓄", linkedCategoryId:null},
-    {name:"緊急預備金", linkedCategoryId:null},
-    {name:"投資／資產", linkedCategoryId:null},
-    {name:"旅遊基金", linkedCategoryId:null},
-    {name:"進修／學習基金", linkedCategoryId:null},
-    {name:"大額購買目標", linkedCategoryId:null},
-    {name:"其他目標", linkedCategoryId:null},
+    {name:"一般儲蓄"}, {name:"緊急預備金"}, {name:"投資／資產"}, {name:"旅遊基金"},
+    {name:"進修／學習基金"}, {name:"大額購買目標"}, {name:"其他目標"},
   ],
   free: [
-    {name:"購物", linkedCategoryId:"購物"},
-    {name:"美容／保養", linkedCategoryId:null},
-    {name:"娛樂", linkedCategoryId:"娛樂"},
-    {name:"聚餐／約會", linkedCategoryId:null},
-    {name:"興趣", linkedCategoryId:null},
-    {name:"訂閱／會員", linkedCategoryId:null},
-    {name:"旅行／玩樂", linkedCategoryId:null},
+    {name:"購物"}, {name:"美容／保養"}, {name:"娛樂"}, {name:"聚餐／約會"},
+    {name:"興趣"}, {name:"訂閱／會員"}, {name:"旅行／玩樂"},
   ],
 };
+// 「信用卡還款」是唯一需要額外問清楚用途的支出類別（見 openTxForm 的信用卡防重複問題）。
+const CREDIT_CARD_PAYMENT_CATEGORY = "信用卡還款";
+// 沒有對應任何預算大分類、但既有記帳資料需要繼續辨識的一般類別，記帳時仍然可以選擇。
+const EXPENSE_CATEGORY_EXTRA = ["學習","其他"];
+// 舊記帳分類 → 統一後的共用 canonical 名稱；同一個真實類別只保留一個字串，
+// 避免「餐飲」跟「餐費」變成兩個互不相關的分類。只在資料層面 migrate 一次，不影響金額／日期／備註。
+const LEGACY_EXPENSE_CATEGORY_MIGRATION = { "餐飲":"餐費", "居住":"房租／住宿", "醫療":"醫療／藥品" };
+function allPresetExpenseCategoryNames(){
+  const names = [];
+  BUCKET_DEFS.forEach(bd=>{ (PRESET_CALC_ITEMS[bd.key]||[]).forEach(it=>names.push(it.name)); });
+  return names.concat(EXPENSE_CATEGORY_EXTRA);
+}
+// 記帳可選的支出類別：預算細項（含四大分類底下的一切）＋沒有大分類的一般舊類別。
+const EXPENSE_CATS = allPresetExpenseCategoryNames();
+// 舊記帳分類（餐飲／居住／醫療）→ 新的共用 canonical 名稱，只在載入當下跑一次；
+// 已經是新名稱、或不受影響的資料完全不動，只改 category 欄位本身，不觸碰交易的
+// 日期／金額／備註，也不會刪除任何既有交易，符合「不任意修改既有交易」的原則。
+function migrateLegacyExpenseCategories(){
+  let changed = false;
+  const remap = (cat)=> LEGACY_EXPENSE_CATEGORY_MIGRATION[cat] || cat;
+  (DB.transactions||[]).forEach(t=>{
+    if(t.type==="expense" && LEGACY_EXPENSE_CATEGORY_MIGRATION[t.category]){ t.category = remap(t.category); changed = true; }
+  });
+  (DB.recurringTx||[]).forEach(r=>{
+    if(r.type==="expense" && LEGACY_EXPENSE_CATEGORY_MIGRATION[r.category]){ r.category = remap(r.category); changed = true; }
+  });
+  if(DB.customCategories && Array.isArray(DB.customCategories.expense)){
+    const migrated = DB.customCategories.expense.map(remap);
+    if(migrated.some((c,i)=>c!==DB.customCategories.expense[i])){ DB.customCategories.expense = migrated; changed = true; }
+  }
+  if(changed) save();
+}
+migrateLegacyExpenseCategories();
+// 自訂支出類別登錄檔：只新增／更新，永遠不刪除。使用者在「幫我計算」新增的自訂細項
+// 用穩定的 uid 當 categoryId，這裡只是拿 id 換目前顯示用的名稱；即使某個月的預算規劃
+// 把這個細項移除，這裡的登錄不會跟著消失，歷史交易與歷史比較基準都還能正確辨識分類。
+function registerCustomExpenseCategory(id, label){
+  DB.customExpenseCategories = DB.customExpenseCategories || [];
+  const trimmed = (label||"").trim();
+  if(!id || !trimmed) return;
+  const entry = DB.customExpenseCategories.find(c=>c.id===id);
+  if(entry){ entry.label = trimmed; }
+  else{ DB.customExpenseCategories.push({id, label:trimmed}); }
+}
+// 顯示用的分類名稱：預設項目／舊資料本身存的就是可以直接顯示的字串；只有自訂類別的
+// categoryId 是不透明的 uid，需要回頭查登錄檔換成目前的顯示名稱。查不到就照原樣顯示，
+// 避免任何一筆交易因為分類資料缺漏而顯示不出來。
+function expenseCategoryLabel(catValue){
+  const custom = (DB.customExpenseCategories||[]).find(c=>c.id===catValue);
+  return custom ? custom.label : catValue;
+}
 
 function pad2(n){ return String(n).padStart(2,"0"); }
 function budgetMonthKeyOf(year, month0){ return `${year}-${pad2(month0+1)}`; }
@@ -3074,12 +3183,24 @@ function getBudget(mk){ return DB.budgetsByMonth[mk] || null; }
 function blankAllocations(){ return {necessary:0, debt:0, savings:0, free:0}; }
 
 function txsForMonth(mk){ return txsForCycle(mk); }
+// 信用卡防重複：這筆信用卡還款只是「繳之前已經在刷卡消費當下記錄過的支出」的帳單本身，
+// 不是本期另外新安排出去的一筆錢，所以不能再次計入實際總支出，也不能再次計入
+// 「信用卡還款」這個類別自己的實際金額，否則同一筆經濟行為會被算兩次。
+// 「償還之前的信用卡欠款」則代表這是本期真的安排出去的錢，正常計入，不受這個規則影響。
+function isDoubleCountedCreditCardPayment(t){
+  return t.type==="expense" && t.category===CREDIT_CARD_PAYMENT_CATEGORY && t.creditCardPaymentType==="already_recorded";
+}
+// 全站唯一一份「這筆支出算不算本期實際總支出」的判斷，記帳／首頁／報表／財務復盤都共用，
+// 確保同一筆經濟行為只會影響「實際總支出」一次。
+function actualExpenseTxs(txs){
+  return txs.filter(t=>t.type==="expense" && !isDoubleCountedCreditCardPayment(t));
+}
 function debtPaymentsForMonth(mk){
   const r = financeCycleRange(mk);
   return DB.debts.reduce((s,d)=>s + (d.payments||[]).filter(p=>p.date>=r.startStr && p.date<=r.endStr).reduce((s2,p)=>s2+p.amount,0), 0);
 }
 function bucketActuals(mk){
-  const txs = txsForMonth(mk).filter(t=>t.type==="expense");
+  const txs = actualExpenseTxs(txsForMonth(mk));
   const fixed = txs.filter(t=>t.recurringRuleId);
   const nonFixed = txs.filter(t=>!t.recurringRuleId);
   const necessary = nonFixed.filter(t=>NECESSARY_BUCKET_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
@@ -3123,10 +3244,11 @@ function snapshotBudgetForComparison(budget){
   BUCKET_DEFS.forEach(bd=>{
     ((budget.calcItems && budget.calcItems[bd.key]) || []).forEach(it=>{
       if((Number(it.amount)||0) > 0){
+        // it.id 本身就是共用的記帳支出類別 categoryId，不需要另外存一個對應欄位；
+        // 之後即使目前預算規劃調整、細項移除，這裡凍結的 id 仍然可以在記帳資料裡正確找到對應交易。
         items.push({
           id: it.id, name: it.name, bucketKey: bd.key,
           budgetAmount: Number(it.amount)||0,
-          linkedCategoryId: it.linkedCategoryId || null,
         });
       }
     });
@@ -3156,28 +3278,24 @@ function establishComparisonBaseline(mk, budget){
   save();
   return rv.comparisonBaseline;
 }
-function actualAmountForLinkedCategory(mk, categoryId){
-  return txsForCycle(mk).filter(t=>t.type==="expense" && t.category===categoryId).reduce((s,t)=>s+t.amount,0);
+// 直接依共用的 categoryId 找出這個財務週期裡實際花了多少，不用另外 mapping；
+// 已排除信用卡防重複的還款紀錄（見 actualExpenseTxs）。
+function actualAmountForCategory(mk, categoryId){
+  return actualExpenseTxs(txsForCycle(mk)).filter(t=>t.category===categoryId).reduce((s,t)=>s+t.amount,0);
 }
 function computeItemComparisons(mk, baseline){
-  return baseline.items.filter(it=>it.linkedCategoryId).map(it=>{
-    const actualAmount = actualAmountForLinkedCategory(mk, it.linkedCategoryId);
+  return baseline.items.map(it=>{
+    const actualAmount = actualAmountForCategory(mk, it.id);
     return {...it, actualAmount, diff: actualAmount - it.budgetAmount};
   });
 }
-function computeUnlinkedBudgetItems(baseline){
-  return baseline.items.filter(it=>!it.linkedCategoryId);
-}
-function computeUnmatchedActualSpend(mk, baseline){
-  const linkedCats = new Set(baseline.items.filter(it=>it.linkedCategoryId).map(it=>it.linkedCategoryId));
-  const txTotal = txsForMonth(mk).filter(t=>t.type==="expense" && !linkedCats.has(t.category)).reduce((s,t)=>s+t.amount,0);
-  return txTotal + debtPaymentsForMonth(mk);
-}
-// 未對應到任何預算項目的實際支出，依記帳分類拆開列出（金額仍然計入總支出／現金流，只是拆給使用者看清楚花在哪裡）。
+// 沒有出現在這份正式比較基準裡的記帳分類，依分類拆開列出（金額仍然計入總支出／現金流，
+// 只是拆給使用者看清楚花在哪裡），不再需要「設定對應」——這些分類本來就跟基準無關，
+// 使用者若想追蹤，之後在預算規劃裡把它加進細項即可。
 function computeUnmatchedSpendByCategory(mk, baseline){
-  const linkedCats = new Set(baseline.items.filter(it=>it.linkedCategoryId).map(it=>it.linkedCategoryId));
+  const usedCatIds = new Set(baseline.items.map(it=>it.id));
   const byCat = {};
-  txsForMonth(mk).filter(t=>t.type==="expense" && !linkedCats.has(t.category)).forEach(t=>{
+  actualExpenseTxs(txsForMonth(mk)).filter(t=>!usedCatIds.has(t.category)).forEach(t=>{
     byCat[t.category] = (byCat[t.category]||0) + t.amount;
   });
   return Object.entries(byCat).map(([category,amount])=>({category, amount})).sort((a,b)=>b.amount-a.amount);
@@ -3565,44 +3683,27 @@ function openBudgetSetupForm(mk, wizIn){
     const cb = document.getElementById("bg_confirmBaseline");
     const wantsBaseline = needsBaselineConfirm && !!(cb && cb.checked);
 
-    const finalizeSave = ()=>{
-      if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
-      else{ createBudget(mk, {available, allocations, calcItems}); }
-      if(wantsBaseline){
-        establishComparisonBaseline(mk, {available, allocations, calcItems});
-      }
-      closeSheet(); renderBudgetTab(); renderHomeStats();
-      toast(wantsBaseline ? "已建立本月財務復盤的比較基準" : "已更新本月預算分配");
-    };
-
+    // 每個細項的名稱本身就是記帳可以直接選擇的支出類別，沒有另外的「對應」步驟，
+    // 所以這裡不需要再檢查、警告任何「未對應記帳分類」的細項。
+    registerCustomCalcItems(calcItems);
+    if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
+    else{ createBudget(mk, {available, allocations, calcItems}); }
     if(wantsBaseline){
-      const unmapped = [];
-      BUCKET_DEFS.forEach(bd=>{
-        (calcItems[bd.key]||[]).forEach(it=>{
-          if((Number(it.amount)||0) > 0 && !it.linkedCategoryId) unmapped.push(it);
-        });
-      });
-      if(unmapped.length){
-        openUnmappedItemsWarning(unmapped.length, mk, wiz, finalizeSave);
-        return;
-      }
+      establishComparisonBaseline(mk, {available, allocations, calcItems});
     }
-    finalizeSave();
+    closeSheet(); renderBudgetTab(); renderHomeStats();
+    toast(wantsBaseline ? "已建立本月財務復盤的比較基準" : "已更新本月預算分配");
   });
 }
-// 第一次建立正式比較基準前，如果還有已填金額但沒對應記帳分類的細項，先提醒一下，
-// 但不強迫使用者一定要設定完成才能繼續——「仍然儲存」永遠可以選。
-function openUnmappedItemsWarning(count, mk, wiz, onProceed){
-  openSheet(`
-    <div class="sheet-head"><h3>有 ${count} 個預算項目還沒有對應記帳分類</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:18px; line-height:1.7;">這不會影響你儲存預算，但之後財務復盤可能無法比較這些項目的預算和實際支出。</div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <button class="btn-ghost" id="uw_goSet">去設定對應</button>
-      <button class="btn-main" id="uw_proceed">仍然儲存</button>
-    </div>
-  `);
-  document.getElementById("uw_goSet").addEventListener("click", ()=>openBudgetSetupForm(mk, wiz));
-  document.getElementById("uw_proceed").addEventListener("click", ()=>onProceed());
+// 把這次儲存裡的自訂細項登錄進共用的自訂支出類別清單，記帳時才能直接選到；
+// 只新增／更新顯示名稱，不會刪除，即使之後某個月的規劃把這個細項移除也一樣。
+function registerCustomCalcItems(calcItems){
+  BUCKET_DEFS.forEach(bd=>{
+    const presetNames = (PRESET_CALC_ITEMS[bd.key]||[]).map(p=>p.name);
+    (calcItems[bd.key]||[]).forEach(it=>{
+      if(!presetNames.includes(it.id)) registerCustomExpenseCategory(it.id, it.name);
+    });
+  });
 }
 function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
   const bd = BUCKET_DEFS.find(x=>x.key===key);
@@ -3622,49 +3723,7 @@ function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
   document.getElementById("amc_edit").addEventListener("click", ()=>openCalcItemsSheet(mk, key, wiz));
 }
 
-/* ============ 幫我計算：四大類的計算小工具，只負責幫忙加總、帶入總額，不是分類預算 ============ */
-/* ============ 分類對應：用穩定的記帳分類字串當 categoryId，不做文字相似度猜測 ============ */
-function calcAllLinkedCategoryUsage(wiz, excludeItemId){
-  const usage = {};
-  BUCKET_DEFS.forEach(bd=>{
-    (wiz.calcItems[bd.key]||[]).forEach(it=>{
-      if(it.linkedCategoryId && it.id!==excludeItemId) usage[it.linkedCategoryId] = it.name;
-    });
-  });
-  return usage;
-}
-function openLinkedCategoryPicker(currentCategoryId, usageMap, itemLabel, onPick, onCancel){
-  const cats = [...EXPENSE_CATS, ...DB.customCategories.expense.filter(c=>!EXPENSE_CATS.includes(c))];
-  openSheet(`
-    <div class="sheet-head"><h3>對應記帳分類</h3><button class="close-btn" id="lc_back">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">幫「${escapeHtml(itemLabel||"這個項目")}」選一個記帳分類，財務復盤才能比較這個項目原本分配跟實際花多少，也可以先不設定。</div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      ${cats.map(c=>`<button type="button" class="btn-ghost lc-pick-btn" data-cat="${escapeHtml(c)}" style="text-align:left; ${currentCategoryId===c?'background:var(--accent); color:var(--on-accent);':''}">${escapeHtml(c)}</button>`).join("")}
-      <button type="button" class="btn-ghost" id="lc_clear">不設定對應</button>
-    </div>
-  `);
-  document.querySelectorAll(".lc-pick-btn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const cat = btn.dataset.cat;
-      const takenBy = usageMap[cat];
-      if(takenBy && cat!==currentCategoryId){
-        openSheet(`
-          <div class="sheet-head"><h3>這個分類已經在使用</h3><button class="close-btn" id="lcw_x">✕</button></div>
-          <div class="muted" style="line-height:1.7; margin-bottom:16px;">「${escapeHtml(cat)}」目前已對應到「${escapeHtml(takenBy)}」。為了避免同一筆支出被重複計算，一個記帳分類目前只能對應一個預算項目。</div>
-          <button class="btn-main" id="lcw_ok" style="width:100%;">知道了</button>
-        `);
-        const back = ()=>openLinkedCategoryPicker(currentCategoryId, usageMap, itemLabel, onPick, onCancel);
-        document.getElementById("lcw_x").addEventListener("click", back);
-        document.getElementById("lcw_ok").addEventListener("click", back);
-        return;
-      }
-      onPick(cat);
-    });
-  });
-  document.getElementById("lc_clear").addEventListener("click", ()=>onPick(null));
-  document.getElementById("lc_back").addEventListener("click", onCancel);
-}
-
+/* ============ 幫我計算：四大類的計算小工具，細項名稱本身就是記帳可以直接選擇的支出類別 ============ */
 function openCalcItemsSheet(mk, bucketKey, wiz){
   const bd = BUCKET_DEFS.find(x=>x.key===bucketKey);
   const saved = deepClone((wiz.calcItems && wiz.calcItems[bucketKey]) || []);
@@ -3677,39 +3736,25 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
   saved.forEach(it=>{ savedByName[it.name] = it; });
   const customItems = saved.filter(it=>!presetNames.includes(it.name));
 
-  const linkcatButtonHTML = (idAttr, linkedCategoryId)=>
-    `<button type="button" class="small-link calc-item-linkcat" data-id="${idAttr}" data-linked="${linkedCategoryId?escapeHtml(linkedCategoryId):''}" style="align-self:flex-start; font-size:12px; font-weight:400;">${linkedCategoryId?`對應記帳分類：${escapeHtml(linkedCategoryId)}`:'尚未對應記帳分類・設定對應 ›'}</button>`;
   const presetRowHTML = (presetDef)=>{
     const existing = savedByName[presetDef.name];
     const amt = existing ? existing.amount : "";
-    // 已經存過的細項，用它自己存的 linkedCategoryId（可能是使用者自己改過的）；
-    // 還沒存過、第一次出現的預設項目，才用 PRESET_CALC_ITEMS 裡語意明確的預設對應。
-    const linkedCategoryId = existing && existing.linkedCategoryId !== undefined ? existing.linkedCategoryId : presetDef.linkedCategoryId;
     return `
-    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(presetDef.name)}" style="min-width:0; flex-direction:column; align-items:stretch; gap:2px;">
-      <div style="display:flex; min-width:0; align-items:center;">
-        <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(presetDef.name)}</div>
-        <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
-      </div>
-      ${linkcatButtonHTML(escapeHtml(presetDef.name), linkedCategoryId)}
+    <div class="item-row calc-item-row calc-preset-row" data-name="${escapeHtml(presetDef.name)}" style="min-width:0;">
+      <div style="flex:1 1 auto; min-width:0; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(presetDef.name)}</div>
+      <input class="calc-item-amt" type="number" placeholder="0" value="${amt||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
     </div>`;
   };
   const customRowHTML = (it)=>`
-    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}" style="min-width:0; flex-direction:column; align-items:stretch; gap:2px;">
-      <div style="display:flex; min-width:0;">
-        <div style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:4px;">
-          <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1 1 auto; min-width:0; border:none; background:transparent; font-size:14px; padding:4px 0;">
-          <button type="button" class="calc-item-del" data-id="${it.id}" style="flex:0 0 auto; background:none; border:none; color:var(--gray); font-size:14px; padding:2px 4px; line-height:1;">✕</button>
-        </div>
-        <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
-      </div>
-      ${linkcatButtonHTML(it.id, it.linkedCategoryId)}
+    <div class="item-row calc-item-row calc-custom-row" data-id="${it.id}" style="min-width:0;">
+      <input class="calc-item-name" data-id="${it.id}" placeholder="項目名稱" value="${escapeHtml(it.name||"")}" style="flex:1 1 auto; min-width:0; border:none; background:transparent; font-size:14px; padding:4px 0;">
+      <input class="calc-item-amt" data-id="${it.id}" type="number" placeholder="金額" value="${it.amount||""}" style="flex:0 0 auto; width:90px; max-width:34%; min-width:0; border:none; background:transparent; text-align:right; font-size:14px; padding:4px 0;">
+      <button type="button" class="calc-item-del" data-id="${it.id}" style="flex:0 0 auto; background:none; border:none; color:var(--gray); font-size:14px; padding:2px 4px; line-height:1;">✕</button>
     </div>`;
 
   openSheet(`
     <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍</div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">還沒對應記帳分類也可以先儲存，只是之後財務復盤可能沒辦法比較那個項目的預算和實際支出。</div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍<br>記帳的時候也可以直接選這裡的項目當支出類別。</div>
     ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
     <div id="ci_list" style="width:100%; min-width:0; overflow-x:hidden;">${presetDefs.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
     <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增其他項目</button>
@@ -3729,18 +3774,14 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     document.querySelectorAll(".calc-preset-row").forEach(row=>{
       const name = row.dataset.name;
       const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
-      const linkBtn = row.querySelector(".calc-item-linkcat");
-      const linkedCategoryId = linkBtn && linkBtn.dataset.linked ? linkBtn.dataset.linked : null;
       if(forSave && amount<=0) return;
-      items.push({id:name, name, amount, linkedCategoryId});
+      items.push({id:name, name, amount});
     });
     document.querySelectorAll(".calc-custom-row").forEach(row=>{
       const name = row.querySelector(".calc-item-name").value.trim();
       const amount = parseFloat(row.querySelector(".calc-item-amt").value)||0;
-      const linkBtn = row.querySelector(".calc-item-linkcat");
-      const linkedCategoryId = linkBtn && linkBtn.dataset.linked ? linkBtn.dataset.linked : null;
       if(forSave && !name && !amount) return;
-      items.push({id: row.dataset.id, name, amount, linkedCategoryId});
+      items.push({id: row.dataset.id, name, amount});
     });
     wiz.calcItems = wiz.calcItems || {};
     wiz.calcItems[bucketKey] = items;
@@ -3753,24 +3794,10 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     if(e.target.classList.contains("calc-item-del")){
       e.target.closest(".calc-item-row").remove();
       recalc();
-      return;
-    }
-    if(e.target.classList.contains("calc-item-linkcat")){
-      const btn = e.target;
-      const itemId = btn.dataset.id;
-      captureFromSheet(false);
-      const item = wiz.calcItems[bucketKey].find(it=>it.id===itemId);
-      const usage = calcAllLinkedCategoryUsage(wiz, itemId);
-      const label = item ? (item.name || "這個項目") : "這個項目";
-      const curCat = item ? item.linkedCategoryId : null;
-      openLinkedCategoryPicker(curCat, usage, label,
-        (picked)=>{ if(item) item.linkedCategoryId = picked; openCalcItemsSheet(mk, bucketKey, wiz); },
-        ()=>openCalcItemsSheet(mk, bucketKey, wiz)
-      );
     }
   });
   document.getElementById("ci_add").addEventListener("click", ()=>{
-    document.getElementById("ci_list").insertAdjacentHTML("beforeend", customRowHTML({id:uid(), name:"", amount:"", linkedCategoryId:null}));
+    document.getElementById("ci_list").insertAdjacentHTML("beforeend", customRowHTML({id:uid(), name:"", amount:""}));
     recalc();
   });
   document.getElementById("ci_confirm").addEventListener("click", ()=>{
@@ -3825,7 +3852,7 @@ const OVERSPEND_INTENTIONS = ["維持現在的預算","調高預算","重新分�
 // 完全沒有設定本月預算時的實際支出結構：只整理錢花在哪裡，不評價任何分類。
 function realExpenseStructureForMonth(mk){
   const catTotals = {};
-  txsForMonth(mk).filter(t=>t.type==="expense").forEach(t=>{ catTotals[t.category] = (catTotals[t.category]||0)+t.amount; });
+  actualExpenseTxs(txsForMonth(mk)).forEach(t=>{ catTotals[t.category] = (catTotals[t.category]||0)+t.amount; });
   const arr = Object.entries(catTotals).map(([cat,amount])=>({cat, amount}));
   const debtTotal = debtPaymentsForMonth(mk);
   if(debtTotal>0) arr.push({cat:"💳 還款", amount:debtTotal});
@@ -3848,7 +3875,7 @@ function renderNoBudgetReviewCardHTML(mk, income, actualTotal, vsIncome){
       <div class="muted" style="margin:10px 0; line-height:1.7;">這個月還沒有設定預算，所以目前沒有預算可以進行比較～<br>小夥伴先幫你整理這個月實際發生的收支 🤍</div>
       ${structure.length ? `
         <div class="card-title" style="margin-bottom:8px;">本月實際支出</div>
-        ${structure.map(x=>`<div class="networth-line"><span class="label">${escapeHtml(x.cat)}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>`).join("")}
+        ${structure.map(x=>`<div class="networth-line"><span class="label">${escapeHtml(x.cat==='💳 還款' ? x.cat : expenseCategoryLabel(x.cat))}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>`).join("")}
       ` : ""}
       ${vsIncome<0 ? `
         <div class="muted" style="margin-top:14px; line-height:1.7;">如果你想更清楚知道自己的錢可以怎麼安排，也可以試著做一次本月預算規劃。<br>設定之後，小夥伴就能幫你把「預算分配」和「實際收支」放在一起看，之後也會更容易發現哪些地方和原本預期不太一樣。</div>
@@ -3877,12 +3904,11 @@ function renderReviewCardHTML(mk){
   const itemComparisons = computeItemComparisons(mk, baseline);
   const unmatchedByCat = computeUnmatchedSpendByCategory(mk, baseline);
   const debtTotal = debtPaymentsForMonth(mk);
-  const unlinkedItems = computeUnlinkedBudgetItems(baseline);
   const hasAnyItems = baseline.items.length > 0;
 
   const bodyHTML = isOverBudget
     ? renderOverBudgetSectionHTML(mk, overallDiff, itemComparisons.filter(it=>it.diff>0), unmatchedByCat, debtTotal, hasAnyItems)
-    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedByCat, debtTotal, hasAnyItems, mk);
+    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedByCat, debtTotal, hasAnyItems);
 
   return `
     <div class="card">
@@ -3895,7 +3921,6 @@ function renderReviewCardHTML(mk){
       </div>
       <div class="networth-line"><span class="label">${vsIncome>=0?"本月實際剩餘":"實際支出已超過本月收入"}</span><span class="value">NT$ ${Math.abs(vsIncome).toLocaleString()}</span></div>
       ${bodyHTML}
-      ${frozenBaseline ? renderUnlinkedItemsHTML(unlinkedItems) : ""}
     </div>
   `;
 }
@@ -3908,28 +3933,27 @@ function itemCompareRowHTML(it, showDetailLink){
       <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${it.budgetAmount.toLocaleString()}</span></div>
       <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${it.actualAmount.toLocaleString()}</span></div>
       <div class="networth-line"><span class="label">比原本分配${overUnder}</span><span class="value">NT$ ${Math.abs(it.diff).toLocaleString()}</span></div>
-      ${showDetailLink ? `<button class="small-link review-item-detail" data-cat="${escapeHtml(it.linkedCategoryId)}">查看明細 ›</button>` : ""}
+      ${showDetailLink ? `<button class="small-link review-item-detail" data-cat="${escapeHtml(it.id)}">查看明細 ›</button>` : ""}
     </div>
   `;
 }
 
-// 未對應到預算項目的實際支出：拆給使用者看清楚花在哪些記帳分類，每個分類都可以事後補設定對應，
-// 但這只會補上原本沒填的 linkedCategoryId，不會改動已經凍結的比較基準金額。
-function renderUnmatchedSpendBreakdownHTML(mk, unmatchedByCat, debtTotal){
+// 沒有出現在正式比較基準裡的記帳分類：純粹讓使用者看清楚這些錢花在哪裡，金額本來就已經
+// 計入上面的實際總支出，不需要、也不再提供「設定對應」——分類本身就是共用的，沒有東西需要對應。
+function renderUnmatchedSpendBreakdownHTML(unmatchedByCat, debtTotal){
   if(!unmatchedByCat.length && !(debtTotal>0)) return "";
   return `
     <div style="margin-top:10px;">
-      <div class="muted" style="margin-bottom:6px;">還有實際支出沒有對應到任何預算項目，這些金額仍然計入上面的總支出：</div>
+      <div class="muted" style="margin-bottom:6px;">還有實際支出不在這次的預算細項裡，這些金額仍然計入上面的總支出：</div>
       ${unmatchedByCat.map(x=>`
-        <div class="networth-line"><span class="label">${escapeHtml(x.category)}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
-        <div style="text-align:right; margin:-2px 0 6px;"><button class="small-link review-map-unmatched" data-cat="${escapeHtml(x.category)}" data-mk="${escapeHtml(mk)}">設定對應 ›</button></div>
+        <div class="networth-line"><span class="label">${escapeHtml(expenseCategoryLabel(x.category))}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
       `).join("")}
       ${debtTotal>0 ? `<div class="networth-line"><span class="label">💳 還款／固定支出</span><span class="value">NT$ ${debtTotal.toLocaleString()}</span></div>` : ""}
     </div>
   `;
 }
 
-function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffItems, unmatchedByCat, debtTotal, hasAnyItems, mk){
+function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffItems, unmatchedByCat, debtTotal, hasAnyItems){
   const itemRows = diffItems.map(it=>itemCompareRowHTML(it, it.diff>0)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
@@ -3945,7 +3969,7 @@ function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudge
       ${diffItems.length
         ? `<div class="muted" style="margin-bottom:4px;">有 ${diffItems.length} 個項目和原本的分配不太一樣</div>${itemRows}`
         : (hasAnyItems ? "" : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
-      ${renderUnmatchedSpendBreakdownHTML(mk, unmatchedByCat, debtTotal)}
+      ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat, debtTotal)}
     </div>
   `;
 }
@@ -3961,7 +3985,7 @@ function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedByCat,
       ${overItems.length
         ? `<div class="card-title" style="margin-bottom:4px;">高於原本分配的項目</div>${itemRows}`
         : (hasAnyItems ? `<div class="muted">目前沒有單一項目特別偏高，可能是好幾個地方加起來多一點，或有還沒設定對應分類的支出。</div>` : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
-      ${renderUnmatchedSpendBreakdownHTML(mk, unmatchedByCat, debtTotal)}
+      ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat, debtTotal)}
       <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要原因是什麼呢～</div>
       <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <div id="rv_reasonDetailWrap" class="field" style="display:${isOtherReason?"block":"none"};">
@@ -3979,49 +4003,6 @@ function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedByCat,
       ` : ""}
     </div>
   `;
-}
-
-function renderUnlinkedItemsHTML(unlinkedItems){
-  if(!unlinkedItems.length) return "";
-  return `
-    <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
-      ${unlinkedItems.map(it=>`
-        <div style="margin-bottom:10px;">
-          <div style="font-weight:700; margin-bottom:2px;">${escapeHtml(it.name)}</div>
-          <div class="muted" style="margin-bottom:4px;">原本分配 NT$${it.budgetAmount.toLocaleString()} · 尚未設定對應的記帳分類</div>
-          <button class="small-link review-set-linkcat" data-id="${it.id}">設定對應 ›</button>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-// 把一個「還沒對應到任何預算項目」的記帳分類，事後補接到比較基準裡某個「還沒對應記帳分類」的項目上。
-// 只補上那個項目原本空著的 linkedCategoryId，不會改動已經凍結的比較基準金額，也不會產生重複對應
-// （因為只列出目前還沒對應分類的項目，這個分類本身也還沒被任何項目使用）。
-function openUnmatchedCategoryMapPicker(mk, category){
-  const rv = getReview(mk);
-  const baseline = rv && rv.comparisonBaseline;
-  if(!baseline) return;
-  const unmappedItems = baseline.items.filter(it=>!it.linkedCategoryId);
-  openSheet(`
-    <div class="sheet-head"><h3>把「${escapeHtml(category)}」對應到預算項目</h3><button class="close-btn" id="umw_back">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">選一個還沒對應記帳分類的預算項目，之後財務復盤就能把「${escapeHtml(category)}」的實際支出和這個項目原本的分配放在一起比較。這不會改變這次已經保留的比較基準金額。</div>
-    ${unmappedItems.length ? `
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        ${unmappedItems.map(it=>`<button type="button" class="btn-ghost umw-pick-btn" data-id="${escapeHtml(it.id)}" style="text-align:left;">${escapeHtml(it.name)}（原本分配 NT$${it.budgetAmount.toLocaleString()}）</button>`).join("")}
-      </div>
-    ` : `<div class="empty-state">目前沒有還沒對應記帳分類的預算項目可以選了。</div>`}
-  `);
-  const back = ()=>{ closeSheet(); renderBudgetTab(); };
-  document.getElementById("umw_back").addEventListener("click", back);
-  document.querySelectorAll(".umw-pick-btn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const item = baseline.items.find(it=>it.id===btn.dataset.id);
-      if(item){ item.linkedCategoryId = category; save(); }
-      back();
-    });
-  });
 }
 
 /* ============ 🌱🍀 財務小花園卡片：純展示，不新增任何互動或財務判斷 ============ */
@@ -4074,24 +4055,6 @@ function wireReviewCard(mk){
   document.querySelectorAll(".review-item-detail").forEach(el=>{
     el.addEventListener("click", ()=>openOverspendDetail(mk, el.dataset.cat));
   });
-  document.querySelectorAll(".review-set-linkcat").forEach(el=>{
-    el.addEventListener("click", ()=>{
-      const rv = getReview(mk);
-      const baseline = rv && rv.comparisonBaseline;
-      if(!baseline) return;
-      const item = baseline.items.find(it=>it.id===el.dataset.id);
-      if(!item) return;
-      const usage = {};
-      baseline.items.forEach(it=>{ if(it.linkedCategoryId && it.id!==item.id) usage[it.linkedCategoryId] = it.name; });
-      openLinkedCategoryPicker(item.linkedCategoryId, usage, item.name,
-        (picked)=>{ item.linkedCategoryId = picked; save(); closeSheet(); renderBudgetTab(); },
-        ()=>closeSheet()
-      );
-    });
-  });
-  document.querySelectorAll(".review-map-unmatched").forEach(el=>{
-    el.addEventListener("click", ()=>openUnmatchedCategoryMapPicker(el.dataset.mk, el.dataset.cat));
-  });
   const reasonSelect = document.getElementById("rv_reason");
   if(reasonSelect) reasonSelect.addEventListener("change", ()=>{
     const wrap = document.getElementById("rv_reasonDetailWrap");
@@ -4113,9 +4076,11 @@ function wireReviewCard(mk){
 
 /* ============ 查看本月實際支出的交易明細 ============ */
 function openOverspendDetail(mk, cat){
-  const txs = txsForCycle(mk).filter(t=>t.type==="expense" && t.category===cat).sort((a,b)=>b.date.localeCompare(a.date));
+  // 只列出這個分類「有算進實際支出」的交易，跟上面比較卡片顯示的實際金額對得起來；
+  // 信用卡已經記錄過的刷卡消費還款不算在這個分類的實際支出裡，所以明細也不重複列出。
+  const txs = actualExpenseTxs(txsForCycle(mk)).filter(t=>t.category===cat).sort((a,b)=>b.date.localeCompare(a.date));
   openSheet(`
-    <div class="sheet-head"><h3>${escapeHtml(cat)}｜本月明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="sheet-head"><h3>${escapeHtml(expenseCategoryLabel(cat))}｜本月明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     ${txs.length ? txs.map(t=>`
       <div class="item-row">
         <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
@@ -4850,6 +4815,7 @@ function exportBackup(){
   addSheet("打卡", Object.entries(DB.checkins).map(([date,v])=>({date, item:(v&&v.item)||"", at:(v&&v.at)||""})));
   addSheet("記帳", DB.transactions.map(t=>({
     id:t.id, type:t.type, name:t.name, amount:t.amount, category:t.category, date:t.date, note:t.note||"",
+    paymentMethod:t.paymentMethod||"", creditCardPaymentType:t.creditCardPaymentType||"",
     recurringRuleId:t.recurringRuleId||"", recurringPeriod:t.recurringPeriod||""
   })));
   addSheet("固定收支", DB.recurringTx.map(r=>({
@@ -4873,6 +4839,7 @@ function exportBackup(){
     {key:"budgetsByMonthJSON", value:JSON.stringify(DB.budgetsByMonth||{})},
     {key:"reviewsByMonthJSON", value:JSON.stringify(DB.reviewsByMonth||{})},
     {key:"customCategoriesJSON", value:JSON.stringify(DB.customCategories||{expense:[],income:[]})},
+    {key:"customExpenseCategoriesJSON", value:JSON.stringify(DB.customExpenseCategories||[])},
     {key:"insightsMemoryJSON", value:JSON.stringify(DB.insightsMemory||{})},
     {key:"emergencyFundJSON", value:JSON.stringify(DB.emergencyFund||null)},
     {key:"seenDiscoveryNoticesJSON", value:JSON.stringify(DB.seenDiscoveryNotices||[])},
@@ -4903,7 +4870,8 @@ function importBackupFromWorkbook(wb){
   sheetRows(wb, "打卡").forEach(r=>{ if(r.date) checkins[r.date] = { item:r.item||"", at:r.at||"" }; });
   const transactions = sheetRows(wb, "記帳").map(r=>{
     const t = {
-      id:r.id||uid(), type:r.type, name:String(r.name||""), amount:Number(r.amount)||0, category:r.category, date:String(r.date||""), note:r.note||""
+      id:r.id||uid(), type:r.type, name:String(r.name||""), amount:Number(r.amount)||0, category:r.category, date:String(r.date||""), note:r.note||"",
+      paymentMethod: r.paymentMethod || null, creditCardPaymentType: r.creditCardPaymentType || null
     };
     if(r.recurringRuleId){ t.recurringRuleId = r.recurringRuleId; t.recurringPeriod = r.recurringPeriod||""; }
     return t;
@@ -4938,6 +4906,7 @@ function importBackupFromWorkbook(wb){
     farmName: settings.farmName || "",
     todos, checkins, transactions, debts, goals, assets, journal, recurringTx,
     customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
+    customExpenseCategories: safeJSONParse(settings.customExpenseCategoriesJSON, []),
     budget: safeJSONParse(settings.budgetJSON, null),
     budgetsByMonth: safeJSONParse(settings.budgetsByMonthJSON, {}),
     reviewsByMonth: safeJSONParse(settings.reviewsByMonthJSON, {}),
@@ -4953,6 +4922,7 @@ function importBackupFromWorkbook(wb){
     financeCycleStartDay: parseInt(settings.financeCycleStartDay, 10) || 1,
     financeCycleOverrides: safeJSONParse(settings.financeCycleOverridesJSON, {}),
   });
+  migrateLegacyExpenseCategories(); // 匯入舊備份時，同樣把舊記帳分類（餐飲／居住／醫療）併回共用的 canonical 名稱
   save();
   document.body.setAttribute("data-theme", DB.theme);
   renderThemeRow(); renderAll();
@@ -4983,7 +4953,7 @@ function computeWeeklyReviewText(){
   const rate = recentTodoCompletionRate(7);
   const threshold = fmtDate(dateNDaysAgo(6));
   const catTotals = {};
-  DB.transactions.filter(t=>t.type==="expense" && t.date>=threshold).forEach(t=>{
+  actualExpenseTxs(DB.transactions.filter(t=>t.date>=threshold)).forEach(t=>{
     catTotals[t.category] = (catTotals[t.category]||0) + t.amount;
   });
   const topCat = Object.entries(catTotals).sort((a,b)=>b[1]-a[1])[0];
@@ -4993,7 +4963,7 @@ function computeWeeklyReviewText(){
     const cheng = Math.round(rate*10);
     todoPart = `待辦完成了${cheng>0?cheng:"不到一"}成左右`;
   }
-  const spendPart = topCat ? `花費比較集中在${topCat[0]}類` : "";
+  const spendPart = topCat ? `花費比較集中在${expenseCategoryLabel(topCat[0])}類` : "";
   const parts = [todoPart, spendPart].filter(Boolean);
   if(!parts.length) return "這一週辛苦你了，要不要花點時間回顧一下這一週呢？";
   return `這一週辛苦你了。${parts.join("，")}，要不要花點時間回顧一下呢？`;
