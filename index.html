@@ -1832,15 +1832,25 @@ document.getElementById("btnFarmBackToToday").addEventListener("click", ()=>{
 
 /* ============ 待辦 ============ */
 const TODO_COLORS = ["#C96A5C","#D99A5B","#D9C15B","#8FA688","#6FA89D","#7A9BAD","#7B8CC4","#9B8AA6","#D98BA3","#9B9A97"];
+// 把使用者選的（飽和度較高的）標籤色，混一點白色調淡，變成待辦背景可以用的柔和色塊，
+// 同時保留不同顏色彼此的辨識度，也確保黑色文字在上面仍然清楚可讀。
+function todoColorBg(hex){
+  const h = hex.replace("#","");
+  const r = parseInt(h.substr(0,2),16), g = parseInt(h.substr(2,4),16), b = parseInt(h.substr(4,6),16);
+  const mix = c => Math.round(c*0.22 + 255*0.78);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
 function todoRowHTML(t, showDate){
-  const stripe = t.color ? `border-left:4px solid ${t.color}; padding-left:8px;` : "";
+  const colorStyle = t.color
+    ? `background:${todoColorBg(t.color)}; border-radius:12px; padding:10px 12px; margin-bottom:8px; border-bottom:none;${t.done?" opacity:0.75;":""}`
+    : "";
   const sub = [];
   if(showDate && t.date) sub.push(todoDateLabel(t.date));
   if(t.doneAt) sub.push("完成於 "+t.doneAt);
-  return `<div class="item-row" data-id="${t.id}" style="${stripe}">
+  return `<div class="item-row" data-id="${t.id}" style="${colorStyle}">
     <div class="check-circle todo-check ${t.done?'done':''}" data-id="${t.id}">${t.done?'✓':''}</div>
-    <div class="todo-edit-target" data-id="${t.id}" style="cursor:pointer;">
-      <div class="item-title ${t.done?'done':''}">${escapeHtml(t.title)}</div>
+    <div class="todo-edit-target" data-id="${t.id}" style="cursor:pointer; flex:1; min-width:0;">
+      <div class="item-title ${t.done?'done':''}" style="word-break:break-word;">${escapeHtml(t.title)}</div>
       ${sub.length?`<div class="item-sub">${sub.join(" · ")}</div>`:""}
     </div>
     <button class="del-btn todo-del" data-id="${t.id}">✕</button>
