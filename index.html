@@ -1923,9 +1923,11 @@ function renderTodo(){
     return;
   }
 
-  const notDone = todos.filter(t=>!t.done);
-  const overdue = notDone.filter(t=>t.date && t.date<today).sort((a,b)=>a.date.localeCompare(b.date));
-  const scheduled = notDone.filter(t=>t.date && t.date>=today);
+  // 完成的待辦不再從「全部／今天」清單移除，而是保留原本位置＋打勾／刪除線，
+  // 使用者才不會覺得「一按完成，東西就不見了」；「已完成」分類則另外用來回顧所有已完成事項。
+  const overdue = todos.filter(t=>t.date && t.date<today).sort((a,b)=>a.date.localeCompare(b.date));
+  const overdueOutstanding = overdue.filter(t=>!t.done).length;
+  const scheduled = todos.filter(t=>t.date && t.date>=today);
 
   let html = "";
   if(todoFilter==="today"){
@@ -1934,11 +1936,11 @@ function renderTodo(){
       ? todoGroupCard(`📅 今天｜${todoDateLabel(today)==="今天"?today.slice(5).replace("-","/"):today}`, todayTodos, false)
       : `<div class="card empty-state">今天還沒有安排事項</div>`;
     if(overdue.length){
-      html += todoGroupCard(`🔔 逾期 <span class="pill">${overdue.length} 件</span>`, overdue, true);
+      html += todoGroupCard(`🔔 逾期 <span class="pill">${overdueOutstanding} 件</span>`, overdue, true);
     }
   }else{ // all
     if(overdue.length){
-      html += todoGroupCard(`🔔 逾期 <span class="pill">${overdue.length} 件</span>`, overdue, true);
+      html += todoGroupCard(`🔔 逾期 <span class="pill">${overdueOutstanding} 件</span>`, overdue, true);
     }
     const byDate = {};
     scheduled.forEach(t=>{ (byDate[t.date] = byDate[t.date]||[]).push(t); });
