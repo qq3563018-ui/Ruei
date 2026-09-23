@@ -2908,7 +2908,8 @@ function renderAllocationCardHTML(mk){
         <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-bottom:14px;">
           <div style="font-weight:700; margin-bottom:4px;">本月預算已超出 NT$${Math.abs(diff).toLocaleString()}</div>
           <div class="muted" style="margin-bottom:10px;">你目前預計分配 NT$${allocatedTotal.toLocaleString()}，但本月可分配金額是 NT$${b.available.toLocaleString()}。</div>
-          <button class="small-link" id="btnAllocBreakdown">看看差額出在哪 ›</button>
+          <div class="muted" style="margin-bottom:10px; line-height:1.7;">如果已經把能調整的支出整理過，還是超出，也不一定代表你需要再壓低生活。有時候真正需要調整的，是原本的預算分配或設定方式。預算是拿來幫你安排生活的，不是把自己硬塞進一個不適合的數字裡。🤍</div>
+          <button class="small-link" id="btnAllocBreakdown">看看目前怎麼分配 ›</button>
         </div>
       ` : ""}
       <button class="small-link" id="btnEditBudgetOverview" style="margin-bottom:14px;">調整本月可分配／分配</button>
@@ -2938,16 +2939,63 @@ function openAllocationBreakdown(mk){
   if(!b) return;
   const allocatedTotal = Object.values(b.allocations).reduce((s,v)=>s+v,0);
   const diff = allocatedTotal - b.available;
+
+  const safeRow = (name, amount)=>`
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; padding:6px 0;">
+      <span style="color:var(--medium); flex:1; min-width:0; word-break:break-word;">${escapeHtml(name)}</span>
+      <span style="font-weight:700; flex:0 0 auto; white-space:nowrap;">NT$ ${amount.toLocaleString()}</span>
+    </div>`;
+
+  const bucketBlocks = BUCKET_DEFS.map(bd=>{
+    const bucketTotal = b.allocations[bd.key]||0;
+    const items = (b.calcItems && b.calcItems[bd.key]) || [];
+    const nonZeroItems = items.filter(it=>(Number(it.amount)||0) > 0);
+    const itemsSum = nonZeroItems.reduce((s,it)=>s+(Number(it.amount)||0),0);
+    let detailHTML;
+    if(!nonZeroItems.length){
+      detailHTML = `<div class="empty-state" style="padding:8px 0;">這筆預算目前沒有細分項目。</div>`;
+    }else{
+      detailHTML = nonZeroItems.map(it=>safeRow(it.name, Number(it.amount))).join("");
+      if(itemsSum !== bucketTotal){
+        const gap = bucketTotal - itemsSum;
+        detailHTML += gap > 0
+          ? `<div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);">已細分 NT$${itemsSum.toLocaleString()}・尚未細分 NT$${gap.toLocaleString()}</div>`
+          : `<div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);">細項合計 NT$${itemsSum.toLocaleString()}，比目前預算多 NT$${Math.abs(gap).toLocaleString()}</div>`;
+      }
+    }
+    return `
+      <div style="border-bottom:1px solid var(--line);">
+        <div class="alloc-view-head" data-key="${bd.key}" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:12px 0; cursor:pointer;">
+          <span style="font-weight:700; min-width:0; word-break:break-word;">${bd.emoji} ${bd.label}</span>
+          <span style="display:flex; align-items:center; gap:6px; flex:0 0 auto; white-space:nowrap;">
+            <span>NT$ ${bucketTotal.toLocaleString()}</span>
+            <span class="alloc-view-caret" data-key="${bd.key}" style="display:inline-block; transition:transform .2s;">⌄</span>
+          </span>
+        </div>
+        <div class="alloc-view-detail" data-key="${bd.key}" style="display:none; padding:0 0 12px 0;">${detailHTML}</div>
+      </div>
+    `;
+  }).join("");
+
   openSheet(`
-    <div class="sheet-head"><h3>看看差額出在哪</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    ${BUCKET_DEFS.map(bd=>`<div class="networth-line"><span class="label">${bd.emoji} ${bd.label}</span><span class="value">NT$ ${(b.allocations[bd.key]||0).toLocaleString()}</span></div>`).join("")}
-    <div style="border-top:1px solid var(--line); margin-top:10px; padding-top:10px;">
-      <div class="networth-line"><span class="label">目前可分配</span><span class="value">NT$ ${b.available.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">目前已分配</span><span class="value">NT$ ${allocatedTotal.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">超出</span><span class="value">NT$ ${Math.abs(diff).toLocaleString()}</span></div>
-    </div>
+    <div class="sheet-head"><h3>看看目前怎麼分配</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="networth-line"><span class="label">本月可分配</span><span class="value">NT$ ${b.available.toLocaleString()}</span></div>
+    <div class="networth-line"><span class="label">目前已分配</span><span class="value">NT$ ${allocatedTotal.toLocaleString()}</span></div>
+    ${diff>0 ? `<div class="networth-line"><span class="label">目前超出</span><span class="value">NT$ ${diff.toLocaleString()}</span></div>` : ""}
+    <div style="margin-top:6px;">${bucketBlocks}</div>
+    <div class="muted" style="margin-top:16px; line-height:1.7;">先看看目前的安排。如果能調整的都整理過了，還是不適合，也可以重新想想原本的分配方式，或本月可分配金額是否符合現在的生活。預算是拿來幫你安排生活的，不是把自己硬塞進一個不適合的數字裡。🤍</div>
     <button class="btn-main" id="ab_edit" style="width:100%; margin-top:16px;">回去調整預算</button>
   `);
+  document.querySelectorAll(".alloc-view-head").forEach(head=>{
+    head.addEventListener("click", ()=>{
+      const key = head.dataset.key;
+      const detail = document.querySelector(`.alloc-view-detail[data-key="${key}"]`);
+      const caret = document.querySelector(`.alloc-view-caret[data-key="${key}"]`);
+      const isOpen = detail.style.display !== "none";
+      detail.style.display = isOpen ? "none" : "block";
+      caret.style.transform = isOpen ? "rotate(0deg)" : "rotate(180deg)";
+    });
+  });
   document.getElementById("ab_edit").addEventListener("click", ()=>openBudgetSetupForm(mk));
 }
 
