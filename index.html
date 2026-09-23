@@ -3488,8 +3488,10 @@ function renderNoBudgetReviewCardHTML(mk, income, actualTotal, vsIncome){
         <div class="card-title" style="margin-bottom:8px;">本月實際支出</div>
         ${structure.map(x=>`<div class="networth-line"><span class="label">${escapeHtml(x.cat)}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>`).join("")}
       ` : ""}
-      <div class="muted" style="margin-top:14px; line-height:1.7;">如果你想更清楚知道自己的錢可以怎麼安排，也可以試著做一次本月預算規劃。<br>設定之後，小夥伴就能幫你把「預算分配」和「實際收支」放在一起看，之後也會更容易發現哪些地方和原本預期不太一樣。</div>
-      <button class="btn-ghost" id="btnGoSetupBudgetFromReview" style="width:100%; margin-top:10px;">去規劃本月預算 ›</button>
+      ${vsIncome<0 ? `
+        <div class="muted" style="margin-top:14px; line-height:1.7;">如果你想更清楚知道自己的錢可以怎麼安排，也可以試著做一次本月預算規劃。<br>設定之後，小夥伴就能幫你把「預算分配」和「實際收支」放在一起看，之後也會更容易發現哪些地方和原本預期不太一樣。</div>
+        <button class="btn-ghost" id="btnGoSetupBudgetFromReview" style="width:100%; margin-top:10px;">去規劃本月預算 ›</button>
+      ` : ""}
     </div>
   `;
 }
