@@ -3155,13 +3155,13 @@ migrateLegacyExpenseCategories();
 // 自訂支出類別登錄檔：只新增／更新，永遠不刪除。使用者在「幫我計算」新增的自訂細項
 // 用穩定的 uid 當 categoryId，這裡只是拿 id 換目前顯示用的名稱；即使某個月的預算規劃
 // 把這個細項移除，這裡的登錄不會跟著消失，歷史交易與歷史比較基準都還能正確辨識分類。
-function registerCustomExpenseCategory(id, label){
+function registerCustomExpenseCategory(id, label, bucketKey){
   DB.customExpenseCategories = DB.customExpenseCategories || [];
   const trimmed = (label||"").trim();
   if(!id || !trimmed) return;
   const entry = DB.customExpenseCategories.find(c=>c.id===id);
-  if(entry){ entry.label = trimmed; }
-  else{ DB.customExpenseCategories.push({id, label:trimmed}); }
+  if(entry){ entry.label = trimmed; if(bucketKey) entry.bucketKey = bucketKey; }
+  else{ DB.customExpenseCategories.push({id, label:trimmed, bucketKey: bucketKey||null}); }
 }
 // 顯示用的分類名稱：預設項目／舊資料本身存的就是可以直接顯示的字串；只有自訂類別的
 // categoryId 是不透明的 uid，需要回頭查登錄檔換成目前的顯示名稱。查不到就照原樣顯示，
@@ -3169,6 +3169,17 @@ function registerCustomExpenseCategory(id, label){
 function expenseCategoryLabel(catValue){
   const custom = (DB.customExpenseCategories||[]).find(c=>c.id===catValue);
   return custom ? custom.label : catValue;
+}
+// 這個支出類別屬於哪個預算大分類（🏠必要生活／💳還款固定責任／🌱儲蓄與目標／🌷自由使用）。
+// 預設項目依 PRESET_CALC_ITEMS 的歸屬判斷；自訂項目依登錄檔當時存的 bucketKey 判斷；
+// 兩者都找不到（例如舊資料的「學習」「其他」、或記帳自己新增的自訂分類）就回傳 null，
+// 代表這筆支出目前不屬於任何大分類，財務復盤只能列成「沒有所屬分類」的一般資訊。
+function categoryBucketKey(categoryId){
+  for(const bd of BUCKET_DEFS){
+    if((PRESET_CALC_ITEMS[bd.key]||[]).some(p=>p.name===categoryId)) return bd.key;
+  }
+  const custom = (DB.customExpenseCategories||[]).find(c=>c.id===categoryId);
+  return (custom && custom.bucketKey) || null;
 }
 
 function pad2(n){ return String(n).padStart(2,"0"); }
@@ -3238,8 +3249,16 @@ function realExpenseTotalForMonth(mk){
 }
 // 第一次有預算分配可以拿來比較時，把當時的本月總預算／四大類分配／幫我計算細項凍結成一份快照。
 // 之後預算分配再怎麼調整，這份快照都不會被偷偷改寫，只有實際收支資料是即時計算的。
+// 財務復盤支援兩種精細程度：只填了四大分類金額（未使用幫我計算）時，仍然要能比較到
+// 「大分類」層級；有使用幫我計算拆出細項時，大分類跟細項都能比較。所以無論有沒有拆細項，
+// 這裡都完整保存四大分類當時的預算金額（groups），細項則只保存「有實際填金額」的那些（items）——
+// 留白的預設項目不算「預算 0」，單純代表這個細項當時沒有設定獨立預算，不能拿來判斷細項超支。
 function snapshotBudgetForComparison(budget){
   const allocatedTotal = Object.values(budget.allocations).reduce((s,v)=>s+v,0);
+  const groups = BUCKET_DEFS.map(bd=>({
+    groupId: bd.key, label: bd.label, emoji: bd.emoji,
+    budgetAmount: Number(budget.allocations[bd.key])||0,
+  }));
   const items = [];
   BUCKET_DEFS.forEach(bd=>{
     ((budget.calcItems && budget.calcItems[bd.key]) || []).forEach(it=>{
@@ -3253,7 +3272,7 @@ function snapshotBudgetForComparison(budget){
       }
     });
   });
-  return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, items };
+  return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, groups, items };
 }
 // 比較基準只在使用者於「本月預算分配」勾選確認並儲存時才正式建立（見 openBudgetSetupForm），
 // 不再因為「這個月剛好出現第一筆真實收支」就被系統偷偷建立。在那之前，復盤畫面顯示的是
@@ -3289,13 +3308,27 @@ function computeItemComparisons(mk, baseline){
     return {...it, actualAmount, diff: actualAmount - it.budgetAmount};
   });
 }
-// 沒有出現在這份正式比較基準裡的記帳分類，依分類拆開列出（金額仍然計入總支出／現金流，
-// 只是拆給使用者看清楚花在哪裡），不再需要「設定對應」——這些分類本來就跟基準無關，
-// 使用者若想追蹤，之後在預算規劃裡把它加進細項即可。
-function computeUnmatchedSpendByCategory(mk, baseline){
-  const usedCatIds = new Set(baseline.items.map(it=>it.id));
+// 大分類的實際支出＝這個週期裡，所有「屬於這個大分類」的支出類別加總，不管使用者當初
+// 有沒有用幫我計算拆出細項——沒拆細項時，這就是財務復盤唯一能比較到的層級；有拆細項時，
+// 這是細項比較之外「額外」的整體視角，兩者都直接從記帳資料即時算出來。
+// 還款/固定責任額外把「負債」既有的還款紀錄（DB.debts payments，跟記帳分類無關的舊功能）
+// 也算進去，因為概念上同樣是這一期安排出去的還款金額。
+function actualAmountForBucket(mk, bucketKey){
+  const catTotal = actualExpenseTxs(txsForCycle(mk)).filter(t=>categoryBucketKey(t.category)===bucketKey).reduce((s,t)=>s+t.amount,0);
+  return bucketKey==="debt" ? catTotal + debtPaymentsForMonth(mk) : catTotal;
+}
+function computeGroupComparisons(mk, baseline){
+  return (baseline.groups||[]).map(g=>{
+    const actualAmount = actualAmountForBucket(mk, g.groupId);
+    return {...g, actualAmount, diff: actualAmount - g.budgetAmount};
+  });
+}
+// 沒有所屬大分類的記帳分類（舊資料的「學習」「其他」、或記帳自己新增、沒有掛在任何預算
+// 大分類底下的自訂分類），依分類拆開列出（金額仍然計入總支出／現金流，只是拆給使用者
+// 看清楚花在哪裡）。有大分類的支出一律已經算進上面的大分類比較，不會出現在這裡。
+function computeUnmatchedSpendByCategory(mk){
   const byCat = {};
-  actualExpenseTxs(txsForMonth(mk)).filter(t=>!usedCatIds.has(t.category)).forEach(t=>{
+  actualExpenseTxs(txsForMonth(mk)).filter(t=>!categoryBucketKey(t.category)).forEach(t=>{
     byCat[t.category] = (byCat[t.category]||0) + t.amount;
   });
   return Object.entries(byCat).map(([category,amount])=>({category, amount})).sort((a,b)=>b.amount-a.amount);
@@ -3701,7 +3734,7 @@ function registerCustomCalcItems(calcItems){
   BUCKET_DEFS.forEach(bd=>{
     const presetNames = (PRESET_CALC_ITEMS[bd.key]||[]).map(p=>p.name);
     (calcItems[bd.key]||[]).forEach(it=>{
-      if(!presetNames.includes(it.id)) registerCustomExpenseCategory(it.id, it.name);
+      if(!presetNames.includes(it.id)) registerCustomExpenseCategory(it.id, it.name, bd.key);
     });
   });
 }
@@ -3901,14 +3934,15 @@ function renderReviewCardHTML(mk){
   const baseline = frozenBaseline;
   const overallDiff = actualTotal - baseline.monthlyBudget;
   const isOverBudget = overallDiff > 0;
+  const groupComparisons = computeGroupComparisons(mk, baseline);
   const itemComparisons = computeItemComparisons(mk, baseline);
-  const unmatchedByCat = computeUnmatchedSpendByCategory(mk, baseline);
-  const debtTotal = debtPaymentsForMonth(mk);
-  const hasAnyItems = baseline.items.length > 0;
+  const unmatchedByCat = computeUnmatchedSpendByCategory(mk);
+  // 大分類原本分配跟實際都是 0 的話，代表這期完全沒有規劃、也沒有實際花費，顯示出來只是雜訊。
+  const relevantGroups = groupComparisons.filter(g=>g.budgetAmount>0 || g.actualAmount>0);
 
   const bodyHTML = isOverBudget
-    ? renderOverBudgetSectionHTML(mk, overallDiff, itemComparisons.filter(it=>it.diff>0), unmatchedByCat, debtTotal, hasAnyItems)
-    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, itemComparisons.filter(it=>it.diff!==0), unmatchedByCat, debtTotal, hasAnyItems);
+    ? renderOverBudgetSectionHTML(mk, overallDiff, relevantGroups.filter(g=>g.diff>0), itemComparisons.filter(it=>it.diff>0), unmatchedByCat)
+    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, relevantGroups.filter(g=>g.diff!==0), itemComparisons.filter(it=>it.diff!==0), unmatchedByCat);
 
   return `
     <div class="card">
@@ -3921,6 +3955,20 @@ function renderReviewCardHTML(mk){
       </div>
       <div class="networth-line"><span class="label">${vsIncome>=0?"本月實際剩餘":"實際支出已超過本月收入"}</span><span class="value">NT$ ${Math.abs(vsIncome).toLocaleString()}</span></div>
       ${bodyHTML}
+    </div>
+  `;
+}
+
+// 大分類層級的比較：不管使用者有沒有用幫我計算拆細項，四大分類的原本分配都一定有存，
+// 這是財務復盤永遠可以比較到的最低層級。
+function groupCompareRowHTML(g){
+  const overUnder = g.diff>0 ? "多" : "少";
+  return `
+    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
+      <div style="font-weight:700; margin-bottom:4px;">${g.emoji} ${escapeHtml(g.label)}</div>
+      <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${g.budgetAmount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${g.actualAmount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">比原本分配${overUnder}</span><span class="value">NT$ ${Math.abs(g.diff).toLocaleString()}</span></div>
     </div>
   `;
 }
@@ -3938,22 +3986,22 @@ function itemCompareRowHTML(it, showDetailLink){
   `;
 }
 
-// 沒有出現在正式比較基準裡的記帳分類：純粹讓使用者看清楚這些錢花在哪裡，金額本來就已經
-// 計入上面的實際總支出，不需要、也不再提供「設定對應」——分類本身就是共用的，沒有東西需要對應。
-function renderUnmatchedSpendBreakdownHTML(unmatchedByCat, debtTotal){
-  if(!unmatchedByCat.length && !(debtTotal>0)) return "";
+// 沒有所屬大分類的記帳分類：純粹讓使用者看清楚這些錢花在哪裡，金額本來就已經計入上面
+// 的實際總支出，不需要、也不再提供「設定對應」——有大分類的支出一律已經算進大分類比較。
+function renderUnmatchedSpendBreakdownHTML(unmatchedByCat){
+  if(!unmatchedByCat.length) return "";
   return `
     <div style="margin-top:10px;">
-      <div class="muted" style="margin-bottom:6px;">還有實際支出不在這次的預算細項裡，這些金額仍然計入上面的總支出：</div>
+      <div class="muted" style="margin-bottom:6px;">還有實際支出不屬於任何預算分類，這些金額仍然計入上面的總支出：</div>
       ${unmatchedByCat.map(x=>`
         <div class="networth-line"><span class="label">${escapeHtml(expenseCategoryLabel(x.category))}</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
       `).join("")}
-      ${debtTotal>0 ? `<div class="networth-line"><span class="label">💳 還款／固定支出</span><span class="value">NT$ ${debtTotal.toLocaleString()}</span></div>` : ""}
     </div>
   `;
 }
 
-function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffItems, unmatchedByCat, debtTotal, hasAnyItems){
+function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffGroups, diffItems, unmatchedByCat){
+  const groupRows = diffGroups.map(g=>groupCompareRowHTML(g)).join("");
   const itemRows = diffItems.map(it=>itemCompareRowHTML(it, it.diff>0)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
@@ -3966,26 +4014,27 @@ function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudge
       </div>
       <div style="font-weight:700; margin-bottom:4px;">整體仍在本月預算內 🤍</div>
       <div class="muted" style="margin-bottom:10px;">預算內尚餘 NT$${remainVsBudget.toLocaleString()}</div>
-      ${diffItems.length
-        ? `<div class="muted" style="margin-bottom:4px;">有 ${diffItems.length} 個項目和原本的分配不太一樣</div>${itemRows}`
-        : (hasAnyItems ? "" : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
-      ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat, debtTotal)}
+      ${diffGroups.length ? `<div class="muted" style="margin-bottom:4px;">有 ${diffGroups.length} 個大分類和原本的分配不太一樣</div>${groupRows}` : ""}
+      ${diffItems.length ? `<div class="muted" style="margin-bottom:4px; margin-top:${diffGroups.length?"14px":"0"};">有 ${diffItems.length} 個細項和原本的分配不太一樣</div>${itemRows}` : ""}
+      ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat)}
     </div>
   `;
 }
 
-function renderOverBudgetSectionHTML(mk, overallDiff, overItems, unmatchedByCat, debtTotal, hasAnyItems){
+function renderOverBudgetSectionHTML(mk, overallDiff, overGroups, overItems, unmatchedByCat){
   const rv = getReview(mk);
   const prevReview = rv ? rv.reasonReview : null;
   const isOtherReason = !!(prevReview && prevReview.reason==="其他");
+  const groupRows = overGroups.map(g=>groupCompareRowHTML(g)).join("");
   const itemRows = overItems.map(it=>itemCompareRowHTML(it, true)).join("");
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
       <div style="font-weight:700; margin-bottom:10px;">本月實際支出比原本預算多 NT$${overallDiff.toLocaleString()}。</div>
-      ${overItems.length
-        ? `<div class="card-title" style="margin-bottom:4px;">高於原本分配的項目</div>${itemRows}`
-        : (hasAnyItems ? `<div class="muted">目前沒有單一項目特別偏高，可能是好幾個地方加起來多一點，或有還沒設定對應分類的支出。</div>` : `<div class="muted">目前沒有設定細項預算，因此這個月先以整體預算進行比較。</div>`)}
-      ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat, debtTotal)}
+      ${overGroups.length
+        ? `<div class="card-title" style="margin-bottom:4px;">高於原本分配的大分類</div>${groupRows}`
+        : `<div class="muted">目前沒有單一大分類特別偏高，可能是好幾個地方加起來多一點。</div>`}
+      ${overItems.length ? `<div class="card-title" style="margin-top:16px; margin-bottom:4px;">高於原本分配的細項</div>${itemRows}` : ""}
+      ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat)}
       <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要原因是什麼呢～</div>
       <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <div id="rv_reasonDetailWrap" class="field" style="display:${isOtherReason?"block":"none"};">
