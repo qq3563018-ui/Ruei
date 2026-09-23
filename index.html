@@ -419,7 +419,7 @@ emoji-picker{
     <div class="seg" id="todoFilterSeg">
       <button type="button" data-v="all" class="active">全部</button>
       <button type="button" data-v="today">今天</button>
-      <button type="button" data-v="done">已完成</button>
+      <button type="button" data-v="done">今日已完成</button>
     </div>
   </div>
   <div class="card" style="margin-bottom:0;">
@@ -1856,6 +1856,7 @@ function bindTodoRowEvents(container){
       const t = DB.todos.find(x=>x.id===el.dataset.id);
       t.done = !t.done;
       t.doneAt = t.done ? new Date().toTimeString().slice(0,5) : null;
+      t.doneDate = t.done ? todayStr() : null;
       save(); renderAll();
     });
   });
@@ -1915,10 +1916,11 @@ function renderTodo(){
   const box = document.getElementById("todoGroupedList");
 
   if(todoFilter==="done"){
-    const doneTodos = todos.filter(t=>t.done).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    // 只看「今天完成的」，用 doneDate（完成當下的日期）判斷，跟待辦本身排定的 date 是兩回事。
+    const doneTodos = todos.filter(t=>t.done && t.doneDate===today).sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||""));
     box.innerHTML = doneTodos.length
-      ? todoGroupCard("已完成", doneTodos, true)
-      : `<div class="card empty-state">還沒有完成的事項</div>`;
+      ? todoGroupCard("今日已完成", doneTodos, true)
+      : `<div class="card empty-state">今天還沒有完成的事項</div>`;
     bindTodoRowEvents(box);
     return;
   }
@@ -2077,7 +2079,7 @@ function openTodoForm(editId, presetDate){
       editing.title=title; editing.date=date; editing.color=color;
       save(); closeSheet(); renderAll(); toast("已更新待辦");
     }else{
-  DB.todos.push({id:uid(), title, date, done:false, doneAt:null, color});
+  DB.todos.push({id:uid(), title, date, done:false, doneAt:null, doneDate:null, color});
       save(); closeSheet(); renderAll(); toast("已新增待辦");
     }
   });
@@ -4400,7 +4402,7 @@ function exportBackup(){
     const ws = XLSX.utils.json_to_sheet(rows && rows.length ? rows : [{}]);
     XLSX.utils.book_append_sheet(wb, ws, name);
   };
-  addSheet("待辦", DB.todos.map(t=>({id:t.id, title:t.title, date:t.date||"", done:!!t.done, doneAt:t.doneAt||"", color:t.color||""})));
+  addSheet("待辦", DB.todos.map(t=>({id:t.id, title:t.title, date:t.date||"", done:!!t.done, doneAt:t.doneAt||"", doneDate:t.doneDate||"", color:t.color||""})));
   addSheet("打卡", Object.entries(DB.checkins).map(([date,v])=>({date, item:(v&&v.item)||"", at:(v&&v.at)||""})));
   addSheet("記帳", DB.transactions.map(t=>({
     id:t.id, type:t.type, name:t.name, amount:t.amount, category:t.category, date:t.date, note:t.note||"",
@@ -4449,7 +4451,7 @@ function importBackupFromWorkbook(wb){
 
   const todos = sheetRows(wb, "待辦").map(r=>({
     id: r.id || uid(), title: String(r.title||""), date: String(r.date||""),
-    done: r.done===true || r.done==="TRUE" || r.done===1, doneAt: r.doneAt || null, color: r.color || null
+    done: r.done===true || r.done==="TRUE" || r.done===1, doneAt: r.doneAt || null, doneDate: r.doneDate || null, color: r.color || null
   }));
   const checkins = {};
   sheetRows(wb, "打卡").forEach(r=>{ if(r.date) checkins[r.date] = { item:r.item||"", at:r.at||"" }; });
