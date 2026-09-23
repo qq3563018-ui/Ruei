@@ -3184,7 +3184,7 @@ function openBudgetSetupForm(mk, wizIn){
   openSheet(`
     <div class="sheet-head"><h3>${existing?"調整":"設定"}本月預算分配</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>本月可分配金額</label><input id="bg_available" type="number" placeholder="0" value="${wiz.available||""}"></div>
-    <div class="muted" style="margin-bottom:10px;">這是你自己打算安排的金額，完全由你決定，不會受記帳或收入影響。</div>
+    <div class="muted" style="margin-bottom:10px;">這是你自己打算安排的金額，你可以依照你的情況來分配，不會受記帳或收入影響。</div>
     <div class="card-title" style="margin:10px 0 8px;">分配到四大類</div>
     ${BUCKET_DEFS.map(bd=>`
       <div class="field">
