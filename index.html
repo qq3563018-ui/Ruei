@@ -2295,7 +2295,7 @@ function monthKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart
 /* ============ 財務週期：使用者可自訂每個財務月從第幾天開始，取代單純自然月 ============
    核心原則：週期 key 沿用既有的「YYYY-MM」格式（＝該週期實際開始日所在的月份），
    跟舊資料的自然月 key 完全相容；預設「每月 1 日開始」時，行為與過去自然月完全一致。
-   budgetsByMonth／reviewsByMonth／comparisonBaseline 全部繼續用同一組 mk 當 key，
+   budgetsByMonth／reviewsByMonth 全部繼續用同一組 mk 當 key，
    不需要 migration，只是「這個 key 現在代表哪一段日期」的計算方式變了。 */
 function financeCycleStartDay(){ return DB.financeCycleStartDay || 1; }
 function parseYMD(str){
@@ -2307,8 +2307,8 @@ function parseYMD(str){
 // 只是為了讓其餘計算先能正常運作——畫面另外會用 financeCycleNeedsResolution() 判斷要不要跳出提示，
 // 這個退回值本身絕對不會被存成使用者的正式選擇。
 // override 可能是純字串（29／30／31 號那種「只調整這一期」，只指定開始日，結束日仍照下一期
-// 開始日往回推算），也可能是 {start,end} 物件（比較基準建立當下把整個週期範圍一起鎖住，見
-// establishComparisonBaseline，不受之後長期設定或下一期日期變動影響）。
+// 開始日往回推算），也可能是 {start,end} 物件（這個財務週期第一次有預算資料時把整個週期範圍
+// 一起鎖住，見 createBudget，不受之後長期設定或下一期日期變動影響）。
 function financeCycleOverrideStart(mk){
   const ov = DB.financeCycleOverrides && DB.financeCycleOverrides[mk];
   if(!ov) return null;
@@ -3231,11 +3231,11 @@ function fixedExpenseExpectedForMonth(){
   const total = items.reduce((s,i)=>s+i.amount,0);
   return {items, total};
 }
-/* ============ 本月財務復盤：獨立的真實資料。預算比較基準第一次建立後保持固定，實際收支永遠即時計算 ============ */
+/* ============ 本月財務復盤：獨立的真實資料。直接比較「目前已儲存的預算」與即時計算的實際收支 ============ */
 function getReview(mk){ return DB.reviewsByMonth[mk] || null; }
 function ensureReview(mk){
   if(!DB.reviewsByMonth[mk]){
-    DB.reviewsByMonth[mk] = {finalBudget:null, finalBudgetSource:null, comparisonBaseline:null, reasonReview:null, createdAt:todayStr(), updatedAt:todayStr()};
+    DB.reviewsByMonth[mk] = {finalBudget:null, finalBudgetSource:null, reasonReview:null, createdAt:todayStr(), updatedAt:todayStr()};
   }
   return DB.reviewsByMonth[mk];
 }
@@ -3247,12 +3247,12 @@ function realExpenseTotalForMonth(mk){
   const [y,m] = mk.split("-").map(Number);
   return monthSummary(new Date(y, m-1, 1)).expense + debtPaymentsForMonth(mk);
 }
-// 第一次有預算分配可以拿來比較時，把當時的本月總預算／四大類分配／幫我計算細項凍結成一份快照。
-// 之後預算分配再怎麼調整，這份快照都不會被偷偷改寫，只有實際收支資料是即時計算的。
+// 財務復盤直接使用「這個財務週期目前已儲存的預算」進行比較，不再另外凍結一份「正式比較基準」；
+// 使用者修改預算並重新儲存後，復盤下次重新整理就會直接讀到最新內容，沒有第一次確認版本。
 // 財務復盤支援兩種精細程度：只填了四大分類金額（未使用幫我計算）時，仍然要能比較到
 // 「大分類」層級；有使用幫我計算拆出細項時，大分類跟細項都能比較。所以無論有沒有拆細項，
-// 這裡都完整保存四大分類當時的預算金額（groups），細項則只保存「有實際填金額」的那些（items）——
-// 留白的預設項目不算「預算 0」，單純代表這個細項當時沒有設定獨立預算，不能拿來判斷細項超支。
+// 這裡都完整整理出四大分類目前的預算金額（groups），細項則只整理「有實際填金額」的那些（items）——
+// 留白的預設項目不算「預算 0」，單純代表這個細項目前沒有設定獨立預算，不能拿來判斷細項超支。
 function snapshotBudgetForComparison(budget){
   const allocatedTotal = Object.values(budget.allocations).reduce((s,v)=>s+v,0);
   const groups = BUCKET_DEFS.map(bd=>({
@@ -3263,8 +3263,7 @@ function snapshotBudgetForComparison(budget){
   BUCKET_DEFS.forEach(bd=>{
     ((budget.calcItems && budget.calcItems[bd.key]) || []).forEach(it=>{
       if((Number(it.amount)||0) > 0){
-        // it.id 本身就是共用的記帳支出類別 categoryId，不需要另外存一個對應欄位；
-        // 之後即使目前預算規劃調整、細項移除，這裡凍結的 id 仍然可以在記帳資料裡正確找到對應交易。
+        // it.id 本身就是共用的記帳支出類別 categoryId，不需要另外存一個對應欄位。
         items.push({
           id: it.id, name: it.name, bucketKey: bd.key,
           budgetAmount: Number(it.amount)||0,
@@ -3273,29 +3272,6 @@ function snapshotBudgetForComparison(budget){
     });
   });
   return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, groups, items };
-}
-// 比較基準只在使用者於「本月預算分配」勾選確認並儲存時才正式建立（見 openBudgetSetupForm），
-// 不再因為「這個月剛好出現第一筆真實收支」就被系統偷偷建立。在那之前，復盤畫面顯示的是
-// 目前預算分配的即時預覽，不會被 save() 進 DB。
-function getComparisonBaseline(mk){
-  const rv = getReview(mk);
-  return (rv && rv.comparisonBaseline) || null;
-}
-function establishComparisonBaseline(mk, budget){
-  const rv = ensureReview(mk);
-  if(rv.comparisonBaseline) return rv.comparisonBaseline; // 已經建立過，之後的儲存不能偷偷改寫
-  // 這個週期一旦正式建立比較基準，連同它完整的日期範圍（開始＋結束）也一併鎖定：之後即使使用者
-  // 調整財務週期的長期設定、或下一期的開始日跟著變動，這個已經有正式紀錄的週期都不會被重新歸類，
-  // 符合「歷史週期維持原紀錄」的原則。用 {start,end} 完整鎖定，不是只鎖開始日，結束日才不會因為
-  // 下一期還沒鎖定而被新設定牽動。
-  if(!(DB.financeCycleOverrides && DB.financeCycleOverrides[mk])){
-    const r = financeCycleRange(mk);
-    DB.financeCycleOverrides = DB.financeCycleOverrides || {};
-    DB.financeCycleOverrides[mk] = { start: r.startStr, end: r.endStr };
-  }
-  rv.comparisonBaseline = {...snapshotBudgetForComparison(budget), capturedAt: todayStr()};
-  save();
-  return rv.comparisonBaseline;
 }
 // 直接依共用的 categoryId 找出這個財務週期裡實際花了多少，不用另外 mapping；
 // 已排除信用卡防重複的還款紀錄（見 actualExpenseTxs）。
@@ -3335,39 +3311,40 @@ function computeUnmatchedSpendByCategory(mk){
 }
 
 /* ============ 🌱🍀 財務小花園：純粹在既有「本月預算 vs 實際收支」結果之上，累積正向的整理紀錄 ============
-   完全不重新定義任何財務數字，只讀取每個財務週期是否已經有比較基準（＝有預算＋有真實收支），
-   以及該週期的實際總支出是否 <= 比較基準當時的本月預算，全部即時從既有資料重新計算，不額外快取判斷結果。
+   完全不重新定義任何財務數字，只讀取每個財務週期是否已經有已儲存的預算＋有真實收支，
+   以及該週期的實際總支出是否 <= 該期目前已儲存的預算，全部即時從既有資料重新計算，不額外快取判斷結果。
    財務小花園只呈現「已經完整結束」的財務週期成果，進行中的週期無論目前看起來是否在預算內，
    一律不計入，避免使用者才剛開始記錄就被提前算成一次達成。是否結束一律依自訂財務週期的
    起訖日判斷（financeCycleRange），不能用自然月／calendar month／月底簡化判斷。 */
 function isFinanceCycleEnded(mk){
   return financeCycleRange(mk).endStr < todayStr();
 }
-function monthHasComparisonBaseline(mk){
-  const rv = getReview(mk);
-  return !!(rv && rv.comparisonBaseline);
+// 「已設定預算」＝這個財務週期目前有已儲存的預算資料，不再需要另外一層「正式比較基準」。
+function monthHasBudget(mk){
+  return !!getBudget(mk);
 }
-// 小花園採計一個財務週期的前提：週期已完整結束＋有正式比較基準＋有實際財務資料，三者缺一都先排除，
+// 小花園採計一個財務週期的前提：週期已完整結束＋有已儲存的預算＋有實際財務資料，三者缺一都先排除，
 // 跟這個週期最後是否待在預算內是分開的兩件事。
 function isFinanceCycleFinalized(mk){
-  return isFinanceCycleEnded(mk) && monthHasComparisonBaseline(mk) && txsForCycle(mk).length > 0;
+  return isFinanceCycleEnded(mk) && monthHasBudget(mk) && txsForCycle(mk).length > 0;
 }
-// 「這個週期有待在預算內」只比較 實際總支出 vs 比較基準的本月預算，不看收入、不看現金流，兩者是分開的判斷。
+// 「這個週期有待在預算內」只比較 實際總支出 vs 該週期目前已儲存的本期預算，不看收入、不看現金流，
+// 兩者是分開的判斷；預算永遠讀最新已儲存的內容，沒有另外凍結的版本。
 function isMonthWithinBudget(mk){
-  const rv = getReview(mk);
-  if(!rv || !rv.comparisonBaseline) return false;
-  return realExpenseTotalForMonth(mk) <= rv.comparisonBaseline.monthlyBudget;
+  const budget = getBudget(mk);
+  if(!budget) return false;
+  return realExpenseTotalForMonth(mk) <= budget.available;
 }
 // 待在預算內的週期自動算「已完成復盤」；超出預算的週期要等使用者填完既有的超支原因問答才算完成。
 function isMonthReviewCompleted(mk){
-  const rv = getReview(mk);
-  if(!rv || !rv.comparisonBaseline) return false;
+  if(!getBudget(mk)) return false;
   if(isMonthWithinBudget(mk)) return true;
-  return !!rv.reasonReview;
+  const rv = getReview(mk);
+  return !!(rv && rv.reasonReview);
 }
 // 只有已完整結束的財務週期才會進入小花園的統計來源，進行中的週期完全不會出現在這份清單裡。
 function reviewedMonthKeysSorted(){
-  return Object.keys(DB.reviewsByMonth).filter(isFinanceCycleFinalized).sort();
+  return Object.keys(DB.budgetsByMonth).filter(isFinanceCycleFinalized).sort();
 }
 // 全部由既有月份資料即時重新算出，不依賴任何快取結果，資料修改後自然會得到正確數字。
 function computeGardenStats(){
@@ -3420,6 +3397,15 @@ function createBudget(mk, data, carriedFrom){
     carriedFrom: carriedFrom||null,
     createdAt: todayStr(), updatedAt: todayStr(),
   };
+  // 這個財務週期第一次有預算資料時，連同它完整的日期範圍（開始＋結束）一併鎖定：之後即使
+  // 使用者調整財務週期的長期設定、或下一期的開始日跟著變動，這個已經有記錄的週期都不會被
+  // 重新歸類，符合「歷史週期維持原紀錄」的原則。用 {start,end} 完整鎖定，不是只鎖開始日，
+  // 結束日才不會因為下一期還沒鎖定而被新設定牽動。
+  if(!(DB.financeCycleOverrides && DB.financeCycleOverrides[mk])){
+    const r = financeCycleRange(mk);
+    DB.financeCycleOverrides = DB.financeCycleOverrides || {};
+    DB.financeCycleOverrides[mk] = { start: r.startStr, end: r.endStr };
+  }
   save();
 }
 function updateBudget(mk, patch){
@@ -3503,29 +3489,10 @@ function renderAllocationCardHTML(mk){
     <div class="networth-line"><span class="label">${bd.emoji} ${bd.label}</span><span class="value">NT$ ${(b.allocations[bd.key]||0).toLocaleString()}</span></div>
   `).join("");
 
-  // 預算比較基準狀態提示：純讀取，是否已建立完全依「使用者是否已勾選確認並儲存本月預算」決定
-  // （見 openBudgetSetupForm／establishComparisonBaseline），跟這個月是否已經有實際收支無關。
-  const baseline = getComparisonBaseline(mk);
-  const baselineStatusHTML = baseline ? `
-    <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:14px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px;">
-        <span style="font-weight:700;">本月復盤已開始記錄 🤍</span>
-        <button class="small-link" id="btnBaselineExplain" style="flex:0 0 auto;">這是什麼？</button>
-      </div>
-      <div class="muted">你還是可以繼續調整現在的預算分配；財務復盤會保留第一次確認的預算，讓你之後看看「預算分配」和「實際收支」有哪些不同。</div>
-    </div>
-  ` : `
-    <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:14px;">
-      <div style="font-weight:700; margin-bottom:4px;">目前還在規劃中～</div>
-      <div class="muted">在你確認並儲存這份預算以前，都可以自由調整預算分配。</div>
-    </div>
-  `;
-
   return `
     <div class="card">
       <div class="card-title" style="margin-bottom:2px;">💡 本月預算分配</div>
       <div class="muted" style="margin-bottom:14px;">先把這個月想怎麼安排整理好</div>
-      ${baselineStatusHTML}
       <div class="stat-grid" style="margin-bottom:6px;">
         <div class="stat-box"><div class="stat-num">${b.available.toLocaleString()}</div><div class="stat-label">本月可分配</div></div>
         <div class="stat-box"><div class="stat-num">${allocatedTotal.toLocaleString()}</div><div class="stat-label">已分配</div></div>
@@ -3560,16 +3527,6 @@ function wireAllocationCard(mk){
   if(editBtn) editBtn.addEventListener("click", ()=>openBudgetSetupForm(mk));
   const breakdownBtn = document.getElementById("btnAllocBreakdown");
   if(breakdownBtn) breakdownBtn.addEventListener("click", ()=>openAllocationBreakdown(mk));
-  const explainBtn = document.getElementById("btnBaselineExplain");
-  if(explainBtn) explainBtn.addEventListener("click", ()=>openComparisonBaselineExplainSheet());
-}
-
-function openComparisonBaselineExplainSheet(){
-  openSheet(`
-    <div class="sheet-head"><h3>這是什麼？</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="line-height:1.8;">為了讓你之後能看見預算分配和實際收支之間的變化，小夥伴會在你確認並儲存本月預算時，保留當下的預算內容作為比較基準。所以之後即使調整預算分配，財務復盤仍會保留當時的版本，不會跟著被修改。</div>
-    <button class="btn-main" onclick="closeSheet()" style="width:100%; margin-top:16px;">知道了</button>
-  `);
 }
 
 function openAllocationBreakdown(mk){
@@ -3649,10 +3606,6 @@ function openBudgetSetupForm(mk, wizIn){
   const wiz = wizIn || (existing
     ? {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations), calcItems:deepClone(existing.calcItems||{})}
     : {available: 0, allocations: blankAllocations(), calcItems:{}});
-  // 這個月的比較基準還沒建立過：預算分配本身完全不受這件事影響，隨時可以自由填寫、調整、儲存。
-  // 只有使用者自己勾選確認框並按下儲存，才會在這次儲存的同時額外建立正式比較基準；
-  // 沒有勾選一樣可以正常存檔，只是這份預算目前仍屬於規劃中，儲存鈕永遠不會被這個勾選框鎖住。
-  const needsBaselineConfirm = !getComparisonBaseline(mk);
   openSheet(`
     <div class="sheet-head"><h3>${existing?"調整":"設定"}本月預算分配</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>本月可分配金額</label><input id="bg_available" type="number" placeholder="0" value="${wiz.available||""}"></div>
@@ -3668,17 +3621,6 @@ function openBudgetSetupForm(mk, wizIn){
       </div>
     `).join("")}
     <button class="btn-ghost" id="bg_importFixed" style="width:100%; margin-bottom:10px;">把固定收支／負債帶入「還款/固定責任」</button>
-    ${needsBaselineConfirm ? `
-      <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-bottom:12px;">
-        <div style="font-weight:700; margin-bottom:6px;">想先試著分配看看也可以 🤍</div>
-        <div class="muted" style="line-height:1.7; margin-bottom:10px;">你可以先自由安排、調整預算，不需要先建立財務復盤的比較基準。<br><br>如果你希望之後在「本月財務復盤」裡比較「預算分配」和「實際收支」，再勾選下面的確認框就可以了。</div>
-        <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; margin-bottom:10px;">
-          <input type="checkbox" id="bg_confirmBaseline" style="margin-top:3px; flex-shrink:0;">
-          <span>將這份預算作為本月財務復盤的比較基準</span>
-        </label>
-        <div class="muted" style="line-height:1.7;">勾選並儲存後，小夥伴會保留這次的預算分配，作為本月財務復盤的比較基準。之後你還是可以調整目前的預算分配，不會影響這次保留下來的比較基準。</div>
-      </div>
-    ` : ""}
     <button class="btn-main" id="bg_submit">儲存本月預算</button>
   `);
   document.querySelectorAll(".bg_alloc").forEach(inp=>{
@@ -3711,21 +3653,15 @@ function openBudgetSetupForm(mk, wizIn){
     const allocations = blankAllocations();
     document.querySelectorAll(".bg_alloc").forEach(inp=>{ allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
     const calcItems = wiz.calcItems || {};
-    // 只有「這個月還沒有正式比較基準」而且「使用者這次自己勾選了確認框」才會建立 baseline；
-    // 沒勾選、或勾了又取消，都只是單純儲存目前的預算規劃，不會建立、也不會動到任何比較基準。
-    const cb = document.getElementById("bg_confirmBaseline");
-    const wantsBaseline = needsBaselineConfirm && !!(cb && cb.checked);
-
     // 每個細項的名稱本身就是記帳可以直接選擇的支出類別，沒有另外的「對應」步驟，
     // 所以這裡不需要再檢查、警告任何「未對應記帳分類」的細項。
     registerCustomCalcItems(calcItems);
+    // 儲存後這個財務週期就是「已設定預算」，財務復盤下次重新整理會直接用這份最新內容比較，
+    // 不再另外保留一份「第一次確認」的版本。
     if(existing){ updateBudget(mk, {available, allocations, calcItems}); }
     else{ createBudget(mk, {available, allocations, calcItems}); }
-    if(wantsBaseline){
-      establishComparisonBaseline(mk, {available, allocations, calcItems});
-    }
     closeSheet(); renderBudgetTab(); renderHomeStats();
-    toast(wantsBaseline ? "已建立本月財務復盤的比較基準" : "已更新本月預算分配");
+    toast("已更新本月預算分配");
   });
 }
 // 把這次儲存裡的自訂細項登錄進共用的自訂支出類別清單，記帳時才能直接選到；
@@ -3878,7 +3814,7 @@ function openFixedImportPrompt(mk, wiz){
   });
 }
 
-/* ============ 🌙 本月財務復盤（原本規劃 vs 實際發生的比較，預算比較基準凍結，實際收支即時計算） ============ */
+/* ============ 🌙 本月財務復盤（目前已儲存的預算 vs 實際發生的收支，兩者都即時計算） ============ */
 const OVERSPEND_REASONS = ["這個月有特殊活動／聚餐","原本預算抓得太低","有臨時／突發支出","這個月沒有特別注意花費","其他"];
 const OVERSPEND_INTENTIONS = ["維持現在的預算","調高預算","重新分配預算","下個月再決定"];
 
@@ -3923,15 +3859,15 @@ function renderReviewCardHTML(mk){
   const actualTotal = realExpenseTotalForMonth(mk);
   const vsIncome = income - actualTotal;
 
-  // 只有使用者已經確認並儲存過本月預算（＝比較基準已建立），才正式進入「預算分配 vs 實際收支」。
-  // 在那之前，即使預算頁已經填了一些還沒確認的數字，也一律維持「沒有正式預算可以比較」的整理模式，
-  // 不能拿還沒確認的內容拿來判斷超出預算／待在預算內。
-  const frozenBaseline = getComparisonBaseline(mk);
-  if(!frozenBaseline){
+  // 只有這個財務週期目前有已儲存的預算，才正式進入「預算分配 vs 實際收支」；
+  // 沒有預算時一律維持「沒有預算可以比較」的整理模式。有預算時，永遠直接用目前已儲存的
+  // 最新內容比較，不會另外保留一份「第一次確認」的版本。
+  const budget = getBudget(mk);
+  if(!budget){
     return renderNoBudgetReviewCardHTML(mk, income, actualTotal, vsIncome);
   }
 
-  const baseline = frozenBaseline;
+  const baseline = snapshotBudgetForComparison(budget);
   const overallDiff = actualTotal - baseline.monthlyBudget;
   const isOverBudget = overallDiff > 0;
   const groupComparisons = computeGroupComparisons(mk, baseline);
@@ -4021,8 +3957,9 @@ function categoryBreakdownForGroup(mk, baseline, groupId){
 // 「還款/固定責任」這個大分類的實際支出，額外把既有「負債」功能裡的還款紀錄算進去
 // （跟記帳分類無關的舊功能，見 actualAmountForBucket），這裡單純作為一筆說明性資訊呈現。
 function openGroupDetail(mk, groupId){
-  const baseline = getComparisonBaseline(mk);
-  if(!baseline) return;
+  const budget = getBudget(mk);
+  if(!budget) return;
+  const baseline = snapshotBudgetForComparison(budget);
   const g = computeGroupComparisons(mk, baseline).find(x=>x.groupId===groupId);
   if(!g) return;
   const { budgeted, unbudgeted } = categoryBreakdownForGroup(mk, baseline, groupId);
