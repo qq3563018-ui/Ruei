@@ -483,16 +483,22 @@ emoji-picker{
         <div class="nav-card-arrow">›</div>
       </div>
     </div>
+    <button class="btn-ghost" id="btnFinanceCycleSettings" style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center;">
+      <span>⚙️ 財務週期</span>
+      <span class="muted" id="financeCycleSummaryLabel" style="font-weight:400;">目前：每月 1 日開始</span>
+    </button>
   </div>
 
   <div id="ledgerSubPanel" style="display:none;">
     <button class="back-btn" id="btnBackFromLedger">‹ 返回記帳</button>
     <div class="card">
-      <div class="cal-head" style="margin-bottom:10px;">
+      <div class="cal-head">
         <button class="cal-nav-btn" id="ledgerPrev">‹</button>
         <h3 class="cal-title-btn" id="ledgerMonthLabel">本月概況</h3>
         <button class="cal-nav-btn" id="ledgerNext">›</button>
       </div>
+      <div class="muted" id="ledgerCycleRangeLabel" style="text-align:center; margin-bottom:10px;"></div>
+      <div id="ledgerCycleBanner"></div>
       <div class="stat-grid">
         <div class="stat-box"><div class="stat-num" id="ledgerIncome">0</div><div class="stat-label">收入</div></div>
         <div class="stat-box"><div class="stat-num" id="ledgerExpense">0</div><div class="stat-label">支出</div></div>
@@ -526,7 +532,9 @@ emoji-picker{
         <h3 class="cal-title-btn" id="budgetMonthLabel">本月預算</h3>
         <button class="cal-nav-btn" id="budgetNext">›</button>
       </div>
+      <div class="muted" id="budgetCycleRangeLabel" style="text-align:center;"></div>
     </div>
+    <div id="budgetCycleBanner"></div>
     <div id="budgetContent"></div>
   </div>
 </div>
@@ -646,6 +654,7 @@ function withDefaults(obj){
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
     customCategories:{expense:[], income:[]}, budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
     seenDiscoveryNotices:[], gardenAcknowledgedMilestone:0,
+    financeCycleStartDay:1, financeCycleOverrides:{},
     emergencyFund:{
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
       customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
@@ -1321,9 +1330,12 @@ let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth(); // 0-indexed
 let selectedDate = todayStr();
 
-/* ============ 記帳頁面：目前檢視的月份 ============ */
-let ledgerYear = new Date().getFullYear();
-let ledgerMonth = new Date().getMonth(); // 0-indexed
+/* ============ 記帳頁面：目前檢視的財務週期（用 Y/M0 指向該週期的 mk，不一定等於今天的自然月）============ */
+let ledgerYear, ledgerMonth;
+{
+  const [cy, cm] = cycleKeyForDate(todayStr()).split("-").map(Number);
+  ledgerYear = cy; ledgerMonth = cm - 1; // 0-indexed
+}
 
 // 統整某一天有哪些「生活痕跡」：打卡／待辦／心情／日記／記帳。
 // 首頁月曆的每一格，以及點擊後的簡短總覽卡，都共用這份判斷，確保兩邊看到的資訊一致。
@@ -1461,9 +1473,9 @@ function renderHomeStats(){
   const todays = DB.todos.filter(t=>t.date===todayStr());
   const done = todays.filter(t=>t.done).length;
   document.getElementById("homeTodoRate").textContent = todays.length? Math.round(done/todays.length*100)+"%":"0%";
-  const now = new Date();
-  const {income, expense} = monthSummary(now);
-  const realMk = monthKey(now);
+  const realMk = cycleKeyForDate(todayStr());
+  const [ry, rm] = realMk.split("-").map(Number);
+  const {income, expense} = monthSummary(new Date(ry, rm-1, 1));
   const budget = getBudget(realMk);
   let moneyLeft = income - expense;
   if(budget){
@@ -2274,9 +2286,163 @@ document.getElementById("btnBackFromGoal").addEventListener("click", ()=>showGoa
 const EXPENSE_CATS = ["餐飲","交通","購物","娛樂","居住","醫療","學習","其他"];
 const INCOME_CATS = ["薪資","獎金","兼職","投資","其他"];
 function monthKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+/* ============ 財務週期：使用者可自訂每個財務月從第幾天開始，取代單純自然月 ============
+   核心原則：週期 key 沿用既有的「YYYY-MM」格式（＝該週期實際開始日所在的月份），
+   跟舊資料的自然月 key 完全相容；預設「每月 1 日開始」時，行為與過去自然月完全一致。
+   budgetsByMonth／reviewsByMonth／comparisonBaseline 全部繼續用同一組 mk 當 key，
+   不需要 migration，只是「這個 key 現在代表哪一段日期」的計算方式變了。 */
+function financeCycleStartDay(){ return DB.financeCycleStartDay || 1; }
+function parseYMD(str){
+  const [y,m,d] = str.split("-").map(Number);
+  return new Date(y, m-1, d);
+}
+// 這個週期實際開始的日期。如果使用者長期設定的日期在這個週期所在月份不存在（例如 31 日遇到 2 月），
+// 且這個週期還沒有被處理過（沒有單期例外、長期設定也還是那個不存在的日期），暫時退回該月最後一天，
+// 只是為了讓其餘計算先能正常運作——畫面另外會用 financeCycleNeedsResolution() 判斷要不要跳出提示，
+// 這個退回值本身絕對不會被存成使用者的正式選擇。
+// override 可能是純字串（29／30／31 號那種「只調整這一期」，只指定開始日，結束日仍照下一期
+// 開始日往回推算），也可能是 {start,end} 物件（比較基準建立當下把整個週期範圍一起鎖住，見
+// establishComparisonBaseline，不受之後長期設定或下一期日期變動影響）。
+function financeCycleOverrideStart(mk){
+  const ov = DB.financeCycleOverrides && DB.financeCycleOverrides[mk];
+  if(!ov) return null;
+  return typeof ov === "string" ? ov : ov.start;
+}
+function financeCycleOverrideEnd(mk){
+  const ov = DB.financeCycleOverrides && DB.financeCycleOverrides[mk];
+  return (ov && typeof ov === "object" && ov.end) ? ov.end : null;
+}
+function financeCycleStartDateFor(mk){
+  const overrideStart = financeCycleOverrideStart(mk);
+  if(overrideStart) return parseYMD(overrideStart);
+  const [y,m] = mk.split("-").map(Number);
+  const day = financeCycleStartDay();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  return new Date(y, m-1, Math.min(day, daysInMonth));
+}
+function nextCycleKeyOf(mk){
+  const [y,m] = mk.split("-").map(Number);
+  let ny=y, nm=m+1; if(nm>12){ nm=1; ny++; }
+  return budgetMonthKeyOf(ny, nm-1);
+}
+function financeCycleEndDateFor(mk){
+  const overrideEnd = financeCycleOverrideEnd(mk);
+  if(overrideEnd) return parseYMD(overrideEnd);
+  const nextStart = financeCycleStartDateFor(nextCycleKeyOf(mk));
+  const end = new Date(nextStart);
+  end.setDate(end.getDate()-1);
+  return end;
+}
+function financeCycleRange(mk){
+  const startDate = financeCycleStartDateFor(mk);
+  const endDate = financeCycleEndDateFor(mk);
+  return { startDate, endDate, startStr: fmtDate(startDate), endStr: fmtDate(endDate) };
+}
+// 這個週期設定的日期，在它實際開始所在的月份根本不存在（例如 31 日遇到 2 月），
+// 而且使用者還沒有為這個週期做過任何選擇時，才需要跳出提示讓使用者自己決定。
+function financeCycleNeedsResolution(mk){
+  if(DB.financeCycleOverrides && DB.financeCycleOverrides[mk]) return false;
+  const [y,m] = mk.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  return financeCycleStartDay() > daysInMonth;
+}
+// 給一個確切日期（YYYY-MM-DD），反推它實際落在哪一個財務週期，回傳該週期的 key。
+// 跟「把某個 Y-M 直接當成週期 key」不同，這裡是拿「今天」這種真實日期去找它屬於哪一期。
+function cycleKeyForDate(dateStr){
+  const y = Number(dateStr.slice(0,4)), m = Number(dateStr.slice(5,7));
+  const candidateMk = budgetMonthKeyOf(y, m-1);
+  const range = financeCycleRange(candidateMk);
+  if(dateStr >= range.startStr) return candidateMk;
+  return prevMonthKeyOf(candidateMk);
+}
+function txsForCycle(mk){
+  const r = financeCycleRange(mk);
+  return DB.transactions.filter(t=>t.date>=r.startStr && t.date<=r.endStr);
+}
+function financeCycleLabel(mk){
+  const r = financeCycleRange(mk);
+  const fmt = (d)=> `${d.getMonth()+1}/${d.getDate()}`;
+  return `${fmt(r.startDate)} ～ ${fmt(r.endDate)}`;
+}
+function financeCycleResolutionBannerHTML(mk){
+  if(!financeCycleNeedsResolution(mk)) return "";
+  const day = financeCycleStartDay();
+  return `
+    <div class="card" style="background:var(--light-accent); margin-bottom:14px;">
+      <div style="font-weight:700; margin-bottom:6px;">這個月沒有 ${day} 日～</div>
+      <div class="muted" style="line-height:1.7; margin-bottom:10px;">你設定的財務週期是每月 ${day} 日開始，但這個月沒有這個日期。<br>請選擇這一期的開始日期 🤍</div>
+      <button class="btn-main" id="btnResolveFinanceCycle" style="width:100%;">選擇處理方式</button>
+    </div>
+  `;
+}
+function wireFinanceCycleBanner(mk, onResolved){
+  const btn = document.getElementById("btnResolveFinanceCycle");
+  if(btn) btn.addEventListener("click", ()=>openFinanceCycleResolution(mk, onResolved));
+}
+function openFinanceCycleSettings(){
+  const current = financeCycleStartDay();
+  openSheet(`
+    <div class="sheet-head"><h3>財務週期</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.7;">你習慣從每個月幾號開始安排生活呢？<br>可以依照領薪日，或自己習慣的日期設定。</div>
+    <div class="field"><label>每月從幾號開始</label><input id="fc_day" type="number" min="1" max="31" value="${current}"></div>
+    <div class="muted" id="fc_preview" style="margin-bottom:16px; line-height:1.7;"></div>
+    <button class="btn-main" id="fc_save" style="width:100%;">儲存</button>
+  `);
+  const dayInput = document.getElementById("fc_day");
+  const preview = document.getElementById("fc_preview");
+  function clampDay(v){ let d = parseInt(v,10); if(!d||d<1) d=1; if(d>31) d=31; return d; }
+  function updatePreview(){
+    const day = clampDay(dayInput.value);
+    const rangeText = day===1 ? `每月 1 日 ～ 當月最後一天` : `每月 ${day} 日 ～ 下個月 ${day-1} 日`;
+    preview.innerHTML = `你的財務週期：<br><strong>${rangeText}</strong>`;
+  }
+  updatePreview();
+  dayInput.addEventListener("input", updatePreview);
+  document.getElementById("fc_save").addEventListener("click", ()=>{
+    DB.financeCycleStartDay = clampDay(dayInput.value);
+    save();
+    closeSheet();
+    renderFinanceCycleSummaryLabel();
+    renderAll();
+    toast("已更新財務週期設定");
+  });
+}
+// 使用者長期設定的開始日在目前這一期所在的月份不存在時（例如 31 日遇到 2 月），
+// 讓使用者自己選：只調整這一期的開始日期，或之後都改成別的日期——系統不自行替使用者決定。
+function openFinanceCycleResolution(mk, onResolved){
+  const day = financeCycleStartDay();
+  const [y,m] = mk.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const monthStr = `${y}-${pad2(m)}`;
+  openSheet(`
+    <div class="sheet-head"><h3>這個月沒有 ${day} 日～</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:16px; line-height:1.7;">你設定的財務週期是每月 ${day} 日開始，但這個月沒有這個日期。<br>請選擇這一期的開始日期 🤍</div>
+    <div class="card-title" style="margin-bottom:8px;">只調整這一期</div>
+    <div class="field"><label>這一期的開始日期</label><input id="fcr_date" type="date" value="${monthStr}-${pad2(daysInMonth)}" min="${monthStr}-01" max="${monthStr}-${pad2(daysInMonth)}"></div>
+    <button class="btn-main" id="fcr_onlyThis" style="width:100%; margin-bottom:18px;">只調整這一期</button>
+    <div class="card-title" style="margin-bottom:8px;">之後都改成每月幾號開始</div>
+    <div class="field"><label>新的開始日</label><input id="fcr_newDay" type="number" min="1" max="31" value="${daysInMonth}"></div>
+    <button class="btn-ghost" id="fcr_always" style="width:100%;">之後都改成這個日期</button>
+  `);
+  document.getElementById("fcr_onlyThis").addEventListener("click", ()=>{
+    const chosen = document.getElementById("fcr_date").value;
+    if(!chosen){ toast("請選擇日期"); return; }
+    DB.financeCycleOverrides = DB.financeCycleOverrides || {};
+    DB.financeCycleOverrides[mk] = chosen;
+    save(); closeSheet(); toast("已為這一期設定開始日期");
+    if(onResolved) onResolved();
+  });
+  document.getElementById("fcr_always").addEventListener("click", ()=>{
+    let newDay = parseInt(document.getElementById("fcr_newDay").value,10);
+    if(!newDay||newDay<1) newDay=1; if(newDay>31) newDay=31;
+    DB.financeCycleStartDay = newDay;
+    save(); closeSheet(); renderFinanceCycleSummaryLabel(); toast("已更新財務週期設定");
+    if(onResolved) onResolved();
+  });
+}
 function monthSummary(dateObj){
   const mk = monthKey(dateObj);
-  const txs = DB.transactions.filter(t=>t.date.startsWith(mk));
+  const txs = txsForCycle(mk);
   const income = txs.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
   const expense = txs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
   return {income, expense, txs};
@@ -2298,8 +2464,12 @@ function renderCategoryStatsBox(elId, txList, emptyMsg){
 function renderLedger(){
   processRecurringTx();
   renderRecurringTx();
+  const mk = budgetMonthKeyOf(ledgerYear, ledgerMonth);
   const viewDate = new Date(ledgerYear, ledgerMonth, 1);
   document.getElementById("ledgerMonthLabel").textContent = `${ledgerYear}年 ${ledgerMonth+1}月`;
+  document.getElementById("ledgerCycleRangeLabel").textContent = financeCycleLabel(mk);
+  document.getElementById("ledgerCycleBanner").innerHTML = financeCycleResolutionBannerHTML(mk);
+  wireFinanceCycleBanner(mk, renderLedger);
   const {income, expense, txs} = monthSummary(viewDate);
   document.getElementById("ledgerIncome").textContent = income.toLocaleString();
   document.getElementById("ledgerExpense").textContent = expense.toLocaleString();
@@ -2627,7 +2797,7 @@ document.getElementById("btnAddRecurring").addEventListener("click", ()=>openRec
 /* ============ 帳務報表：選月份 + 收支切換 + 圓形圖分布 ============ */
 let reportYear = new Date().getFullYear();
 let reportMonth = new Date().getMonth(); // 0-indexed
-let reportType = "expense"; // "expense" 或 "income"
+let reportType = "expense"; // "expense" | "income" | "balance"
 const REPORT_COLORS = ["#D98BA3","#7A9BAD","#8FA688","#9B8AA6","#B98368","#E0B15C","#6FA8A0","#C77B7B"];
 
 function reportPieHTML(catArr, total){
@@ -2643,54 +2813,147 @@ function reportPieHTML(catArr, total){
   }).join(", ");
   return `<div style="width:160px; height:160px; border-radius:50%; margin:0 auto; background:conic-gradient(${stops});"></div>`;
 }
+// 每日累積結餘：走完整個財務週期的每一天（含完全沒有交易的日子，延續前一天的累積值），
+// 「累積」是「截至當天的累積收入 - 截至當天的累積支出」，不是單純當天收支相減。
+function cycleDailySeries(mk){
+  const r = financeCycleRange(mk);
+  const byDate = {};
+  txsForCycle(mk).forEach(t=>{
+    const b = byDate[t.date] || (byDate[t.date] = {income:0, expense:0});
+    if(t.type==="income") b.income += t.amount; else b.expense += t.amount;
+  });
+  const days = [];
+  let cumIncome = 0, cumExpense = 0;
+  const cur = new Date(r.startDate);
+  while(cur <= r.endDate){
+    const ds = fmtDate(cur);
+    const day = byDate[ds] || {income:0, expense:0};
+    cumIncome += day.income;
+    cumExpense += day.expense;
+    days.push({ date: ds, dayIncome: day.income, dayExpense: day.expense, cumIncome, cumExpense, cumBalance: cumIncome-cumExpense });
+    cur.setDate(cur.getDate()+1);
+  }
+  return days;
+}
+function balanceChartSVG(days){
+  const w=320, h=160, padL=8, padR=8, padT=10, padB=10;
+  const values = days.map(d=>d.cumBalance);
+  let min = Math.min(0, ...values), max = Math.max(0, ...values);
+  if(min===max){ min-=1; max+=1; }
+  const xStep = days.length>1 ? (w-padL-padR)/(days.length-1) : 0;
+  const yScale = v => h-padB - (v-min)/(max-min)*(h-padT-padB);
+  const xScale = i => padL + i*xStep;
+  const zeroY = yScale(0).toFixed(1);
+  const points = days.map((d,i)=>`${xScale(i).toFixed(1)},${yScale(d.cumBalance).toFixed(1)}`).join(" ");
+  const dots = days.map((d,i)=>`<circle cx="${xScale(i).toFixed(1)}" cy="${yScale(d.cumBalance).toFixed(1)}" r="2.5" fill="var(--accent)" style="pointer-events:none;"></circle>`).join("");
+  // 用不重疊的整高「欄」當觸控範圍（而不是圓點本身），日子一多、點距很窄時，
+  // 手機上還是能準確點到想看的那一天，不會因為圓點互相重疊而點不到前面的點。
+  const tapTargets = days.map((d,i)=>{
+    const cx = xScale(i);
+    const colW = xStep>0 ? xStep : w;
+    const rectX = cx - colW/2;
+    return `<rect class="balance-pt" data-idx="${i}" x="${rectX.toFixed(1)}" y="0" width="${colW.toFixed(1)}" height="${h}" fill="transparent" style="pointer-events:all; cursor:pointer;"></rect>`;
+  }).join("");
+  return `
+    <svg viewBox="0 0 ${w} ${h}" id="balanceChartSvg" style="width:100%; height:160px; touch-action:manipulation; display:block;">
+      <line x1="${padL}" y1="${zeroY}" x2="${w-padR}" y2="${zeroY}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,3"></line>
+      <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>
+      ${dots}
+      ${tapTargets}
+    </svg>
+  `;
+}
+function balanceDetailHTML(day){
+  const [,m,d] = day.date.split("-").map(Number);
+  const balSign = day.cumBalance>=0 ? "+" : "-";
+  return `
+    <div class="card" style="background:var(--light-accent); margin-top:12px;">
+      <div style="font-weight:700; margin-bottom:8px;">${m}月${d}日</div>
+      <div class="networth-line"><span class="label">當日收入</span><span class="value">NT$ ${day.dayIncome.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">當日支出</span><span class="value">NT$ ${day.dayExpense.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">截至當日累積收入</span><span class="value">NT$ ${day.cumIncome.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">截至當日累積支出</span><span class="value">NT$ ${day.cumExpense.toLocaleString()}</span></div>
+      <div class="networth-line" style="margin-top:6px; border-top:1px solid var(--line); padding-top:6px;"><span class="label" style="font-weight:700;">累積結餘</span><span class="value" style="font-weight:700;">${balSign}NT$ ${Math.abs(day.cumBalance).toLocaleString()}</span></div>
+    </div>
+  `;
+}
+function renderBalanceReportHTML(days){
+  const totalIncome = days.length ? days[days.length-1].cumIncome : 0;
+  const totalExpense = days.length ? days[days.length-1].cumExpense : 0;
+  const totalBalance = totalIncome - totalExpense;
+  const balSign = totalBalance>=0 ? "+" : "-";
+  return `
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-box"><div class="stat-num">${totalIncome.toLocaleString()}</div><div class="stat-label">本期收入</div></div>
+      <div class="stat-box"><div class="stat-num">${totalExpense.toLocaleString()}</div><div class="stat-label">本期支出</div></div>
+      <div class="stat-box"><div class="stat-num">${balSign}${Math.abs(totalBalance).toLocaleString()}</div><div class="stat-label">本期結餘</div></div>
+    </div>
+    ${days.length ? balanceChartSVG(days) : `<div class="empty-state">這段期間還沒有任何紀錄</div>`}
+    ${days.length ? `<div class="muted" style="text-align:center; margin-top:8px; font-size:12px;">點選圖上的點，查看當天詳細資料</div>` : ""}
+    <div id="balanceDetailPanel"></div>
+  `;
+}
 function openReport(){
+  const mk = budgetMonthKeyOf(reportYear, reportMonth);
   const d = new Date(reportYear, reportMonth, 1);
   const {income, expense, txs} = monthSummary(d);
-  const total = reportType==="income" ? income : expense;
-  const typeTxs = txs.filter(t=>t.type===reportType);
-  const catStats = {};
-  typeTxs.forEach(t=>{ catStats[t.category] = (catStats[t.category]||0)+t.amount; });
-  const catArr = Object.entries(catStats).sort((a,b)=>b[1]-a[1]);
 
-  const legendHTML = catArr.length ? catArr.map(([cat,amt],i)=>{
-    const pct = total>0 ? Math.round(amt/total*100) : 0;
-    return `
-      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px;">
-        <span style="width:10px; height:10px; border-radius:50%; background:${REPORT_COLORS[i % REPORT_COLORS.length]}; flex-shrink:0;"></span>
-        <span style="flex:1;">${escapeHtml(cat)}</span>
-        <span style="color:var(--gray);">${pct}%</span>
-        <span style="font-weight:700; margin-left:6px;">$${amt.toLocaleString()}</span>
-      </div>`;
-  }).join("") : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
+  let bodyHTML;
+  if(reportType==="balance"){
+    bodyHTML = renderBalanceReportHTML(cycleDailySeries(mk));
+  }else{
+    const total = reportType==="income" ? income : expense;
+    const typeTxs = txs.filter(t=>t.type===reportType);
+    const catStats = {};
+    typeTxs.forEach(t=>{ catStats[t.category] = (catStats[t.category]||0)+t.amount; });
+    const catArr = Object.entries(catStats).sort((a,b)=>b[1]-a[1]);
 
-  const detailHTML = typeTxs.length
-    ? [...typeTxs].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`
-        <div class="item-row">
-          <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
-          <div class="item-sub" style="margin-right:8px;">${t.date} · ${escapeHtml(t.category)}</div>
-          <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
-        </div>`).join("")
-    : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
+    const legendHTML = catArr.length ? catArr.map(([cat,amt],i)=>{
+      const pct = total>0 ? Math.round(amt/total*100) : 0;
+      return `
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px;">
+          <span style="width:10px; height:10px; border-radius:50%; background:${REPORT_COLORS[i % REPORT_COLORS.length]}; flex-shrink:0;"></span>
+          <span style="flex:1;">${escapeHtml(cat)}</span>
+          <span style="color:var(--gray);">${pct}%</span>
+          <span style="font-weight:700; margin-left:6px;">$${amt.toLocaleString()}</span>
+        </div>`;
+    }).join("") : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
+
+    const detailHTML = typeTxs.length
+      ? [...typeTxs].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`
+          <div class="item-row">
+            <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
+            <div class="item-sub" style="margin-right:8px;">${t.date} · ${escapeHtml(t.category)}</div>
+            <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
+          </div>`).join("")
+      : `<div class="empty-state">這個月還沒有這類紀錄</div>`;
+
+    bodyHTML = `
+      ${reportPieHTML(catArr, total)}
+      <div class="muted" style="text-align:center; margin:10px 0 16px; font-size:13px;">
+        本期${reportType==='income'?'總收入':'總支出'} $${total.toLocaleString()}
+      </div>
+      <div class="muted" style="margin-bottom:6px; font-weight:700;">分類比例</div>
+      <div style="margin-bottom:16px;">${legendHTML}</div>
+      <div class="muted" style="margin-bottom:6px; font-weight:700;">明細</div>
+      <div>${detailHTML}</div>
+    `;
+  }
 
   openSheet(`
     <div class="sheet-head"><h3>📊 帳務報表</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="cal-head" style="margin-bottom:12px;">
+    <div class="cal-head" style="margin-bottom:2px;">
       <button class="cal-nav-btn" id="reportPrev">‹</button>
       <h3 class="cal-title-btn" id="reportTitleBtn">${reportYear}年 ${reportMonth+1}月</h3>
       <button class="cal-nav-btn" id="reportNext">›</button>
     </div>
+    <div class="muted" style="text-align:center; margin-bottom:12px;">${financeCycleLabel(mk)}</div>
     <div class="seg" style="margin-bottom:16px;">
       <button type="button" id="reportTypeExpense" class="${reportType==='expense'?'active':''}">支出</button>
       <button type="button" id="reportTypeIncome" class="${reportType==='income'?'active':''}">收入</button>
+      <button type="button" id="reportTypeBalance" class="${reportType==='balance'?'active':''}">結餘</button>
     </div>
-    ${reportPieHTML(catArr, total)}
-    <div class="muted" style="text-align:center; margin:10px 0 16px; font-size:13px;">
-      本月${reportType==='income'?'總收入':'總支出'} $${total.toLocaleString()}
-    </div>
-    <div class="muted" style="margin-bottom:6px; font-weight:700;">分類比例</div>
-    <div style="margin-bottom:16px;">${legendHTML}</div>
-    <div class="muted" style="margin-bottom:6px; font-weight:700;">明細</div>
-    <div>${detailHTML}</div>
+    ${bodyHTML}
   `);
 
   document.getElementById("reportPrev").addEventListener("click", ()=>{
@@ -2706,6 +2969,17 @@ function openReport(){
   });
   document.getElementById("reportTypeExpense").addEventListener("click", ()=>{ reportType="expense"; openReport(); });
   document.getElementById("reportTypeIncome").addEventListener("click", ()=>{ reportType="income"; openReport(); });
+  document.getElementById("reportTypeBalance").addEventListener("click", ()=>{ reportType="balance"; openReport(); });
+
+  if(reportType==="balance"){
+    const days = cycleDailySeries(mk);
+    const svg = document.getElementById("balanceChartSvg");
+    if(svg) svg.addEventListener("click", (e)=>{
+      const idx = e.target && e.target.dataset ? e.target.dataset.idx : null;
+      if(idx==null) return;
+      document.getElementById("balanceDetailPanel").innerHTML = balanceDetailHTML(days[Number(idx)]);
+    });
+  }
 }
 document.getElementById("btnShowReport").addEventListener("click", ()=>{
   reportYear = ledgerYear; reportMonth = ledgerMonth;
@@ -2794,9 +3068,10 @@ function deepClone(obj){ return JSON.parse(JSON.stringify(obj)); }
 function getBudget(mk){ return DB.budgetsByMonth[mk] || null; }
 function blankAllocations(){ return {necessary:0, debt:0, savings:0, free:0}; }
 
-function txsForMonth(mk){ return DB.transactions.filter(t=>t.date.startsWith(mk)); }
+function txsForMonth(mk){ return txsForCycle(mk); }
 function debtPaymentsForMonth(mk){
-  return DB.debts.reduce((s,d)=>s + (d.payments||[]).filter(p=>p.date.startsWith(mk)).reduce((s2,p)=>s2+p.amount,0), 0);
+  const r = financeCycleRange(mk);
+  return DB.debts.reduce((s,d)=>s + (d.payments||[]).filter(p=>p.date>=r.startStr && p.date<=r.endStr).reduce((s2,p)=>s2+p.amount,0), 0);
 }
 function bucketActuals(mk){
   const txs = txsForMonth(mk).filter(t=>t.type==="expense");
@@ -2863,12 +3138,21 @@ function getComparisonBaseline(mk){
 function establishComparisonBaseline(mk, budget){
   const rv = ensureReview(mk);
   if(rv.comparisonBaseline) return rv.comparisonBaseline; // 已經建立過，之後的儲存不能偷偷改寫
+  // 這個週期一旦正式建立比較基準，連同它完整的日期範圍（開始＋結束）也一併鎖定：之後即使使用者
+  // 調整財務週期的長期設定、或下一期的開始日跟著變動，這個已經有正式紀錄的週期都不會被重新歸類，
+  // 符合「歷史週期維持原紀錄」的原則。用 {start,end} 完整鎖定，不是只鎖開始日，結束日才不會因為
+  // 下一期還沒鎖定而被新設定牽動。
+  if(!(DB.financeCycleOverrides && DB.financeCycleOverrides[mk])){
+    const r = financeCycleRange(mk);
+    DB.financeCycleOverrides = DB.financeCycleOverrides || {};
+    DB.financeCycleOverrides[mk] = { start: r.startStr, end: r.endStr };
+  }
   rv.comparisonBaseline = {...snapshotBudgetForComparison(budget), capturedAt: todayStr()};
   save();
   return rv.comparisonBaseline;
 }
 function actualAmountForLinkedCategory(mk, categoryId){
-  return DB.transactions.filter(t=>t.type==="expense" && t.category===categoryId && t.date.startsWith(mk)).reduce((s,t)=>s+t.amount,0);
+  return txsForCycle(mk).filter(t=>t.type==="expense" && t.category===categoryId).reduce((s,t)=>s+t.amount,0);
 }
 function computeItemComparisons(mk, baseline){
   return baseline.items.filter(it=>it.linkedCategoryId).map(it=>{
@@ -2973,6 +3257,10 @@ function updateBudget(mk, patch){
 
 /* ============ 記帳：財務功能入口 → 記帳／本月預算（沿用資產盤點的 sub-view 模式，共用 ledgerYear/ledgerMonth） ============ */
 let ledgerSubView = "hub"; // hub | ledger | budget
+function renderFinanceCycleSummaryLabel(){
+  const day = financeCycleStartDay();
+  document.getElementById("financeCycleSummaryLabel").textContent = `目前：每月 ${day} 日開始`;
+}
 function showLedgerSub(name){
   ledgerSubView = name;
   document.getElementById("ledgerHubPanel").style.display = name==="hub" ? "block" : "none";
@@ -2981,10 +3269,12 @@ function showLedgerSub(name){
   const fab = document.getElementById("mainFab");
   const onLedgerTab = views.find(v=>document.getElementById("view-"+v).classList.contains("active"))==="ledger";
   if(onLedgerTab) fab.style.display = name==="ledger" ? "flex" : "none";
+  if(name==="hub") renderFinanceCycleSummaryLabel();
   if(name==="budget") renderBudgetTab();
 }
 document.getElementById("goLedgerCard").addEventListener("click", ()=>showLedgerSub("ledger"));
 document.getElementById("goBudgetCard").addEventListener("click", ()=>showLedgerSub("budget"));
+document.getElementById("btnFinanceCycleSettings").addEventListener("click", ()=>openFinanceCycleSettings());
 document.getElementById("btnBackFromLedger").addEventListener("click", ()=>showLedgerSub("hub"));
 document.getElementById("btnBackFromBudget").addEventListener("click", ()=>showLedgerSub("hub"));
 document.getElementById("budgetPrev").addEventListener("click", ()=>{
@@ -3001,6 +3291,9 @@ document.getElementById("budgetMonthLabel").addEventListener("click", ()=>{
 function renderBudgetTab(){
   const mk = budgetMonthKeyOf(ledgerYear, ledgerMonth);
   document.getElementById("budgetMonthLabel").textContent = `${ledgerYear}年 ${ledgerMonth+1}月預算`;
+  document.getElementById("budgetCycleRangeLabel").textContent = financeCycleLabel(mk);
+  document.getElementById("budgetCycleBanner").innerHTML = financeCycleResolutionBannerHTML(mk);
+  wireFinanceCycleBanner(mk, renderBudgetTab);
   const box = document.getElementById("budgetContent");
   box.innerHTML = renderAllocationCardHTML(mk) + `<div style="height:22px;"></div>` + renderReviewCardHTML(mk) + `<div style="height:22px;"></div>` + renderGardenCardHTML();
   wireAllocationCard(mk);
@@ -3703,7 +3996,7 @@ function wireReviewCard(mk){
 
 /* ============ 查看本月實際支出的交易明細 ============ */
 function openOverspendDetail(mk, cat){
-  const txs = DB.transactions.filter(t=>t.type==="expense" && t.category===cat && t.date.startsWith(mk)).sort((a,b)=>b.date.localeCompare(a.date));
+  const txs = txsForCycle(mk).filter(t=>t.type==="expense" && t.category===cat).sort((a,b)=>b.date.localeCompare(a.date));
   openSheet(`
     <div class="sheet-head"><h3>${escapeHtml(cat)}｜本月明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     ${txs.length ? txs.map(t=>`
@@ -4467,6 +4760,8 @@ function exportBackup(){
     {key:"emergencyFundJSON", value:JSON.stringify(DB.emergencyFund||null)},
     {key:"seenDiscoveryNoticesJSON", value:JSON.stringify(DB.seenDiscoveryNotices||[])},
     {key:"gardenAcknowledgedMilestone", value:DB.gardenAcknowledgedMilestone||0},
+    {key:"financeCycleStartDay", value:DB.financeCycleStartDay||1},
+    {key:"financeCycleOverridesJSON", value:JSON.stringify(DB.financeCycleOverrides||{})},
   ]);
   XLSX.writeFile(wb, `生活小夥伴備份_${todayStr()}.xlsx`);
   toast("備份已下載");
@@ -4538,6 +4833,8 @@ function importBackupFromWorkbook(wb){
     }),
     seenDiscoveryNotices: safeJSONParse(settings.seenDiscoveryNoticesJSON, []),
     gardenAcknowledgedMilestone: parseInt(settings.gardenAcknowledgedMilestone, 10) || 0,
+    financeCycleStartDay: parseInt(settings.financeCycleStartDay, 10) || 1,
+    financeCycleOverrides: safeJSONParse(settings.financeCycleOverridesJSON, {}),
   });
   save();
   document.body.setAttribute("data-theme", DB.theme);
