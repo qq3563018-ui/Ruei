@@ -2558,7 +2558,7 @@ function openTxForm(editId){
     document.getElementById("f_paymethod_wrap").style.display = type==="expense" ? "block" : "none";
     let optionsHTML;
     if(type==="expense"){
-      // 記帳可選的支出類別＝預算細項本身（EXPENSE_CATS）＋使用者在「幫我計算」新增過的自訂細項
+      // 記帳可選的支出類別＝預算細項本身（EXPENSE_CATS）＋使用者在「幫我分配」新增過的自訂細項
       // （DB.customExpenseCategories，用穩定 id 當選項值）＋記帳自己既有的自訂分類，三者合併，
       // 不需要任何「對應」步驟。
       const customBudget = DB.customExpenseCategories || [];
@@ -3152,7 +3152,7 @@ function migrateLegacyExpenseCategories(){
   if(changed) save();
 }
 migrateLegacyExpenseCategories();
-// 自訂支出類別登錄檔：只新增／更新，永遠不刪除。使用者在「幫我計算」新增的自訂細項
+// 自訂支出類別登錄檔：只新增／更新，永遠不刪除。使用者在「幫我分配」新增的自訂細項
 // 用穩定的 uid 當 categoryId，這裡只是拿 id 換目前顯示用的名稱；即使某個月的預算規劃
 // 把這個細項移除，這裡的登錄不會跟著消失，歷史交易與歷史比較基準都還能正確辨識分類。
 function registerCustomExpenseCategory(id, label, bucketKey){
@@ -3249,16 +3249,11 @@ function realExpenseTotalForMonth(mk){
 }
 // 財務復盤直接使用「這個財務週期目前已儲存的預算」進行比較，不再另外凍結一份「正式比較基準」；
 // 使用者修改預算並重新儲存後，復盤下次重新整理就會直接讀到最新內容，沒有第一次確認版本。
-// 財務復盤支援兩種精細程度：只填了四大分類金額（未使用幫我計算）時，仍然要能比較到
-// 「大分類」層級；有使用幫我計算拆出細項時，大分類跟細項都能比較。所以無論有沒有拆細項，
-// 這裡都完整整理出四大分類目前的預算金額（groups），細項則只整理「有實際填金額」的那些（items）——
-// 留白的預設項目不算「預算 0」，單純代表這個細項目前沒有設定獨立預算，不能拿來判斷細項超支。
+// 四大分類的金額（allocatedTotal 的組成）永遠是底下細項的加總（見 computeAllocationsFromCalcItems），
+// 這裡只需要整理出「有實際填金額」的細項（items）——留白的預設項目不算「預算 0」，
+// 單純代表這個細項目前沒有設定獨立預算，不能拿來判斷細項超支。
 function snapshotBudgetForComparison(budget){
   const allocatedTotal = Object.values(budget.allocations).reduce((s,v)=>s+v,0);
-  const groups = BUCKET_DEFS.map(bd=>({
-    groupId: bd.key, label: bd.label, emoji: bd.emoji,
-    budgetAmount: Number(budget.allocations[bd.key])||0,
-  }));
   const items = [];
   BUCKET_DEFS.forEach(bd=>{
     ((budget.calcItems && budget.calcItems[bd.key]) || []).forEach(it=>{
@@ -3271,7 +3266,7 @@ function snapshotBudgetForComparison(budget){
       }
     });
   });
-  return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, groups, items };
+  return { monthlyBudget: budget.available, allocatedTotal, unallocatedTotal: budget.available - allocatedTotal, items };
 }
 // 直接依共用的 categoryId 找出這個財務週期裡實際花了多少，不用另外 mapping；
 // 已排除信用卡防重複的還款紀錄（見 actualExpenseTxs）。
@@ -3282,21 +3277,6 @@ function computeItemComparisons(mk, baseline){
   return baseline.items.map(it=>{
     const actualAmount = actualAmountForCategory(mk, it.id);
     return {...it, actualAmount, diff: actualAmount - it.budgetAmount};
-  });
-}
-// 大分類的實際支出＝這個週期裡，所有「屬於這個大分類」的支出類別加總，不管使用者當初
-// 有沒有用幫我計算拆出細項——沒拆細項時，這就是財務復盤唯一能比較到的層級；有拆細項時，
-// 這是細項比較之外「額外」的整體視角，兩者都直接從記帳資料即時算出來。
-// 還款/固定責任額外把「負債」既有的還款紀錄（DB.debts payments，跟記帳分類無關的舊功能）
-// 也算進去，因為概念上同樣是這一期安排出去的還款金額。
-function actualAmountForBucket(mk, bucketKey){
-  const catTotal = actualExpenseTxs(txsForCycle(mk)).filter(t=>categoryBucketKey(t.category)===bucketKey).reduce((s,t)=>s+t.amount,0);
-  return bucketKey==="debt" ? catTotal + debtPaymentsForMonth(mk) : catTotal;
-}
-function computeGroupComparisons(mk, baseline){
-  return (baseline.groups||[]).map(g=>{
-    const actualAmount = actualAmountForBucket(mk, g.groupId);
-    return {...g, actualAmount, diff: actualAmount - g.budgetAmount};
   });
 }
 // 沒有所屬大分類的記帳分類（舊資料的「學習」「其他」、或記帳自己新增、沒有掛在任何預算
@@ -3486,7 +3466,13 @@ function renderAllocationCardHTML(mk){
   const allocRatio = b.available>0 ? Math.min(100, Math.round(allocatedTotal/b.available*100)) : 0;
 
   const bucketRows = BUCKET_DEFS.map(bd=>`
-    <div class="networth-line"><span class="label">${bd.emoji} ${bd.label}</span><span class="value">NT$ ${(b.allocations[bd.key]||0).toLocaleString()}</span></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+      <div>
+        <div style="font-weight:700;">${bd.emoji} ${bd.label}</div>
+        <div class="muted" style="font-size:12.5px;">已分配 NT$ ${(b.allocations[bd.key]||0).toLocaleString()}</div>
+      </div>
+      <button class="small-link alloc-bucket-assign" data-key="${bd.key}" style="flex:0 0 auto;">幫我分配 ›</button>
+    </div>
   `).join("");
 
   return `
@@ -3527,6 +3513,9 @@ function wireAllocationCard(mk){
   if(editBtn) editBtn.addEventListener("click", ()=>openBudgetSetupForm(mk));
   const breakdownBtn = document.getElementById("btnAllocBreakdown");
   if(breakdownBtn) breakdownBtn.addEventListener("click", ()=>openAllocationBreakdown(mk));
+  document.querySelectorAll(".alloc-bucket-assign").forEach(btn=>{
+    btn.addEventListener("click", ()=>openBucketAllocationEditor(mk, btn.dataset.key));
+  });
 }
 
 function openAllocationBreakdown(mk){
@@ -3545,19 +3534,11 @@ function openAllocationBreakdown(mk){
     const bucketTotal = b.allocations[bd.key]||0;
     const items = (b.calcItems && b.calcItems[bd.key]) || [];
     const nonZeroItems = items.filter(it=>(Number(it.amount)||0) > 0);
-    const itemsSum = nonZeroItems.reduce((s,it)=>s+(Number(it.amount)||0),0);
-    let detailHTML;
-    if(!nonZeroItems.length){
-      detailHTML = `<div class="empty-state" style="padding:8px 0;">這筆預算目前沒有細分項目。</div>`;
-    }else{
-      detailHTML = nonZeroItems.map(it=>safeRow(it.name, Number(it.amount))).join("");
-      if(itemsSum !== bucketTotal){
-        const gap = bucketTotal - itemsSum;
-        detailHTML += gap > 0
-          ? `<div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);">已細分 NT$${itemsSum.toLocaleString()}・尚未細分 NT$${gap.toLocaleString()}</div>`
-          : `<div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);">細項合計 NT$${itemsSum.toLocaleString()}，比目前預算多 NT$${Math.abs(gap).toLocaleString()}</div>`;
-      }
-    }
+    // 大分類的金額本身就是細項加總，這裡不會再出現「細項合計跟大分類金額不一致」的情況，
+    // 不需要任何差額說明；沒有細項的舊資料就單純顯示空狀態。
+    const detailHTML = nonZeroItems.length
+      ? nonZeroItems.map(it=>safeRow(it.name, Number(it.amount))).join("")
+      : `<div class="empty-state" style="padding:8px 0;">這筆預算目前沒有細分項目。</div>`;
     return `
       <div style="border-bottom:1px solid var(--line);">
         <div class="alloc-view-head" data-key="${bd.key}" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:12px 0; cursor:pointer;">
@@ -3595,11 +3576,31 @@ function openAllocationBreakdown(mk){
   document.getElementById("ab_edit").addEventListener("click", ()=>openBudgetSetupForm(mk));
 }
 
-/* ============ 設定／調整本月預算分配（幫我計算＋固定收支帶入） ============ */
+/* ============ 設定／調整本月預算分配（幫我分配＋固定收支帶入） ============
+   四大分類不再有獨立可手動輸入的金額：每個大分類的「已分配」永遠是它底下細項預算的
+   自動加總結果，不存在「大分類金額」跟「細項合計」兩個可能不一致的數字，
+   也因此不再需要任何「尚未細分／保留新總額／回到細項調整」之類的差額確認流程。 */
 function captureWizFromForm(wiz){
   const availEl = document.getElementById("bg_available");
   if(availEl) wiz.available = parseFloat(availEl.value)||0;
-  document.querySelectorAll(".bg_alloc").forEach(inp=>{ wiz.allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
+}
+// 這個大分類目前的「已分配」金額：這個編輯階段裡使用者已經透過「幫我分配」動過（包含
+// 帶入固定收支／負債），就是細項的即時加總；完全沒動過，就沿用進入這次編輯前的舊值——
+// 讓舊資料（曾經是手動輸入的大分類金額）在使用者還沒重新分配這個大分類以前，不會被清空。
+function wizBucketTotal(wiz, key){
+  const items = (wiz.calcItems && wiz.calcItems[key]) || [];
+  if(items.length || (wiz.touchedBuckets && wiz.touchedBuckets[key])){
+    return items.reduce((s,it)=>s+(Number(it.amount)||0),0);
+  }
+  return Number(wiz.allocations[key])||0;
+}
+// 儲存當下，把四大分類的最終金額整理出來：這次編輯有動過的大分類一律用細項加總；
+// 完全沒動過的大分類，沿用原本已儲存的金額（新建預算則是 0），不會平白把舊資料歸零。
+function computeAllocationsFromCalcItems(calcItems, prevAllocations, touchedBuckets){
+  const allocations = blankAllocations();
+  const tmpWiz = {calcItems, allocations: prevAllocations||blankAllocations(), touchedBuckets};
+  BUCKET_DEFS.forEach(bd=>{ allocations[bd.key] = wizBucketTotal(tmpWiz, bd.key); });
+  return allocations;
 }
 function openBudgetSetupForm(mk, wizIn){
   const existing = getBudget(mk);
@@ -3615,29 +3616,14 @@ function openBudgetSetupForm(mk, wizIn){
       <div class="field">
         <label style="display:flex; justify-content:space-between; align-items:center;">
           <span>${bd.emoji} ${bd.label}</span>
-          <button type="button" class="small-link calc-help-btn" data-key="${bd.key}" style="font-weight:400;">幫我計算 ›</button>
+          <button type="button" class="small-link calc-help-btn" data-key="${bd.key}" style="font-weight:400;">幫我分配 ›</button>
         </label>
-        <input class="bg_alloc" data-key="${bd.key}" type="number" placeholder="0" value="${wiz.allocations[bd.key]||""}">
+        <div class="networth-line" style="padding:4px 0;"><span class="label">已分配</span><span class="value">NT$ ${wizBucketTotal(wiz, bd.key).toLocaleString()}</span></div>
       </div>
     `).join("")}
     <button class="btn-ghost" id="bg_importFixed" style="width:100%; margin-bottom:10px;">把固定收支／負債帶入「還款/固定責任」</button>
     <button class="btn-main" id="bg_submit">儲存本月預算</button>
   `);
-  document.querySelectorAll(".bg_alloc").forEach(inp=>{
-    inp.dataset.lastval = inp.value || "0";
-    inp.addEventListener("change", ()=>{
-      const key = inp.dataset.key;
-      const items = (wiz.calcItems && wiz.calcItems[key]) || [];
-      const newVal = parseFloat(inp.value)||0;
-      if(!items.length){ inp.dataset.lastval = String(newVal); return; }
-      const itemSum = items.reduce((s,it)=>s+(Number(it.amount)||0),0);
-      if(newVal===itemSum){ inp.dataset.lastval = String(newVal); return; }
-      const prevVal = inp.dataset.lastval;
-      captureWizFromForm(wiz);
-      wiz.allocations[key] = newVal;
-      openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal);
-    });
-  });
   document.querySelectorAll(".calc-help-btn").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       captureWizFromForm(wiz);
@@ -3650,9 +3636,8 @@ function openBudgetSetupForm(mk, wizIn){
   });
   document.getElementById("bg_submit").addEventListener("click", ()=>{
     const available = parseFloat(document.getElementById("bg_available").value)||0;
-    const allocations = blankAllocations();
-    document.querySelectorAll(".bg_alloc").forEach(inp=>{ allocations[inp.dataset.key] = parseFloat(inp.value)||0; });
     const calcItems = wiz.calcItems || {};
+    const allocations = computeAllocationsFromCalcItems(calcItems, existing ? existing.allocations : null, wiz.touchedBuckets);
     // 每個細項的名稱本身就是記帳可以直接選擇的支出類別，沒有另外的「對應」步驟，
     // 所以這裡不需要再檢查、警告任何「未對應記帳分類」的細項。
     registerCustomCalcItems(calcItems);
@@ -3664,6 +3649,14 @@ function openBudgetSetupForm(mk, wizIn){
     toast("已更新本月預算分配");
   });
 }
+// 從「本月預算分配」首頁或財務復盤的「調整預算 ›」直接進某個大分類的細項分配畫面，
+// 不需要先經過完整的預算設定表單，省掉使用者自己重新找分類的步驟。
+function openBucketAllocationEditor(mk, groupId){
+  const existing = getBudget(mk);
+  if(!existing) return;
+  const wiz = {available:existing.available, allocations:Object.assign(blankAllocations(),existing.allocations), calcItems:deepClone(existing.calcItems||{})};
+  openCalcItemsSheet(mk, groupId, wiz);
+}
 // 把這次儲存裡的自訂細項登錄進共用的自訂支出類別清單，記帳時才能直接選到；
 // 只新增／更新顯示名稱，不會刪除，即使之後某個月的規劃把這個細項移除也一樣。
 function registerCustomCalcItems(calcItems){
@@ -3674,31 +3667,11 @@ function registerCustomCalcItems(calcItems){
     });
   });
 }
-function openAllocMismatchConfirm(mk, wiz, key, newVal, itemSum, prevVal){
-  const bd = BUCKET_DEFS.find(x=>x.key===key);
-  const cancel = ()=>{ wiz.allocations[key] = parseFloat(prevVal)||0; openBudgetSetupForm(mk, wiz); };
-  openSheet(`
-    <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="amc_x">✕</button></div>
-    <div class="muted" style="margin-bottom:16px; line-height:1.7;">你剛把「${bd.label}」改成 NT$${newVal.toLocaleString()}，但原本的細項加總是 NT$${itemSum.toLocaleString()}，要怎麼處理呢？</div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <button class="btn-main" id="amc_keep">保留 NT$${newVal.toLocaleString()}</button>
-      <button class="btn-ghost" id="amc_edit">回到細項調整</button>
-      <button class="btn-ghost" id="amc_cancel">取消</button>
-    </div>
-  `);
-  document.getElementById("amc_x").addEventListener("click", cancel);
-  document.getElementById("amc_cancel").addEventListener("click", cancel);
-  document.getElementById("amc_keep").addEventListener("click", ()=>openBudgetSetupForm(mk, wiz));
-  document.getElementById("amc_edit").addEventListener("click", ()=>openCalcItemsSheet(mk, key, wiz));
-}
-
-/* ============ 幫我計算：四大類的計算小工具，細項名稱本身就是記帳可以直接選擇的支出類別 ============ */
+/* ============ 幫我分配：四大類的細項預算輸入，細項名稱本身就是記帳可以直接選擇的支出類別 ============ */
 function openCalcItemsSheet(mk, bucketKey, wiz){
   const bd = BUCKET_DEFS.find(x=>x.key===bucketKey);
   const saved = deepClone((wiz.calcItems && wiz.calcItems[bucketKey]) || []);
-  const outerTotal = wiz.allocations[bucketKey]||0;
   const itemsSumInit = saved.reduce((s,it)=>s+(Number(it.amount)||0),0);
-  const showMismatch = saved.length>0 && outerTotal!==itemsSumInit;
   const presetDefs = PRESET_CALC_ITEMS[bucketKey] || [];
   const presetNames = presetDefs.map(p=>p.name);
   const savedByName = {};
@@ -3724,7 +3697,6 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
   openSheet(`
     <div class="sheet-head"><h3>${bd.emoji} ${bd.label}</h3><button class="close-btn" id="ci_back">✕</button></div>
     <div class="muted" style="margin-bottom:14px; line-height:1.6;">先把這個月預計需要的填起來，沒有的留空就好，小夥伴幫你加總 🤍<br>記帳的時候也可以直接選這裡的項目當支出類別。</div>
-    ${showMismatch ? `<div class="muted" style="margin-bottom:10px; line-height:1.6;">目前設定總額 NT$${outerTotal.toLocaleString()}・細項合計 NT$${itemsSumInit.toLocaleString()}・尚未細分 NT$${(outerTotal-itemsSumInit).toLocaleString()}</div>` : ""}
     <div id="ci_list" style="width:100%; min-width:0; overflow-x:hidden;">${presetDefs.map(presetRowHTML).join("")}${customItems.map(customRowHTML).join("")}</div>
     <button type="button" class="small-link" id="ci_add" style="margin:6px 0 14px;">＋ 新增其他項目</button>
     <div style="background:var(--light-accent); border-radius:12px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
@@ -3773,24 +3745,48 @@ function openCalcItemsSheet(mk, bucketKey, wiz){
     const items = captureFromSheet(true);
     const sum = items.reduce((s,it)=>s+it.amount,0);
     wiz.allocations[bucketKey] = sum;
+    wiz.touchedBuckets = wiz.touchedBuckets || {};
+    wiz.touchedBuckets[bucketKey] = true;
     openBudgetSetupForm(mk, wiz);
   });
   document.getElementById("ci_back").addEventListener("click", ()=>openBudgetSetupForm(mk, wiz));
 }
 
+// 把選擇的固定收支／負債整理成「還款/固定責任」底下的細項（名稱剛好等於預設細項時，
+// 直接沿用那個細項，不會另外變成一筆重複的自訂項目；同名的既有細項則更新金額），
+// 而不是像過去那樣直接覆寫大分類的金額——這個大分類的金額現在永遠是細項加總。
+function mergeFixedItemsIntoDebtCalcItems(wiz, fixedItems){
+  wiz.calcItems = wiz.calcItems || {};
+  const existing = wiz.calcItems.debt || [];
+  const presetNames = (PRESET_CALC_ITEMS.debt||[]).map(p=>p.name);
+  const byName = {};
+  existing.forEach(it=>{ byName[it.name] = it; });
+  fixedItems.forEach(fx=>{
+    if(byName[fx.label]){ byName[fx.label].amount = fx.amount; }
+    else{
+      const id = presetNames.includes(fx.label) ? fx.label : uid();
+      const it = {id, name: fx.label, amount: fx.amount};
+      existing.push(it); byName[fx.label] = it;
+    }
+  });
+  wiz.calcItems.debt = existing;
+  wiz.allocations.debt = existing.reduce((s,it)=>s+(Number(it.amount)||0),0);
+  wiz.touchedBuckets = wiz.touchedBuckets || {};
+  wiz.touchedBuckets.debt = true;
+}
 function openFixedImportPrompt(mk, wiz){
   const {items, total} = fixedExpenseExpectedForMonth();
   if(!items.length){ toast("目前沒有設定固定收支或還款中的負債"); openBudgetSetupForm(mk, wiz); return; }
   openSheet(`
     <div class="sheet-head"><h3>帶入固定收支／負債</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:14px; line-height:1.6;">只是幫「還款/固定責任」抓一個建議金額，不會另外建立任何記帳紀錄。</div>
+    <div class="muted" style="margin-bottom:14px; line-height:1.6;">會把選擇的項目整理成「還款/固定責任」底下的細項，不會另外建立任何記帳紀錄。</div>
     <div class="confirm-actions" style="margin-bottom:14px;">
       <button class="btn-ghost" id="fi_pick">自己選擇</button>
       <button class="btn-main" id="fi_all">全部帶入（NT$${total.toLocaleString()}）</button>
     </div>
   `);
   document.getElementById("fi_all").addEventListener("click", ()=>{
-    wiz.allocations.debt = total;
+    mergeFixedItemsIntoDebtCalcItems(wiz, items);
     openBudgetSetupForm(mk, wiz);
   });
   document.getElementById("fi_pick").addEventListener("click", ()=>{
@@ -3798,7 +3794,7 @@ function openFixedImportPrompt(mk, wiz){
       <div class="sheet-head"><h3>選擇要帶入的項目</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
       ${items.map((it,i)=>`
         <label class="item-row" style="cursor:pointer;">
-          <input type="checkbox" class="fi_item" data-amt="${it.amount}" checked style="margin-right:8px;">
+          <input type="checkbox" class="fi_item" data-i="${i}" checked style="margin-right:8px;">
           <div style="flex:1;">${escapeHtml(it.label)}</div>
           <div style="font-weight:700;">$${it.amount.toLocaleString()}</div>
         </label>
@@ -3806,9 +3802,9 @@ function openFixedImportPrompt(mk, wiz){
       <button class="btn-main" id="fi_confirm" style="margin-top:14px;">帶入選擇的項目</button>
     `);
     document.getElementById("fi_confirm").addEventListener("click", ()=>{
-      let sum = 0;
-      document.querySelectorAll(".fi_item").forEach(cb=>{ if(cb.checked) sum += Number(cb.dataset.amt); });
-      wiz.allocations.debt = sum;
+      const picked = [];
+      document.querySelectorAll(".fi_item").forEach(cb=>{ if(cb.checked) picked.push(items[Number(cb.dataset.i)]); });
+      mergeFixedItemsIntoDebtCalcItems(wiz, picked);
       openBudgetSetupForm(mk, wiz);
     });
   });
@@ -3870,14 +3866,11 @@ function renderReviewCardHTML(mk){
   const baseline = snapshotBudgetForComparison(budget);
   const overallDiff = actualTotal - baseline.monthlyBudget;
   const isOverBudget = overallDiff > 0;
-  const groupComparisons = computeGroupComparisons(mk, baseline);
   const unmatchedByCat = computeUnmatchedSpendByCategory(mk);
-  // 大分類原本分配跟實際都是 0 的話，代表這期完全沒有規劃、也沒有實際花費，顯示出來只是雜訊。
-  const relevantGroups = groupComparisons.filter(g=>g.budgetAmount>0 || g.actualAmount>0);
 
   const bodyHTML = isOverBudget
-    ? renderOverBudgetSectionHTML(mk, overallDiff, relevantGroups.filter(g=>g.diff>0), unmatchedByCat)
-    : renderWithinBudgetSectionHTML(baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, relevantGroups.filter(g=>g.diff!==0), unmatchedByCat);
+    ? renderOverBudgetSectionHTML(mk, baseline, overallDiff, unmatchedByCat)
+    : renderWithinBudgetSectionHTML(mk, baseline, baseline.monthlyBudget, actualTotal, baseline.monthlyBudget - actualTotal, unmatchedByCat);
 
   return `
     <div class="card">
@@ -3890,49 +3883,6 @@ function renderReviewCardHTML(mk){
       </div>
       <div class="networth-line"><span class="label">${vsIncome>=0?"本月實際剩餘":"實際支出已超過本月收入"}</span><span class="value">NT$ ${Math.abs(vsIncome).toLocaleString()}</span></div>
       ${bodyHTML}
-    </div>
-  `;
-}
-
-// 大分類層級的比較：不管使用者有沒有用幫我計算拆細項，四大分類的原本分配都一定有存，
-// 這是財務復盤永遠可以比較到的最低層級。點「查看明細」才會往下看這個大分類底下每個
-// 支出類別的實際狀況（見 openGroupDetail）。
-function groupCompareRowHTML(g){
-  const overUnder = g.diff>0 ? "多" : "少";
-  return `
-    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
-      <div style="font-weight:700; margin-bottom:4px;">${g.emoji} ${escapeHtml(g.label)}</div>
-      <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${g.budgetAmount.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${g.actualAmount.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">比原本分配${overUnder}</span><span class="value">NT$ ${Math.abs(g.diff).toLocaleString()}</span></div>
-      <button class="small-link review-group-detail" data-group="${g.groupId}">查看明細 ›</button>
-    </div>
-  `;
-}
-
-// 細項比較列：只用在「這個支出類別本期有設定獨立預算金額」的情況，才有 budgetAmount／diff
-// 可以比較。沒有設定細項預算的支出改用 unbudgetedCategoryRowHTML，不會假造一個「原本分配 0」。
-function itemCompareRowHTML(it){
-  const overUnder = it.diff>0 ? "多" : "少";
-  return `
-    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
-      <div style="font-weight:700; margin-bottom:4px;">${escapeHtml(it.name)}</div>
-      <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${it.budgetAmount.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${it.actualAmount.toLocaleString()}</span></div>
-      <div class="networth-line"><span class="label">比原本分配${overUnder}</span><span class="value">NT$ ${Math.abs(it.diff).toLocaleString()}</span></div>
-      <button class="small-link review-item-detail" data-cat="${escapeHtml(it.id)}">查看明細 ›</button>
-    </div>
-  `;
-}
-// 沒有設定細項預算的支出類別：只是本期沒有替它填寫獨立預算金額，不等於預算是 0，
-// 也不等於「不屬於這次的預算」——它已經算進所屬大分類的實際支出，這裡只單純呈現
-// 實際花了多少，不做也不能做「比原本分配多少」的判斷。
-function unbudgetedCategoryRowHTML(x){
-  return `
-    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
-      <div style="font-weight:700; margin-bottom:4px;">${escapeHtml(expenseCategoryLabel(x.category))}</div>
-      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
-      <button class="small-link review-item-detail" data-cat="${escapeHtml(x.category)}">查看明細 ›</button>
     </div>
   `;
 }
@@ -3954,34 +3904,65 @@ function categoryBreakdownForGroup(mk, baseline, groupId){
     .sort((a,b)=>b.amount-a.amount);
   return { budgeted, unbudgeted };
 }
-// 「還款/固定責任」這個大分類的實際支出，額外把既有「負債」功能裡的還款紀錄算進去
-// （跟記帳分類無關的舊功能，見 actualAmountForBucket），這裡單純作為一筆說明性資訊呈現。
-function openGroupDetail(mk, groupId){
-  const budget = getBudget(mk);
-  if(!budget) return;
-  const baseline = snapshotBudgetForComparison(budget);
-  const g = computeGroupComparisons(mk, baseline).find(x=>x.groupId===groupId);
-  if(!g) return;
-  const { budgeted, unbudgeted } = categoryBreakdownForGroup(mk, baseline, groupId);
-  const debtTotal = groupId==="debt" ? debtPaymentsForMonth(mk) : 0;
-  openSheet(`
-    <div class="sheet-head"><h3>${g.emoji} ${escapeHtml(g.label)}｜明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${g.budgetAmount.toLocaleString()}</span></div>
-    <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${g.actualAmount.toLocaleString()}</span></div>
-    ${g.diff!==0 ? `<div class="networth-line"><span class="label">比原本分配${g.diff>0?"多":"少"}</span><span class="value">NT$ ${Math.abs(g.diff).toLocaleString()}</span></div>` : ""}
-    ${budgeted.length ? `<div class="card-title" style="margin-top:16px; margin-bottom:4px;">有設定細項預算</div>${budgeted.map(it=>itemCompareRowHTML(it)).join("")}` : ""}
-    ${unbudgeted.length ? `<div class="card-title" style="margin-top:16px; margin-bottom:4px;">沒有設定細項預算的支出</div>${unbudgeted.map(x=>unbudgetedCategoryRowHTML(x)).join("")}` : ""}
-    ${debtTotal>0 ? `
-      <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
-        <div style="font-weight:700; margin-bottom:4px;">💳 既有負債的還款紀錄</div>
-        <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${debtTotal.toLocaleString()}</span></div>
+// 「高於原本分配」只負責一件事：找出這期真的跟原本安排不一樣、需要使用者注意的地方。
+// 兩種情況都算：①這個支出類別本期有設定獨立預算，但實際支出超過了那個預算；
+// ②這個支出類別本期沒有設定任何預算，但實際還是發生了支出。兩者都已經算進所屬大分類的
+// 實際支出，這裡只是把「值得注意」的部分挑出來，並附上所屬大分類方便直接調整。完全符合
+// 預算、或低於預算的項目一律不出現在這裡——那些是正常支出，完整支出去向可以從記帳／
+// 帳務報表查看，財務復盤這裡只負責抓出差異，一個大分類完全沒有差異就不會出現在這個區域。
+function computeOverBudgetBreakdown(mk, baseline){
+  return BUCKET_DEFS.map(bd=>{
+    const { budgeted, unbudgeted } = categoryBreakdownForGroup(mk, baseline, bd.key);
+    return {
+      groupId: bd.key, label: bd.label, emoji: bd.emoji,
+      overBudgeted: budgeted.filter(it=>it.diff>0),
+      overUnbudgeted: unbudgeted.filter(x=>x.amount>0),
+    };
+  }).filter(g=>g.overBudgeted.length>0 || g.overUnbudgeted.length>0);
+}
+// 有設定預算、且實際超支的細項：原本分配／實際支出／比原本分配多，三行看完就懂，
+// 不再附加「查看明細」——這個項目本身已經是被抓出來的重點，不需要再讓使用者往下找。
+function overBudgetedItemRowHTML(it){
+  return `
+    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
+      <div style="font-weight:700; margin-bottom:4px;">${escapeHtml(it.name)}</div>
+      <div class="networth-line"><span class="label">原本分配</span><span class="value">NT$ ${it.budgetAmount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${it.actualAmount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">比原本分配多</span><span class="value">NT$ ${it.diff.toLocaleString()}</span></div>
+    </div>
+  `;
+}
+// 沒有設定預算、但實際發生支出的類別：用「原本沒有分配預算」取代「原本分配 NT$0」，
+// 「沒安排」跟「安排了 0 元」本來就是兩件不同的事，文案上不假裝成後者。
+function overUnbudgetedItemRowHTML(x){
+  return `
+    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:10px;">
+      <div style="font-weight:700; margin-bottom:4px;">${escapeHtml(expenseCategoryLabel(x.category))}</div>
+      <div class="muted" style="margin-bottom:2px;">原本沒有分配預算</div>
+      <div class="networth-line"><span class="label">實際支出</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
+      <div class="networth-line"><span class="label">比原本安排多</span><span class="value">NT$ ${x.amount.toLocaleString()}</span></div>
+    </div>
+  `;
+}
+// 大分類在這裡只負責分組跟導航：標題＋「調整預算 ›」直接進這個大分類的細項分配畫面，
+// 不重複列大分類自己的原本分配／實際支出（那些數字在「本月預算分配」卡片已經看得到），
+// 保持這個區域乾淨，只放真正需要注意的細項。
+function overBudgetGroupBlockHTML(g){
+  const rows = g.overBudgeted.map(overBudgetedItemRowHTML).join("") + g.overUnbudgeted.map(overUnbudgetedItemRowHTML).join("");
+  return `
+    <div style="margin-top:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-weight:700;">${g.emoji} ${escapeHtml(g.label)}</div>
+        <button class="small-link review-adjust-bucket" data-group="${g.groupId}">調整預算 ›</button>
       </div>
-    ` : ""}
-    ${!budgeted.length && !unbudgeted.length && !(debtTotal>0) ? `<div class="empty-state" style="margin-top:16px;">這個大分類這期還沒有實際支出。</div>` : ""}
-  `);
-  document.querySelectorAll(".review-item-detail").forEach(el=>{
-    el.addEventListener("click", ()=>openOverspendDetail(mk, el.dataset.cat));
-  });
+      ${rows}
+    </div>
+  `;
+}
+function renderOverBudgetBreakdownHTML(mk, baseline){
+  const groups = computeOverBudgetBreakdown(mk, baseline);
+  if(!groups.length) return "";
+  return `<div class="card-title" style="margin-top:16px; margin-bottom:4px;">高於原本分配</div>${groups.map(overBudgetGroupBlockHTML).join("")}`;
 }
 
 // 真正沒有所屬大分類的記帳分類（例如舊資料的「學習」「其他」、或記帳自己新增、沒有掛在
@@ -3999,8 +3980,7 @@ function renderUnmatchedSpendBreakdownHTML(unmatchedByCat){
   `;
 }
 
-function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudget, diffGroups, unmatchedByCat){
-  const groupRows = diffGroups.map(g=>groupCompareRowHTML(g)).join("");
+function renderWithinBudgetSectionHTML(mk, baseline, monthlyBudget, actualTotal, remainVsBudget, unmatchedByCat){
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
       <div style="background:var(--light-accent); border-radius:12px; padding:12px 14px; margin-bottom:14px;">
@@ -4012,23 +3992,21 @@ function renderWithinBudgetSectionHTML(monthlyBudget, actualTotal, remainVsBudge
       </div>
       <div style="font-weight:700; margin-bottom:4px;">整體仍在本月預算內 🤍</div>
       <div class="muted" style="margin-bottom:10px;">預算內尚餘 NT$${remainVsBudget.toLocaleString()}</div>
-      ${diffGroups.length ? `<div class="muted" style="margin-bottom:4px;">有 ${diffGroups.length} 個大分類和原本的分配不太一樣</div>${groupRows}` : ""}
+      ${renderOverBudgetBreakdownHTML(mk, baseline)}
       ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat)}
     </div>
   `;
 }
 
-function renderOverBudgetSectionHTML(mk, overallDiff, overGroups, unmatchedByCat){
+function renderOverBudgetSectionHTML(mk, baseline, overallDiff, unmatchedByCat){
   const rv = getReview(mk);
   const prevReview = rv ? rv.reasonReview : null;
   const isOtherReason = !!(prevReview && prevReview.reason==="其他");
-  const groupRows = overGroups.map(g=>groupCompareRowHTML(g)).join("");
+  const overBreakdownHTML = renderOverBudgetBreakdownHTML(mk, baseline);
   return `
     <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
       <div style="font-weight:700; margin-bottom:10px;">本月實際支出比原本預算多 NT$${overallDiff.toLocaleString()}。</div>
-      ${overGroups.length
-        ? `<div class="card-title" style="margin-bottom:4px;">高於原本分配的大分類</div>${groupRows}`
-        : `<div class="muted">目前沒有單一大分類特別偏高，可能是好幾個地方加起來多一點。</div>`}
+      ${overBreakdownHTML || `<div class="muted">目前沒有單一分類特別偏高，可能是好幾個地方加起來多一點。</div>`}
       ${renderUnmatchedSpendBreakdownHTML(unmatchedByCat)}
       <div class="card-title" style="margin-top:16px; margin-bottom:8px;">這個月和原本預期不太一樣，你覺得主要原因是什麼呢～</div>
       <div class="field"><select id="rv_reason">${OVERSPEND_REASONS.map(r=>`<option value="${r}" ${prevReview&&prevReview.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>
@@ -4096,11 +4074,8 @@ function renderGardenCardHTML(){
 function wireReviewCard(mk){
   const goBtn = document.getElementById("btnGoSetupBudgetFromReview");
   if(goBtn) goBtn.addEventListener("click", ()=>openBudgetSetupForm(mk));
-  document.querySelectorAll(".review-item-detail").forEach(el=>{
-    el.addEventListener("click", ()=>openOverspendDetail(mk, el.dataset.cat));
-  });
-  document.querySelectorAll(".review-group-detail").forEach(el=>{
-    el.addEventListener("click", ()=>openGroupDetail(mk, el.dataset.group));
+  document.querySelectorAll(".review-adjust-bucket").forEach(el=>{
+    el.addEventListener("click", ()=>openBucketAllocationEditor(mk, el.dataset.group));
   });
   const reasonSelect = document.getElementById("rv_reason");
   if(reasonSelect) reasonSelect.addEventListener("change", ()=>{
@@ -4121,22 +4096,6 @@ function wireReviewCard(mk){
   });
 }
 
-/* ============ 查看本月實際支出的交易明細 ============ */
-function openOverspendDetail(mk, cat){
-  // 只列出這個分類「有算進實際支出」的交易，跟上面比較卡片顯示的實際金額對得起來；
-  // 信用卡已經記錄過的刷卡消費還款不算在這個分類的實際支出裡，所以明細也不重複列出。
-  const txs = actualExpenseTxs(txsForCycle(mk)).filter(t=>t.category===cat).sort((a,b)=>b.date.localeCompare(a.date));
-  openSheet(`
-    <div class="sheet-head"><h3>${escapeHtml(expenseCategoryLabel(cat))}｜本月明細</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    ${txs.length ? txs.map(t=>`
-      <div class="item-row">
-        <div class="item-title" style="flex:1;">${escapeHtml(t.name)}</div>
-        <div class="item-sub" style="margin-right:8px;">${t.date}${t.note?(" · "+escapeHtml(t.note)):""}</div>
-        <div style="font-weight:700;">$${t.amount.toLocaleString()}</div>
-      </div>
-    `).join("") : `<div class="empty-state">這個類別本月沒有明細</div>`}
-  `);
-}
 /* ============ 資產盤點 ============ */
 const ASSET_CATEGORIES = [
   {key:"cash", label:"現金／銀行存款", icon:"💵"},
