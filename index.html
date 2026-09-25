@@ -308,7 +308,7 @@ emoji-picker{
 }
 .farm-tile{
   aspect-ratio:1; border-radius:8px; display:flex; align-items:center; justify-content:center;
-  font-size:15px; background:var(--light-sage); transition:transform .15s ease;
+  font-size:15px; background:var(--light-sage); transition:transform .15s ease; position:relative;
 }
 .farm-tile.flower{ background:var(--light-accent); }
 .farm-tile.zombie{ background:#C9BBA0; }
@@ -327,6 +327,54 @@ emoji-picker{
   font-size:21px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
 }
 .farm-pick-btn:active{ transform:scale(.92); }
+
+/* ===== 農場訪客／稀有事件動畫：只在「今天」的格子上短暫呈現，不改變格子尺寸、
+   不影響其他格子，也不擋住點擊操作。 ===== */
+.farm-anim-layer{ position:absolute; inset:0; pointer-events:none; overflow:visible; z-index:5; }
+.farm-anim-emoji{ position:absolute; font-size:60%; line-height:1; }
+@keyframes farmAnimCrawl{
+  0%{ left:8%; bottom:6%; opacity:0; }
+  15%{ opacity:1; }
+  85%{ opacity:1; }
+  100%{ left:72%; bottom:6%; opacity:0; }
+}
+.farm-anim-caterpillar{ animation: farmAnimCrawl 2.6s ease-in-out forwards; }
+@keyframes farmAnimDangle{
+  0%{ top:-12%; opacity:0; transform:translateX(-50%) rotate(0deg); }
+  20%{ opacity:1; }
+  50%{ transform:translateX(-50%) rotate(10deg); }
+  70%{ transform:translateX(-50%) rotate(-10deg); }
+  100%{ top:-45%; opacity:0; transform:translateX(-50%) rotate(0deg); }
+}
+.farm-anim-spider{ left:50%; animation: farmAnimDangle 2.8s ease-in-out forwards; }
+@keyframes farmAnimFlyBy{
+  0%{ left:-15%; top:35%; opacity:0; }
+  10%{ opacity:1; }
+  90%{ opacity:1; }
+  100%{ left:110%; top:10%; opacity:0; }
+}
+.farm-anim-bat{ animation: farmAnimFlyBy 1.4s linear forwards; }
+@keyframes farmAnimFloat{
+  0%{ opacity:0; transform:translateX(-50%) translateY(6px); }
+  20%{ opacity:1; }
+  50%{ transform:translateX(-50%) translateY(-6px); }
+  80%{ opacity:1; }
+  100%{ opacity:0; transform:translateX(-50%) translateY(0); }
+}
+.farm-anim-ghost{ left:50%; top:38%; animation: farmAnimFloat 2.6s ease-in-out forwards; }
+@keyframes farmAnimFeather{
+  0%{ top:-20%; opacity:0; transform:translateX(-50%) rotate(0deg); }
+  15%{ opacity:1; }
+  100%{ top:90%; opacity:0; transform:translateX(-30%) rotate(70deg); }
+}
+.farm-anim-feather{ left:50%; animation: farmAnimFeather 2.8s ease-in forwards; }
+@keyframes farmAnimGlow{
+  0%{ opacity:0; }
+  30%{ opacity:1; }
+  70%{ opacity:1; }
+  100%{ opacity:0; }
+}
+.farm-anim-glow{ inset:0; left:auto; display:flex; align-items:center; justify-content:center; font-size:130%; animation: farmAnimGlow 2.2s ease-in-out forwards; }
 </style>
 </head>
 <body data-theme="pink">
@@ -401,7 +449,7 @@ emoji-picker{
     <div class="farm-grid" id="farmGrid"></div>
     <div class="farm-legend">
       <span><span class="farm-legend-swatch" style="background:var(--light-accent);"></span>🌱 已照顧</span>
-      <span><span class="farm-legend-swatch farm-legend-zombie"></span>👻 農場訪客</span>
+      <span><span class="farm-legend-swatch farm-legend-zombie"></span>🧟 殭屍入侵</span>
       <span><span class="farm-legend-swatch farm-legend-empty"></span>▫️ 尚無紀錄</span>
     </div>
     <div class="muted" id="ckGardenMsg" style="margin:14px 0; text-align:center; line-height:1.6;"></div>
@@ -659,6 +707,11 @@ function withDefaults(obj){
     theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
     customCategories:{expense:[], income:[]}, customExpenseCategories:[], budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
     seenDiscoveryNotices:[], gardenAcknowledgedMilestone:0,
+    // 農場殭屍入侵／訪客／稀有事件的永久狀態，全部是新增欄位，向後相容：
+    // 舊資料沒有這些欄位時就是這裡的預設值，不影響既有的 DB.checkins 歷史。
+    farmZombieEpoch:null, farmLastResolvedDate:null, farmMissRun:0,
+    farmZombieKind:{}, farmEatenBy:{}, farmTodayAttack:null, farmDiscovered:{},
+    farmNoVisitorPity:0, farmReturnedAfterInvasion:false, farmPostReturnCareCount:0,
     financeCycleStartDay:1, financeCycleOverrides:{},
     emergencyFund:{
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
@@ -1495,186 +1548,367 @@ document.getElementById("homeMoneyLeft").parentElement.addEventListener("click",
 });
 
 /* ============ 打卡 ============ */
+// 農場模組自己的小日期工具，避免依賴記帳模組的日期函式（兩個功能保持獨立）。
+function farmParseDate(dateStr){ return new Date(dateStr+"T00:00:00"); }
+function farmAddDays(dateStr, n){ const d = farmParseDate(dateStr); d.setDate(d.getDate()+n); return fmtDate(d); }
+function farmYearMonth(dateStr){ return dateStr.slice(0,7); }
+function farmIsNightTime(d){ const h = d.getHours(); return h>=18 || h<6; } // 18:00～隔日05:59
+function cumulativeCheckinCount(){ return Object.keys(DB.checkins).length; }
+
 function getStreak(){
-  // 允許連續漏打卡 1～2 天不會讓連續天數歸零；連續漏打卡達 3 天（含）以上才會中斷。
-  // 注意：容錯不代表漏掉的日期被算成已打卡，那幾天的 DB.checkins 依然是空的，
-  // 農場格子上也依然會顯示訪客／事件，這裡只是放寬 streak 中斷的門檻而已。
+  // 允許連續漏打卡 1～3 天不會讓連續天數歸零（grace period）；漏第 4 天才正式中斷。
+  // 作法：先找出「目前這波連續漏打卡」從今天算起有幾天（今天沒打卡也算在內），
+  // 如果已經達到 4 天，代表真的斷了，直接回傳 0；否則從最後一次實際打卡的那天
+  // 開始，往前數連續打卡天數（中間一樣允許 ≤3 天的漏打卡缺口銜接），這樣即使
+  // 使用者是在「漏 3 天內」回來打卡，也能接續原本的天數，而不是打掉重練。
+  let missRun = 0;
+  {
+    let d = new Date();
+    let guard = 0;
+    while(guard < 3650){
+      const key = fmtDate(d);
+      if(DB.checkins[key]) break;
+      missRun++;
+      d.setDate(d.getDate()-1);
+      guard++;
+    }
+  }
+  if(missRun >= 4) return 0;
   let streak = 0;
-  let d = new Date();
-  if(!DB.checkins[fmtDate(d)]) d.setDate(d.getDate()-1); // 今天還沒打卡，從昨天開始算
-  let missStreak = 0;
+  let miss = 0;
+  let d = new Date(); d.setDate(d.getDate()-missRun);
   let guard = 0;
   while(guard < 3650){
     const key = fmtDate(d);
-    if(DB.checkins[key]){
-      streak++;
-      missStreak = 0;
-    }else{
-      missStreak++;
-      if(missStreak >= 3) break;
-    }
+    if(DB.checkins[key]){ streak++; miss = 0; }
+    else{ miss++; if(miss >= 4) break; }
     d.setDate(d.getDate()-1);
     guard++;
   }
   return streak;
 }
+// 打卡成就改成看「歷史累積成功打卡次數」，不再是連續天數：中斷、被殭屍吃掉都不會扣分，
+// 已經達成的成就永遠成立。
 const CHECKIN_MILESTONES = [
-  {days:3, emoji:"🌱", label:"3天"},
-  {days:7, emoji:"🌿", label:"7天"},
-  {days:14, emoji:"🍀", label:"14天"},
-  {days:30, emoji:"🌸", label:"30天"},
-  {days:60, emoji:"🌟", label:"60天"},
-  {days:100, emoji:"🏆", label:"100天"},
+  {count:3, emoji:"🌱", label:"3次"},
+  {count:7, emoji:"🌿", label:"7次"},
+  {count:14, emoji:"🍀", label:"14次"},
+  {count:30, emoji:"🌸", label:"30次"},
+  {count:60, emoji:"🌟", label:"60次"},
+  {count:100, emoji:"🏆", label:"100次"},
 ];
 
-/* ============ 🌾 農場不速之客／小事件／訪客圖鑑 ============
-   漏打卡的日子不再固定顯示殭屍，改成從「日期 → 穩定亂數」推導出的農場訪客／稀有事件，
-   同一天永遠得到相同結果（重整、切頁、重開 App 都不會變），不需要為每個漏打卡日期
-   額外存一筆資料——只要有 DB.checkins 的既有歷史，就能隨時重新算出來。
-   所有角色／事件的資料都集中在這裡，之後要擴充新角色只需要加進這個陣列。
-   重要：這裡用的 emoji 絕對不能跟 FARM_ITEMS（「今天想種點什麼？」使用者可主動選擇
-   的清單）重複，否則使用者會分不清「自己選的」跟「漏打卡自動出現的」——新增角色前
-   請先檢查 FARM_ITEMS 目前有哪些 emoji。 */
-const FARM_VISITORS = [
-  // 一般訪客（約 90% 機率）
-  {id:"zombie", emoji:"🧟", name:"殭屍", rarity:"normal",
-    description:"趁你不在，偷偷霸佔了一格田地。",
+/* ============ 🌾 農場殭屍入侵／訪客／稀有事件／訪客圖鑑 ============
+   核心原則：任何「會造成永久結果」的抽選（殭屍種類、有沒有訪客／稀有事件、吃了哪一天
+   的植物）都只在明確的時機點（漏打卡日期第一次被解析、成功打卡當下）決定一次，
+   結果立刻寫回 DB 永久保存；render 只負責「讀取已保存的結果 → 顯示」，不會自己重抽。
+
+   為了不讓新版上線那一刻回頭處理使用者以前所有的漏打卡日期，這裡用 DB.farmZombieEpoch
+   記錄「新版邏輯第一次啟用的日期」（第一次執行到這裡時鎖定成當天，之後永遠不變）。
+   只有 epoch 當天（含）以後、真正發生的漏打卡日期，才會走新版「連續漏第4天開始吃植物」
+   的規則；epoch 之前的舊漏打卡日期，只單純顯示一個普通殭屍圖示做視覺呈現，
+   不會被回頭資解、不會被賦予特殊殭屍種類，也絕對不會吃掉任何舊植物。 */
+const FARM_ZOMBIE_KINDS = [
+  {id:"normal", emoji:"🧟", name:"殭屍", threshold:0,
+    hint:"似乎只要不小心錯過一天，就可能悄悄出現……",
     dialogues:["趁你不在偷偷霸佔了一格。","誰都不知道它是什麼時候冒出來的。","它好像很喜歡這裡鬆軟的泥土。","安安靜靜地站在原地，也不知道在等什麼。"]},
-  {id:"ghost", emoji:"👻", name:"小幽靈", rarity:"normal",
-    description:"只是路過……大概吧。",
-    dialogues:["只是路過……大概吧。","晚上比較安靜，它才敢出來晃晃。","好像想打聲招呼，又有點害羞。","飄來飄去，沒打算真的留下來。"]},
-  {id:"bug", emoji:"🐛", name:"小蟲", rarity:"normal",
-    description:"昨天的菜好像少了一口。",
+  {id:"special1", emoji:"🧟‍♂️", name:"殭屍先生", threshold:15,
+    hint:"聽說殭屍當中，偶爾會出現不太一樣的身影……",
+    dialogues:["他好像特別喜歡這一格土地。","站得直挺挺的，不太說話。","比一般的殭屍還要更沉穩一些。","看起來似乎不打算離開。"]},
+  {id:"special2", emoji:"🧟‍♀️", name:"殭屍小姐", threshold:30,
+    hint:"傳說裡，殭屍當中好像也有她的身影……",
+    dialogues:["安安靜靜地在角落待著。","偶爾輕輕晃一下，沒打算離開。","好像在等待著什麼。","比想像中更加從容。"]},
+  {id:"special3", emoji:"💀", name:"骷髏殭屍", threshold:90,
+    hint:"更安靜、更神秘的存在，據說很少現身。",
+    dialogues:["靜靜地，一句話也不說。","好像已經在這裡很久了。","對周圍的一切都不太在意。","散發著一種說不出的氣氛。"]},
+  {id:"special4", emoji:"☠️", name:"死神殭屍", threshold:180,
+    hint:"傳說中最神秘的存在，幾乎沒有人真正見過牠。",
+    dialogues:["整片田地突然安靜了下來。","沒有人知道它從哪裡來。","好像連風都繞著它走。","是這裡最古老的傳說。"]},
+];
+// 一般訪客：只在「成功打卡」之後才有機會出現，漏打卡不會再直接生成訪客。
+const FARM_GENERAL_VISITORS = [
+  {id:"caterpillar", emoji:"🐛", name:"小蟲",
+    hint:"認真照顧農場一陣子後，好像會吸引一些小訪客。",
+    check:(ctx)=> ctx.cumulative>=7,
     dialogues:["昨天的菜好像少了一口。","肚子好像有點餓。","葉子上多了一個小洞。","不慌不忙地爬過了整塊田地。"]},
-  {id:"bat", emoji:"🦇", name:"小蝙蝠", rarity:"normal",
-    description:"晚上偷偷來借住了一晚。",
-    dialogues:["晚上偷偷來借住了一晚。","天亮前就會悄悄離開。","倒掛在角落，睡得很香。","偶爾撲騰兩下翅膀，路過而已。"]},
-  {id:"spider", emoji:"🕷️", name:"小蜘蛛", rarity:"normal",
-    description:"趁沒人注意，在角落偷偷結了一張網。",
+  {id:"spider", emoji:"🕷️", name:"小蜘蛛",
+    hint:"農場角落，偶爾會有八隻腳的鄰居搬進來。",
+    check:(ctx)=> ctx.cumulative>=14,
     dialogues:["趁沒人注意，在角落偷偷結了一張網。","細細的網在風中輕輕晃著。","似乎很滿意自己選的這個角落。","安安靜靜地等在網子中間。"]},
-  // 稀有事件（約 10% 機率）
-  {id:"rainbow", emoji:"🌈", name:"雨後彩虹", rarity:"rare",
-    description:"今天下過一場小雨，農場偷偷掛上了一道彩虹。",
-    dialogues:["今天下過一場小雨，農場偷偷掛上了一道彩虹。","雨停之後，天空意外地漂亮。","顏色很快就淡去了，還好被看見了。","像是特地為了今天出現的。"]},
-  {id:"star", emoji:"✨", name:"神秘小星星", rarity:"rare",
-    description:"晚上好像有一顆星星掉進田裡了。",
-    dialogues:["晚上好像有一顆星星掉進田裡了。","閃了一下，就靜靜融進土裡不見了。","沒有人知道它是從哪裡來的。","安安靜靜地待在角落發著光。"]},
-  {id:"moon", emoji:"🌙", name:"神秘月光", rarity:"rare",
-    description:"晚上不知道為什麼，月光特別亮了一點。",
+  {id:"bat", emoji:"🦇", name:"小蝙蝠",
+    hint:"夜晚打卡的時候，好像比較容易遇見會飛的朋友。",
+    check:(ctx)=> ctx.cumulative>=30 && ctx.isNight,
+    dialogues:["晚上偷偷來借住了一晚。","天亮前就會悄悄離開。","倒掛在角落，睡得很香。","偶爾撲騰兩下翅膀，路過而已。"]},
+  {id:"ghost", emoji:"👻", name:"小幽靈",
+    hint:"只有真正經歷過農場低潮、又重新振作的人，才會遇見牠。",
+    check:(ctx)=> !!DB.farmReturnedAfterInvasion,
+    dialogues:["只是路過……大概吧。","晚上比較安靜，它才敢出來晃晃。","好像想打聲招呼，又有點害羞。","飄來飄去，沒打算真的留下來。"]},
+];
+// 稀有事件：跟一般訪客互斥，同一天只會出現其中一種（或都沒有）。
+const FARM_RARE_EVENTS = [
+  {id:"moonlight", emoji:"🌙", name:"神秘月光", chance:0.015,
+    hint:"深夜的農場，偶爾會被一種特別的光籠罩。",
+    check:(ctx)=> ctx.cumulative>=30 && ctx.isNight,
     dialogues:["晚上不知道為什麼，月光特別亮了一點。","月光靜靜灑在田地上，特別安靜。","好像被這片月光偷偷眷顧了一晚。","抬頭一看，今晚的月亮特別圓。"]},
-  {id:"feather", emoji:"🪶", name:"神秘羽毛", rarity:"rare",
-    description:"田地裡留下了一根不知道從哪裡飄來的羽毛。",
+  {id:"rainbow", emoji:"🌈", name:"雨後彩虹", chance:0.01,
+    hint:"撐過低潮、重新持續照顧一段時間後，天空可能會有驚喜。",
+    check:(ctx)=> !!DB.farmReturnedAfterInvasion && (DB.farmPostReturnCareCount||0)>=7,
+    dialogues:["今天下過一場小雨，農場偷偷掛上了一道彩虹。","雨停之後，天空意外地漂亮。","顏色很快就淡去了，還好被看見了。","像是特地為了今天出現的。"]},
+  {id:"starlight", emoji:"✨", name:"神秘小星星", chance:0.01,
+    hint:"堅持得夠久之後，農場偶爾會落下一點點光。",
+    check:(ctx)=> ctx.cumulative>=60,
+    dialogues:["晚上好像有一顆星星掉進田裡了。","閃了一下，就靜靜融進土裡不見了。","沒有人知道它是從哪裡來的。","安安靜靜地待在角落發著光。"]},
+  {id:"feather", emoji:"🪶", name:"神秘羽毛", chance:0.007,
+    hint:"集滿了不少發現以後，才可能遇見這根特別的羽毛。",
+    check:(ctx)=> ctx.cumulative>=100 && farmDiscoveredCount()>=4,
     dialogues:["田地裡留下了一根不知道從哪裡飄來的羽毛。","輕輕地插在土裡，像是誰不小心掉的。","風一吹，差點就飛走了。","沒有人知道它的主人是誰。"]},
 ];
-const FARM_RARE_CHANCE = 0.1; // 稀有事件機率，體感「偶爾才出現」即可，不需要統計絕對精準
+function farmInfoForId(id){
+  let hit = FARM_ZOMBIE_KINDS.find(x=>x.id===id);
+  if(hit) return {...hit, category:"zombie"};
+  hit = FARM_GENERAL_VISITORS.find(x=>x.id===id);
+  if(hit) return {...hit, category:"visitor"};
+  hit = FARM_RARE_EVENTS.find(x=>x.id===id);
+  if(hit) return {...hit, category:"rare"};
+  return null;
+}
+function farmZombieEmoji(kind){
+  const z = FARM_ZOMBIE_KINDS.find(x=>x.id===kind);
+  return z ? z.emoji : "🧟";
+}
 // 用既有的 epochDay()／mulberry32()（日曆語錄已經在用的穩定亂數工具）做「日期→結果」的固定推導，
-// 同一天不管呼叫幾次、用途 salt 不同，都會得到各自穩定但彼此獨立的結果。
+// 這裡只用在完全不影響任何永久結果的裝飾性文案（例如今天要挑哪一句對話／中央提示語），
+// 真正會造成永久結果的抽選一律用 Math.random()，只決定一次就寫回 DB，不會重新算。
 function farmDailyRand(dateStr, salt){
   return mulberry32(epochDay(dateStr) * 4 + salt)();
 }
-function farmEventForDate(dateStr){
-  const rarity = farmDailyRand(dateStr, 0) < FARM_RARE_CHANCE ? "rare" : "normal";
-  const pool = FARM_VISITORS.filter(v=>v.rarity===rarity);
-  const idx = Math.floor(farmDailyRand(dateStr, 1) * pool.length);
-  return pool[idx];
+// 永久解鎖圖鑑：回傳這次是不是「第一次」發現，方便呼叫端決定要不要另外處理。
+function farmDiscover(id, dateStr){
+  DB.farmDiscovered = DB.farmDiscovered || {};
+  if(DB.farmDiscovered[id]) return false;
+  DB.farmDiscovered[id] = dateStr;
+  return true;
 }
-function farmDialogueForDate(dateStr, visitor){
-  const idx = Math.floor(farmDailyRand(dateStr, 2) * visitor.dialogues.length);
-  return visitor.dialogues[idx];
+function farmDiscoveredCount(){ return Object.keys(DB.farmDiscovered||{}).length; }
+// 新版邏輯第一次啟用的日期，只鎖定一次，之後永遠不變；沒有這個日期以前的漏打卡歷史
+// 一律當作舊資料，只做單純的視覺呈現，不會被回頭攻擊。
+function ensureFarmZombieEpoch(){
+  if(!DB.farmZombieEpoch){
+    DB.farmZombieEpoch = todayStr();
+    DB.farmLastResolvedDate = null;
+    DB.farmMissRun = 0;
+    save();
+  }
 }
-// 掃描「有紀錄以來」到「昨天」為止、確定漏打卡的每一天，回推每個訪客／事件第一次出現的日期。
-// 圖鑑的解鎖狀態完全由這裡推導，不另外維護一份可能對不上的資料。
-function scanFarmVisitorHistory(){
-  const found = {};
-  const allDates = Object.keys(DB.checkins).sort();
-  const firstEver = allDates.length ? allDates[0] : null;
-  if(!firstEver) return found;
-  const today = todayStr();
-  let d = new Date(firstEver+"T00:00:00");
-  const todayDate = new Date(today+"T00:00:00");
-  let guard = 0;
-  while(d < todayDate && guard < 36500){
-    const key = fmtDate(d);
-    if(!DB.checkins[key]){
-      const visitor = farmEventForDate(key);
-      if(!found[visitor.id] || key < found[visitor.id]) found[visitor.id] = key;
+// 殭屍種類：只要目前累積成功打卡次數達到門檻的特殊殭屍，就會平均分掉 30% 機率，
+// 普通殭屍固定 70%；完全沒有特殊殭屍解鎖時，普通殭屍 100%。
+function pickFarmZombieKind(){
+  const cumulative = cumulativeCheckinCount();
+  const specials = FARM_ZOMBIE_KINDS.filter(z=>z.id!=="normal" && cumulative>=z.threshold);
+  if(!specials.length) return "normal";
+  if(Math.random() < 0.7) return "normal";
+  return specials[Math.floor(Math.random()*specials.length)].id;
+}
+// 這個漏打卡日期要吃掉哪一天的植物：只在「跟這個漏打卡日期同一個月份」裡找，
+// 從還沒被吃過、日期最近的一筆成功打卡開始吃；這個月份裡沒有符合的就不吃，
+// 絕對不會跨月份回頭尋找。
+function findFarmEatTarget(attackerDate){
+  const month = farmYearMonth(attackerDate);
+  const candidates = Object.keys(DB.checkins)
+    .filter(d => farmYearMonth(d)===month && d < attackerDate && !(DB.farmEatenBy && DB.farmEatenBy[d]))
+    .sort();
+  return candidates.length ? candidates[candidates.length-1] : null;
+}
+// 正式把一個「已經確定過去、確定漏打卡」的日期解析成永久結果：殭屍種類、
+// 是否吃植物、吃了哪一天，一次決定、立刻寫回 DB，之後不會再變動。
+// 如果這一天剛好就是「今天取消打卡」暫存的那個攻擊結果（見 farmTodayAttack），
+// 直接沿用那個已經呈現給使用者看過的結果，不會在跨到隔天、正式定案時重新抽一次。
+function resolveOneFarmDay(dateStr){
+  if(DB.checkins[dateStr]){ DB.farmMissRun = 0; return; }
+  DB.farmMissRun = (DB.farmMissRun||0) + 1;
+  const n = DB.farmMissRun;
+  let kind, targetDate = null;
+  if(DB.farmTodayAttack && DB.farmTodayAttack.date===dateStr){
+    kind = DB.farmTodayAttack.kind;
+    targetDate = DB.farmTodayAttack.targetDate || null;
+    DB.farmTodayAttack = null;
+  }else{
+    kind = pickFarmZombieKind();
+    if(n>=4){
+      targetDate = findFarmEatTarget(dateStr);
+      if(targetDate){
+        DB.farmEatenBy = DB.farmEatenBy || {};
+        DB.farmEatenBy[targetDate] = kind;
+      }
     }
-    d.setDate(d.getDate()+1);
-    guard++;
   }
-  return found;
+  DB.farmZombieKind = DB.farmZombieKind || {};
+  DB.farmZombieKind[dateStr] = kind;
+  farmDiscover(kind, dateStr);
 }
-// 「今天之前」已經連續幾天沒打卡（不含今天，今天沒過完不算漏打卡），只算farm開始使用之後的日子。
-function consecutiveMissDays(){
-  const allDates = Object.keys(DB.checkins).sort();
-  const firstEver = allDates.length ? allDates[0] : null;
-  if(!firstEver) return 0;
-  let n = 0;
-  let d = new Date(); d.setDate(d.getDate()-1);
+// 從「上次解析到哪裡」的下一天，一路解析到昨天為止（今天永遠不在這裡處理，
+// 因為今天還沒結束，狀態隨時可能因為打卡／取消而改變）。同一個日期只會被
+// 解析一次：解析過的日期會被記錄下來，之後每次呼叫都只會往前推進，不會重算舊的。
+function resolveFarmHistory(){
+  ensureFarmZombieEpoch();
+  const epoch = DB.farmZombieEpoch;
+  const yesterday = farmAddDays(todayStr(), -1);
+  let cursor = DB.farmLastResolvedDate ? farmAddDays(DB.farmLastResolvedDate, 1) : epoch;
+  if(cursor < epoch) cursor = epoch;
+  let changed = false;
   let guard = 0;
-  while(guard < 3650){
-    const key = fmtDate(d);
-    if(key < firstEver || DB.checkins[key]) break;
-    n++;
-    d.setDate(d.getDate()-1);
+  while(cursor <= yesterday && guard < 3660){
+    resolveOneFarmDay(cursor);
+    DB.farmLastResolvedDate = cursor;
+    cursor = farmAddDays(cursor, 1);
+    changed = true;
     guard++;
   }
-  return n;
+  if(changed) save();
 }
-// 每個角色／事件的「第一次發現」提示只顯示一次：跟已存在的解鎖歷史比對，
-// 找出還沒通知過的新 id，用 toast 依序顯示（不做成檢討／統計，只是輕輕提醒一下）。
-function checkNewFarmDiscoveries(){
-  const found = scanFarmVisitorHistory();
-  const seen = new Set(DB.seenDiscoveryNotices||[]);
-  const newIds = Object.keys(found).filter(id=>!seen.has(id));
-  if(!newIds.length) return;
-  newIds.forEach((id, i)=>{
-    const visitor = FARM_VISITORS.find(v=>v.id===id);
-    if(!visitor) return;
-    setTimeout(()=>{
-      const msg = visitor.rarity==="rare"
-        ? `${visitor.emoji} 發現稀有事件！${visitor.name}已加入農場圖鑑`
-        : `✨ 發現新的農場訪客！${visitor.emoji} ${visitor.name}加入了圖鑑`;
-      toast(msg);
-    }, i*2000);
-  });
-  DB.seenDiscoveryNotices = [...seen, ...newIds];
+// 「今天」如果還沒打卡，也要能立刻看到殭屍／被吃掉的格子，不必等到明天才定案。
+// 這個暫存結果會存起來，同一天不管重整幾次都不會重抽；使用者打卡後會被復原
+// （見 undoFarmTodayAttack），取消打卡後又會用同一組結果重新套用，不會因為
+// 反覆打卡／取消而多吃第二株植物（見規格「取消必須具備 idempotent 行為」）。
+function ensureFarmTodayAttack(){
+  resolveFarmHistory();
+  const today = todayStr();
+  if(DB.checkins[today]) return;
+  if(DB.farmTodayAttack && DB.farmTodayAttack.date===today) return;
+  const n = (DB.farmMissRun||0) + 1;
+  const kind = pickFarmZombieKind();
+  let targetDate = null;
+  if(n>=4){
+    targetDate = findFarmEatTarget(today);
+    if(targetDate){
+      DB.farmEatenBy = DB.farmEatenBy || {};
+      DB.farmEatenBy[targetDate] = kind;
+    }
+  }
+  DB.farmTodayAttack = { date: today, missRun: n, kind, targetDate };
+  farmDiscover(kind, today);
   save();
 }
-function farmGuideRowHTML(v, found){
+// 使用者重新打卡成功時，把「今天」暫存的攻擊結果復原：如果吃過某一天的植物，
+// 把那筆記錄還回去；只復原今天這筆尚未跨日定案的結果，不會動到其他日期
+// 已經永久成立的攻擊。
+function undoFarmTodayAttack(){
+  if(DB.farmTodayAttack && DB.farmTodayAttack.date===todayStr()){
+    if(DB.farmTodayAttack.targetDate && DB.farmEatenBy){
+      delete DB.farmEatenBy[DB.farmTodayAttack.targetDate];
+    }
+    DB.farmTodayAttack = null;
+  }
+}
+// 成功打卡當下才會判定今天的訪客／稀有事件，結果立刻存進這筆打卡紀錄裡（farm 欄位），
+// 同時把復原用的「之前的值」一起存起來，取消打卡時才能精準復原、不影響其他日期。
+function commitFarmCheckin(item){
+  resolveFarmHistory();
+  undoFarmTodayAttack();
+  const t = todayStr();
+  const yesterday = farmAddDays(t, -1);
+  const hadGapBefore = !DB.checkins[yesterday] && Object.keys(DB.checkins).length>0;
+
+  DB.checkins[t] = { item, at: new Date().toTimeString().slice(0,5) };
+
+  const prevReturned = !!DB.farmReturnedAfterInvasion;
+  const prevCareCount = DB.farmPostReturnCareCount||0;
+  const prevPity = DB.farmNoVisitorPity||0;
+
+  const hasEatenEver = Object.keys(DB.farmEatenBy||{}).length>0;
+  if(hasEatenEver && !DB.farmReturnedAfterInvasion){
+    DB.farmReturnedAfterInvasion = true;
+    DB.farmPostReturnCareCount = 1;
+  }else if(DB.farmReturnedAfterInvasion){
+    DB.farmPostReturnCareCount = prevCareCount + 1;
+  }
+
+  const cumulative = cumulativeCheckinCount();
+  const isNight = farmIsNightTime(new Date());
+  const ctx = {cumulative, isNight};
+
+  let rareEvent = null, visitor = null;
+  for(const r of FARM_RARE_EVENTS){
+    if(r.check(ctx) && Math.random() < r.chance){ rareEvent = r.id; break; }
+  }
+  if(!rareEvent){
+    const eligibleVisitors = FARM_GENERAL_VISITORS.filter(v=>v.check(ctx));
+    if(eligibleVisitors.length){
+      const hit = Math.random() < 0.10;
+      const pityHit = !hit && (prevPity+1) >= 20;
+      if(hit || pityHit){
+        visitor = eligibleVisitors[Math.floor(Math.random()*eligibleVisitors.length)].id;
+        DB.farmNoVisitorPity = 0;
+      }else{
+        DB.farmNoVisitorPity = prevPity + 1;
+      }
+    }
+  }
+  if(rareEvent) farmDiscover(rareEvent, t);
+  if(visitor) farmDiscover(visitor, t);
+
+  DB.checkins[t].farm = {
+    visitor, rareEvent, resolved:true,
+    prevPity, prevReturned, prevCareCount,
+  };
+  save();
+  return { hadGapBefore };
+}
+function farmGuideRowHTML(v, found, isRare){
   const seenDate = found[v.id];
   if(!seenDate){
     return `<div class="item-row">
       <div style="font-size:22px; width:28px; text-align:center; opacity:.35; filter:grayscale(1);">❓</div>
-      <div style="flex:1;"><div class="item-title muted">尚未發現</div></div>
+      <div style="flex:1;"><div class="item-title muted">尚未發現</div><div class="item-sub muted">${escapeHtml(v.hint||"")}</div></div>
     </div>`;
   }
   const [y,m,d] = seenDate.split("-");
-  const rareTag = v.rarity==="rare" ? ` <span class="pill" style="font-size:10px; padding:2px 8px; margin-left:4px;">✨ 稀有</span>` : "";
+  const rareTag = isRare ? ` <span class="pill" style="font-size:10px; padding:2px 8px; margin-left:4px;">✨ 稀有</span>` : "";
   return `<div class="item-row">
     <div style="font-size:22px; width:28px; text-align:center;">${v.emoji}</div>
-    <div style="flex:1;">
-      <div class="item-title">${escapeHtml(v.name)}${rareTag}</div>
-      <div class="item-sub">「${escapeHtml(v.description)}」</div>
-    </div>
+    <div style="flex:1;"><div class="item-title">${escapeHtml(v.name)}${rareTag}</div></div>
     <div class="item-right muted" style="font-size:11.5px;">${parseInt(y)}/${parseInt(m)}/${parseInt(d)}</div>
   </div>`;
 }
 function openFarmGuide(){
-  const found = scanFarmVisitorHistory();
-  const normalList = FARM_VISITORS.filter(v=>v.rarity==="normal");
-  const rareList = FARM_VISITORS.filter(v=>v.rarity==="rare");
-  const totalFound = FARM_VISITORS.filter(v=>found[v.id]).length;
-  const pct = Math.round(totalFound/FARM_VISITORS.length*100);
+  const found = DB.farmDiscovered||{};
+  const totalEntries = FARM_ZOMBIE_KINDS.length + FARM_GENERAL_VISITORS.length + FARM_RARE_EVENTS.length;
+  const totalFound = Object.keys(found).length;
+  const pct = totalEntries ? Math.round(totalFound/totalEntries*100) : 0;
   openSheet(`
     <div class="sheet-head"><h3>📖 農場訪客圖鑑</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="muted" style="margin-bottom:6px;">已發現 ${totalFound} / ${FARM_VISITORS.length}</div>
+    <div class="muted" style="margin-bottom:6px;">已發現 ${totalFound} / ${totalEntries}</div>
     <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" style="width:${pct}%"></div></div>
+    <div class="muted" style="font-weight:700; margin-bottom:4px;">🧟 入侵者</div>
+    <div style="margin-bottom:16px;">${FARM_ZOMBIE_KINDS.map(v=>farmGuideRowHTML(v, found)).join("")}</div>
     <div class="muted" style="font-weight:700; margin-bottom:4px;">🌾 農場訪客</div>
-    <div style="margin-bottom:16px;">${normalList.map(v=>farmGuideRowHTML(v, found)).join("")}</div>
+    <div style="margin-bottom:16px;">${FARM_GENERAL_VISITORS.map(v=>farmGuideRowHTML(v, found)).join("")}</div>
     <div class="muted" style="font-weight:700; margin-bottom:4px;">✨ 稀有發現</div>
-    <div>${rareList.map(v=>farmGuideRowHTML(v, found)).join("")}</div>
+    <div>${FARM_RARE_EVENTS.map(v=>farmGuideRowHTML(v, found, true)).join("")}</div>
   `);
+}
+// 每個角色／事件的「第一次發現」提示只顯示一次，不管是打卡當下遇到的、還是
+// 漏打卡日期在背景解析時遇到的，都統一在這裡用永久保存的 seenDiscoveryNotices
+// 比對，同一天重新開啟只會重播動畫、不會再跳一次這個 toast。
+function checkNewFarmDiscoveries(){
+  const found = DB.farmDiscovered || {};
+  const seen = new Set(DB.seenDiscoveryNotices||[]);
+  const newIds = Object.keys(found).filter(id=>!seen.has(id));
+  if(!newIds.length) return;
+  newIds.forEach((id, i)=>{
+    const info = farmInfoForId(id);
+    if(!info) return;
+    setTimeout(()=>{
+      const msg = info.category==="rare"
+        ? `${info.emoji} 發現稀有事件！${info.name}已加入農場圖鑑`
+        : info.category==="zombie"
+          ? `${info.emoji} 農場圖鑑更新：發現了${info.name}`
+          : `✨ 發現新的農場訪客！${info.emoji} ${info.name}加入了圖鑑`;
+      toast(msg);
+    }, (i+1)*2000);
+  });
+  DB.seenDiscoveryNotices = [...seen, ...newIds];
+  save();
 }
 
 /* ===== 田地作物／寵物選擇 ===== */
@@ -1696,12 +1930,20 @@ function openFarmPicker(){
   document.querySelectorAll(".farm-pick-btn").forEach(b=>{
     b.addEventListener("click", ()=>{
       const item = b.dataset.e;
-      // 回歸打卡的歡迎訊息只在「今天本來還沒打卡、之前有漏過」時顯示一次，
-      // 不會影響任何紀錄，也不代表漏掉的日期被補簽了。
-      const isReturning = !DB.checkins[todayStr()] && consecutiveMissDays()>=1;
-      DB.checkins[todayStr()] = {item, at:new Date().toTimeString().slice(0,5)};
-      save(); closeSheet();
-      if(isReturning){
+      const t = todayStr();
+      if(DB.checkins[t]){
+        // 同一天重新選植物：只換掉今天種下的東西，不重新抽訪客／稀有事件、
+        // 不增加累積成功打卡次數、不動防臉黑計數，也不算成第二次打卡。
+        DB.checkins[t].item = item;
+        DB.checkins[t].at = new Date().toTimeString().slice(0,5);
+        save(); closeSheet();
+        toast(`已經照顧好今天的田地 ${item}`);
+        renderAll();
+        return;
+      }
+      const { hadGapBefore } = commitFarmCheckin(item);
+      closeSheet();
+      if(hadGapBefore){
         const RETURN_MSGS = ["🌱 你回來啦！今天的農場救援成功！", "不速之客先退散啦 🧟💨 今天的田地重新熱鬧起來了！", "歡迎回來 🌾 農場今天又多了一點生氣。"];
         toast(RETURN_MSGS[Math.floor(Math.random()*RETURN_MSGS.length)]);
       }else{
@@ -1719,7 +1961,14 @@ function doCheckin(){
 }
 function cancelCheckin(){
   const t = todayStr();
-  if(!DB.checkins[t]) return;
+  const rec = DB.checkins[t];
+  if(!rec) return;
+  const meta = rec.farm;
+  if(meta){
+    DB.farmNoVisitorPity = meta.prevPity!=null ? meta.prevPity : (DB.farmNoVisitorPity||0);
+    DB.farmReturnedAfterInvasion = meta.prevReturned!=null ? meta.prevReturned : !!DB.farmReturnedAfterInvasion;
+    DB.farmPostReturnCareCount = meta.prevCareCount!=null ? meta.prevCareCount : (DB.farmPostReturnCareCount||0);
+  }
   delete DB.checkins[t];
   save(); toast("已取消今日打卡"); renderAll();
 }
@@ -1735,11 +1984,72 @@ function getTileItem(dateStr, val){
   let h = 0; for(let c=0;c<dateStr.length;c++) h = (h*31+dateStr.charCodeAt(c))>>>0;
   return FLOWER_EMOJIS[h % FLOWER_EMOJIS.length];
 }
+// 點擊一個殭屍格子（漏打卡或被吃掉的舊植物）時的對話：純展示，不會再重新抽任何結果。
+function showFarmZombieDialogue(dateKey){
+  const eatenKind = DB.farmEatenBy && DB.farmEatenBy[dateKey];
+  if(eatenKind){
+    const original = getTileItem(dateKey, DB.checkins[dateKey]);
+    const z = FARM_ZOMBIE_KINDS.find(x=>x.id===eatenKind) || FARM_ZOMBIE_KINDS[0];
+    toast(`${z.emoji} 這天原本種的 ${original} 被吃掉了……`);
+    return;
+  }
+  const today = todayStr();
+  const epoch = DB.farmZombieEpoch || today;
+  let kind = "normal";
+  if(dateKey===today && DB.farmTodayAttack && DB.farmTodayAttack.date===today){
+    kind = DB.farmTodayAttack.kind;
+  }else if(dateKey>=epoch && DB.farmZombieKind && DB.farmZombieKind[dateKey]){
+    kind = DB.farmZombieKind[dateKey];
+  }
+  const z = FARM_ZOMBIE_KINDS.find(x=>x.id===kind) || FARM_ZOMBIE_KINDS[0];
+  const line = z.dialogues[Math.floor(farmDailyRand(dateKey, 7)*z.dialogues.length)];
+  toast(`${z.emoji} ${z.name}：「${line}」`);
+}
+const FARM_ANIM_SESSION_KEY = "lifeflow_farm_anim_played_date";
+// 今天訪客／稀有事件的動畫：同一個「開啟期間」只播一次（用 sessionStorage 記錄），
+// 但每次重新開啟生活小夥伴（新的分頁／新的 session）都會再播一次，直到日期真的變了。
+function farmAnimClassFor(id){
+  const map = {caterpillar:"farm-anim-caterpillar", spider:"farm-anim-spider", bat:"farm-anim-bat", ghost:"farm-anim-ghost", feather:"farm-anim-feather"};
+  return map[id] || "farm-anim-glow";
+}
+function renderFarmTodayAnimation(){
+  // renderAll() re-renders every tab's content regardless of which one is actually visible
+  // (existing app-wide pattern), so renderCheckin() runs even while the user is looking at
+  // the home page. Only mark today's animation as "played" once the 打卡 view is actually
+  // the one on screen, otherwise it would silently burn its one-per-session play before the
+  // user ever switches over to see it.
+  const checkinView = document.getElementById("view-checkin");
+  if(!checkinView || !checkinView.classList.contains("active")) return;
+  const today = todayStr();
+  const rec = DB.checkins[today];
+  const meta = rec && rec.farm;
+  const eventId = meta && (meta.rareEvent || meta.visitor);
+  if(!eventId) return;
+  let playedDate = null;
+  try{ playedDate = sessionStorage.getItem(FARM_ANIM_SESSION_KEY); }catch(e){}
+  if(playedDate===today) return;
+  const box = document.getElementById("farmGrid");
+  const tile = box && box.querySelector(".farm-tile.today");
+  if(!tile) return;
+  const info = farmInfoForId(eventId);
+  if(!info) return;
+  const layer = document.createElement("div");
+  layer.className = "farm-anim-layer";
+  const span = document.createElement("span");
+  span.className = "farm-anim-emoji " + farmAnimClassFor(eventId);
+  span.textContent = info.emoji;
+  layer.appendChild(span);
+  tile.appendChild(layer);
+  try{ sessionStorage.setItem(FARM_ANIM_SESSION_KEY, today); }catch(e){}
+  setTimeout(()=>{ if(layer.parentNode) layer.parentNode.removeChild(layer); }, 3200);
+}
 function renderFarm(){
+  ensureFarmTodayAttack();
   const box = document.getElementById("farmGrid");
   const allDates = Object.keys(DB.checkins).sort();
   const firstEver = allDates.length ? allDates[0] : null;
   const today = todayStr();
+  const epoch = DB.farmZombieEpoch || today;
   const dayCount = daysInMonth(farmYear, farmMonth+1);
   let html = "";
   for(let day=1; day<=dayCount; day++){
@@ -1747,22 +2057,36 @@ function renderFarm(){
     const val = DB.checkins[key];
     const checked = !!val;
     const isToday = key===today;
+    const eatenKind = DB.farmEatenBy && DB.farmEatenBy[key];
     let cls = "farm-tile", content = "";
-    if(checked){
+    if(checked && eatenKind){
+      // 這天原本成功打卡，後來被殭屍吃掉：原始成功打卡資料完整保留在 DB.checkins，
+      // 只是農場格子改顯示實際攻擊的殭屍，不會恢復植物。
+      cls += " zombie";
+      content = farmZombieEmoji(eatenKind);
+    }else if(checked){
       cls += " flower";
       content = getTileItem(key, val);
     }else if(isToday){
-      cls += " pending";
+      if(DB.farmTodayAttack && DB.farmTodayAttack.date===today){
+        cls += " zombie";
+        content = farmZombieEmoji(DB.farmTodayAttack.kind);
+      }else{
+        cls += " pending";
+      }
     }else if(key > today){
       // 還沒發生的未來日期：不能判定漏打卡，維持空白
       cls += " empty";
     }else if(!firstEver || key < firstEver){
       cls += " empty";
-    }else{
-      // 過去確定漏打卡的日子：不再固定顯示殭屍，改成用日期穩定推導出的農場訪客／稀有事件，
-      // 同一天永遠是同一個結果（見 farmEventForDate），CSS class 沿用 zombie 避免大幅改動樣式。
+    }else if(key < epoch){
+      // 新版邏輯上線以前的舊漏打卡日期：只做單純視覺呈現，不建立殭屍種類／吃植物狀態。
       cls += " zombie";
-      content = farmEventForDate(key).emoji;
+      content = "🧟";
+    }else{
+      const kind = DB.farmZombieKind && DB.farmZombieKind[key];
+      cls += " zombie";
+      content = farmZombieEmoji(kind||"normal");
     }
     if(isToday) cls += " today";
     html += `<div class="${cls}" title="${key}">${content}</div>`;
@@ -1772,13 +2096,9 @@ function renderFarm(){
   if(todayTile && !!DB.checkins[today]) todayTile.addEventListener("click", openFarmPicker);
   box.querySelectorAll(".farm-tile.zombie").forEach(tile=>{
     tile.style.cursor = "pointer";
-    tile.addEventListener("click", ()=>{
-      const dateKey = tile.title;
-      const visitor = farmEventForDate(dateKey);
-      const line = farmDialogueForDate(dateKey, visitor);
-      toast(`${visitor.emoji} ${visitor.name}：「${line}」`);
-    });
+    tile.addEventListener("click", ()=>showFarmZombieDialogue(tile.title));
   });
+  renderFarmTodayAnimation();
 }
 
 function renderFarmTitle(){
@@ -1791,6 +2111,7 @@ const FARM_MSG_MISS_1 = ["昨天好像有個不速之客偷偷跑進農場了…
 const FARM_MSG_MISS_2 = ["農場好像越來越熱鬧了……只是來的不是你🤣", "不速之客開始呼朋引伴了，快回來看看吧！"];
 const FARM_MSG_MISS_3PLUS = "🚨 農場好像快被佔領啦！再不回來看看，這裡真的要變成它們的家了 🧟👻🌾";
 function renderCheckin(){
+  resolveFarmHistory();
   renderFarmTitle();
   const now = new Date();
   const onCurrentMonth = farmYear===now.getFullYear() && farmMonth===now.getMonth();
@@ -1800,8 +2121,9 @@ function renderCheckin(){
   document.getElementById("btnFarmBackToToday").style.display = onCurrentMonth ? "none" : "inline-block";
   const todayDone = !!DB.checkins[todayStr()];
   const streak = getStreak();
-  const hasHistory = Object.keys(DB.checkins).length>0;
-  const missDays = consecutiveMissDays();
+  const cumulative = cumulativeCheckinCount();
+  const hasHistory = cumulative>0;
+  const missDays = todayDone ? 0 : (DB.farmMissRun||0) + 1;
 
   let msg;
   if(todayDone) msg = FARM_MSG_TODAY_DONE[Math.floor(farmDailyRand(todayStr(),3)*FARM_MSG_TODAY_DONE.length)];
@@ -1819,7 +2141,7 @@ function renderCheckin(){
   document.getElementById("btnCancelCheckin").style.display = todayDone ? "block" : "none";
 
   document.getElementById("ckBadgeStrip").innerHTML = CHECKIN_MILESTONES.map(m=>{
-    const unlocked = streak>=m.days;
+    const unlocked = cumulative>=m.count;
     return `<div class="badge-item ${unlocked?'':'locked'}"><div class="badge-emoji">${m.emoji}</div><span>${m.label}</span></div>`;
   }).join("");
 
@@ -1828,7 +2150,12 @@ function renderCheckin(){
   hist.innerHTML = dates.length? dates.map(d=>{
     const v = DB.checkins[d];
     const icon = getTileItem(d, v);
-    return `<div class="item-row"><span class="item-title">${d}</span><span class="item-right pill">${icon} 已打卡</span></div>`;
+    const eatenKind = DB.farmEatenBy && DB.farmEatenBy[d];
+    const eatenLine = eatenKind ? `<div class="item-sub" style="margin-top:2px;">${farmZombieEmoji(eatenKind)} 已被殭屍吃掉</div>` : "";
+    return `<div class="item-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+      <div style="display:flex; justify-content:space-between; width:100%;"><span class="item-title">${d}</span><span class="item-right pill">${icon} 已打卡</span></div>
+      ${eatenLine}
+    </div>`;
   }).join("") : `<div class="empty-state">還沒有打卡紀錄，從今天開始吧！</div>`;
 }
 document.getElementById("btnDoCheckin").addEventListener("click", doCheckin);
