@@ -2177,15 +2177,32 @@ document.getElementById("btnFarmBackToToday").addEventListener("click", ()=>{
 
 /* ============ 待辦 ============ */
 const TODO_COLORS = ["#C96A5C","#D99A5B","#D9C15B","#8FA688","#6FA89D","#7A9BAD","#7B8CC4","#9B8AA6","#D98BA3","#9B9A97"];
+// todo.time 是選填的「預計執行時間」（HH:MM），跟 doneAt（實際按下完成的時間）是兩件事，
+// 不互相覆蓋。舊資料沒有這個欄位時 getTodoTime 一律視為「未設定時間」，不補寫回資料。
+function getTodoTime(t){ return (t && t.time) ? t.time : null; }
+// 排序規則：有時間的依時間由早到晚排最前面；沒時間的統一排在後面，彼此之間維持原本資料順序
+// （原生 Array.sort 本身就是穩定排序，兩個都沒時間時回傳 0 即可保留原順序，不用額外處理）。
+function sortTodosByTime(list){
+  return list.slice().sort((a,b)=>{
+    const ta = getTodoTime(a), tb = getTodoTime(b);
+    if(ta && tb) return ta.localeCompare(tb);
+    if(ta && !tb) return -1;
+    if(!ta && tb) return 1;
+    return 0;
+  });
+}
 // 顏色只呈現在待辦文字本身，做成一個貼合文字長度的色塊標籤（原色background + 白字），
-// 不套用在整列 item 上，也不淡化使用者原本選擇的顏色。
+// 不套用在整列 item 上，也不淡化使用者原本選擇的顏色。有設定時間時，時間跟事項名稱一起
+// 放進同一個色塊/文字裡，不另外包成獨立小標籤；沒時間就完全維持原本只顯示名稱的樣子。
 function todoRowHTML(t, showDate){
   const sub = [];
   if(showDate && t.date) sub.push(todoDateLabel(t.date));
   if(t.doneAt) sub.push("完成於 "+t.doneAt);
+  const time = getTodoTime(t);
+  const displayText = time ? `${time}　${t.title}` : t.title;
   const titleHTML = t.color
-    ? `<span class="item-title ${t.done?'done':''}" style="display:inline-block; max-width:100%; width:fit-content; word-break:break-word; background:${t.color}; color:#fff; padding:3px 10px; border-radius:8px;${t.done?" opacity:0.75;":""}">${escapeHtml(t.title)}</span>`
-    : `<div class="item-title ${t.done?'done':''}" style="word-break:break-word;">${escapeHtml(t.title)}</div>`;
+    ? `<span class="item-title ${t.done?'done':''}" style="display:inline-block; max-width:100%; width:fit-content; word-break:break-word; background:${t.color}; color:#fff; padding:3px 10px; border-radius:8px;${t.done?" opacity:0.75;":""}">${escapeHtml(displayText)}</span>`
+    : `<div class="item-title ${t.done?'done':''}" style="word-break:break-word;">${escapeHtml(displayText)}</div>`;
   return `<div class="item-row" data-id="${t.id}">
     <div class="check-circle todo-check ${t.done?'done':''}" data-id="${t.id}">${t.done?'✓':''}</div>
     <div class="todo-edit-target" data-id="${t.id}" style="cursor:pointer; min-width:0;">
@@ -2241,7 +2258,7 @@ function renderTodo(){
       return;
     }
     const label = `📅 ${d.replace(/-/g,"/")}`;
-    const dayTodos = DB.todos.filter(t=>t.date===d);
+    const dayTodos = sortTodosByTime(DB.todos.filter(t=>t.date===d));
     if(!dayTodos.length){
       box0.innerHTML = `<div class="card">
         <div class="card-title">${label}</div>
@@ -2272,13 +2289,23 @@ function renderTodo(){
 
   // 完成的待辦不再從「全部／今天」清單移除，而是保留原本位置＋打勾／刪除線，
   // 使用者才不會覺得「一按完成，東西就不見了」；「已完成」分類則另外用來回顧所有已完成事項。
-  const overdue = todos.filter(t=>t.date && t.date<today).sort((a,b)=>a.date.localeCompare(b.date));
+  // 逾期一樣先照日期排；同一天有好幾筆的話，時間依然是早到晚、沒時間排最後（跟其他分組同一套規則），
+  // 但時間本身完全不影響「算不算逾期」，逾期與否只看 date，這裡的排序不會動到判斷邏輯。
+  const overdue = todos.filter(t=>t.date && t.date<today).sort((a,b)=>{
+    const byDate = a.date.localeCompare(b.date);
+    if(byDate) return byDate;
+    const ta = getTodoTime(a), tb = getTodoTime(b);
+    if(ta && tb) return ta.localeCompare(tb);
+    if(ta && !tb) return -1;
+    if(!ta && tb) return 1;
+    return 0;
+  });
   const overdueOutstanding = overdue.filter(t=>!t.done).length;
   const scheduled = todos.filter(t=>t.date && t.date>=today);
 
   let html = "";
   if(todoFilter==="today"){
-    const todayTodos = scheduled.filter(t=>t.date===today);
+    const todayTodos = sortTodosByTime(scheduled.filter(t=>t.date===today));
     html += todayTodos.length
       ? todoGroupCard(`📅 今天｜${todoDateLabel(today)==="今天"?today.slice(5).replace("-","/"):today}`, todayTodos, false)
       : `<div class="card empty-state">今天還沒有安排事項</div>`;
@@ -2296,7 +2323,7 @@ function renderTodo(){
       const label = todoDateLabel(d);
       const isRelative = (label==="今天" || label==="明天");
       const title = isRelative ? `📅 ${label}｜${d.slice(5).replace("-","/")}` : `📅 ${label}`;
-      html += todoGroupCard(title, byDate[d], false);
+      html += todoGroupCard(title, sortTodosByTime(byDate[d]), false);
     }
     if(!html){
       html = `<div class="card empty-state">目前沒有待辦事項，點右下角 ＋ 新增一個吧</div>`;
@@ -2396,10 +2423,12 @@ function openTodoForm(editId, presetDate){
   const editing = editId ? DB.todos.find(x=>x.id===editId) : null;
   const initColor = editing ? (editing.color||null) : null;
   const initDate = editing ? (editing.date||todayStr()) : (presetDate || todayStr());
+  const initTime = editing ? (editing.time||"") : "";
   openSheet(`
     <div class="sheet-head"><h3>${editing?"編輯待辦":"新增待辦"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>事項名稱</label><input id="f_title" placeholder="例如：繳水電費" value="${editing?escapeHtml(editing.title):""}"></div>
     <div class="field"><label>日期</label><input id="f_date" type="date" value="${initDate}"></div>
+    <div class="field"><label>時間（選填）</label><input id="f_time" type="time" value="${initTime}"></div>
     <div class="field"><label>標籤顏色（可選，自己挑一個喜歡的分類色）</label>
       <div class="color-picker" id="f_color">
         ${TODO_COLORS.map(c=>`<button class="color-swatch ${initColor===c?'active':''}" data-c="${c}" style="background:${c};"></button>`).join("")}
@@ -2419,12 +2448,13 @@ function openTodoForm(editId, presetDate){
   document.getElementById("f_submit").addEventListener("click", ()=>{
     const title = document.getElementById("f_title").value.trim();
     const date = document.getElementById("f_date").value || todayStr();
+    const time = document.getElementById("f_time").value || null; // 選填：留空就是「未設定時間」，不是 deadline
     if(!title){ toast("請輸入事項名稱"); return; }
     if(editing){
-      editing.title=title; editing.date=date; editing.color=color;
+      editing.title=title; editing.date=date; editing.time=time; editing.color=color;
       save(); closeSheet(); renderAll(); toast("已更新待辦");
     }else{
-  DB.todos.push({id:uid(), title, date, done:false, doneAt:null, doneDate:null, color});
+  DB.todos.push({id:uid(), title, date, time, done:false, doneAt:null, doneDate:null, color});
       save(); closeSheet(); renderAll(); toast("已新增待辦");
     }
   });
@@ -5170,7 +5200,7 @@ function exportBackup(){
     const ws = XLSX.utils.json_to_sheet(rows && rows.length ? rows : [{}]);
     XLSX.utils.book_append_sheet(wb, ws, name);
   };
-  addSheet("待辦", DB.todos.map(t=>({id:t.id, title:t.title, date:t.date||"", done:!!t.done, doneAt:t.doneAt||"", doneDate:t.doneDate||"", color:t.color||""})));
+  addSheet("待辦", DB.todos.map(t=>({id:t.id, title:t.title, date:t.date||"", time:t.time||"", done:!!t.done, doneAt:t.doneAt||"", doneDate:t.doneDate||"", color:t.color||""})));
   addSheet("打卡", Object.entries(DB.checkins).map(([date,v])=>({date, item:(v&&v.item)||"", at:(v&&v.at)||""})));
   addSheet("記帳", DB.transactions.map(t=>({
     id:t.id, type:t.type, name:t.name, amount:t.amount, category:t.category, date:t.date, note:t.note||"",
@@ -5222,7 +5252,7 @@ function importBackupFromWorkbook(wb){
   sheetRows(wb, "設定").forEach(r=>{ settings[r.key] = r.value; });
 
   const todos = sheetRows(wb, "待辦").map(r=>({
-    id: r.id || uid(), title: String(r.title||""), date: String(r.date||""),
+    id: r.id || uid(), title: String(r.title||""), date: String(r.date||""), time: r.time || null,
     done: r.done===true || r.done==="TRUE" || r.done===1, doneAt: r.doneAt || null, doneDate: r.doneDate || null, color: r.color || null
   }));
   const checkins = {};
