@@ -2176,7 +2176,7 @@ document.getElementById("btnFarmBackToToday").addEventListener("click", ()=>{
 });
 
 /* ============ 待辦 ============ */
-const TODO_COLORS = ["#C96A5C","#D99A5B","#D9C15B","#8FA688","#6FA89D","#7A9BAD","#7B8CC4","#9B8AA6","#D98BA3","#9B9A97"];
+const TODO_COLORS = ["#C96A5C","#D99A5B","#D9C15B","#8FA688","#6FA89D","#7A9BAD","#7B8CC4","#B49FC2","#D98BA3","#9B9A97","#90C5DF","#A67C52"];
 // todo.time 是選填的「預計執行時間」（HH:MM），跟 doneAt（實際按下完成的時間）是兩件事，
 // 不互相覆蓋。舊資料沒有這個欄位時 getTodoTime 一律視為「未設定時間」，不補寫回資料。
 function getTodoTime(t){ return (t && t.time) ? t.time : null; }
