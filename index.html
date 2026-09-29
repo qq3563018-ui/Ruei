@@ -2428,7 +2428,13 @@ function openTodoForm(editId, presetDate){
     <div class="sheet-head"><h3>${editing?"編輯待辦":"新增待辦"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
     <div class="field"><label>事項名稱</label><input id="f_title" placeholder="例如：繳水電費" value="${editing?escapeHtml(editing.title):""}"></div>
     <div class="field"><label>日期</label><input id="f_date" type="date" value="${initDate}"></div>
-    <div class="field"><label>時間（選填）</label><input id="f_time" type="time" value="${initTime}"></div>
+    <div class="field">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:5px;">
+        <label style="margin:0;">時間（選填）</label>
+        <button type="button" class="small-link" id="f_time_clear" style="display:${initTime?"inline-block":"none"};">清除時間</button>
+      </div>
+      <input id="f_time" type="time" value="${initTime}">
+    </div>
     <div class="field"><label>標籤顏色（可選，自己挑一個喜歡的分類色）</label>
       <div class="color-picker" id="f_color">
         ${TODO_COLORS.map(c=>`<button class="color-swatch ${initColor===c?'active':''}" data-c="${c}" style="background:${c};"></button>`).join("")}
@@ -2436,6 +2442,17 @@ function openTodoForm(editId, presetDate){
     </div>
     <button class="btn-main" id="f_submit">儲存</button>
   `);
+  // 時間 input 不能只靠瀏覽器原生的清除方式（手機上常常清不乾淨），所以另外做一個小型文字
+  // 操作，直接把 input 的 value 設成空字串；「清除時間」本身的顯示/隱藏只看 input 目前有沒有值。
+  const timeInput = document.getElementById("f_time");
+  const timeClearBtn = document.getElementById("f_time_clear");
+  timeInput.addEventListener("input", ()=>{
+    timeClearBtn.style.display = timeInput.value ? "inline-block" : "none";
+  });
+  timeClearBtn.addEventListener("click", ()=>{
+    timeInput.value = "";
+    timeClearBtn.style.display = "none";
+  });
   let color = initColor;
   document.querySelectorAll("#f_color .color-swatch").forEach(b=>{
     b.addEventListener("click", ()=>{
