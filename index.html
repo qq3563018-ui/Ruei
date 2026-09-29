@@ -1122,6 +1122,7 @@ function renderJournal(){
     box.innerHTML = `
       ${entry.mood ? `<div style="font-size:22px; margin-bottom:8px;">${entry.mood}</div>` : ""}
       <div class="journal-display">${escapeHtml(entry.text || "")}</div>
+      ${entry.time ? `<div class="muted" style="font-size:11.5px; margin-top:6px;">${entry.time} · 留下這篇小日記</div>` : ""}
       <button class="small-link" id="btnEditJournal" style="margin-top:8px;">編輯</button>
     `;
     document.getElementById("btnEditJournal").addEventListener("click", ()=>{
@@ -1160,7 +1161,8 @@ function renderJournal(){
     if(!text && !journalDraftMood) { journalEditing=false; journalDraftText=null; renderJournal(); return; }
     const existing = findTodayJournal();
     if(existing){
-      existing.text = text; existing.mood = journalDraftMood; existing.time = new Date().toTimeString().slice(0,5);
+      // time 是「第一次留下這篇小日記的時間」，編輯只改文字／心情，不重新蓋掉 time。
+      existing.text = text; existing.mood = journalDraftMood;
     }else{
       DB.journal.push({id:uid(), date:todayStr(), time:new Date().toTimeString().slice(0,5), mood:journalDraftMood, text});
     }
@@ -1172,26 +1174,177 @@ function renderJournal(){
 
 function openJournalHistory(){
   const entries = [...DB.journal].sort((a,b)=>b.date.localeCompare(a.date));
+  const header = `<div class="sheet-head"><h3>過去的小日記</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <button class="small-link" id="btnJournalDatePicker" style="margin-bottom:10px;">📅 選擇日期</button>`;
   if(!entries.length){
-    openSheet(`
-      <div class="sheet-head"><h3>過去的小日記</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-      <div class="empty-state">還沒有留下任何紀錄，想寫的時候再回來就好。</div>
-    `);
+    openSheet(`${header}<div class="empty-state">還沒有留下任何紀錄，想寫的時候再回來就好。</div>`);
+    document.getElementById("btnJournalDatePicker").addEventListener("click", openJournalDatePicker);
     return;
   }
-  let html = `<div class="sheet-head"><h3>過去的小日記</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>`;
+  let html = header;
   let lastMonth = "";
   for(const e of entries){
     const [y,m,d] = e.date.split("-");
     const monthLabel = `${y}年${parseInt(m)}月`;
     if(monthLabel!==lastMonth){ html += `<div class="journal-month-label">${monthLabel}</div>`; lastMonth = monthLabel; }
     const preview = (e.text||"").length>60 ? e.text.slice(0,60)+"…" : (e.text||"");
-    html += `<div class="journal-entry">
-      <div class="journal-entry-date">${parseInt(m)}/${parseInt(d)}${e.mood?(" "+e.mood):""}</div>
+    html += `<div class="journal-entry" data-id="${e.id}" style="cursor:pointer;">
+      <div class="journal-entry-date">${parseInt(m)}/${parseInt(d)}${e.time?(" "+e.time):""}${e.mood?(" "+e.mood):""}</div>
       <div class="journal-entry-text">${preview?escapeHtml(preview):`<span class="muted">（只留下了心情，沒有文字）</span>`}</div>
     </div>`;
   }
   openSheet(html);
+  document.getElementById("btnJournalDatePicker").addEventListener("click", openJournalDatePicker);
+  document.querySelectorAll("#sheetContent .journal-entry[data-id]").forEach(el=>{
+    el.addEventListener("click", ()=>openJournalEntryView(el.dataset.id));
+  });
+}
+
+/* ============ 過去的小日記：選日期查找 ＋ 完整日記閱讀／編輯 ============
+   跟待辦的「依日期搜尋」共用同一套 .cal-grid／.cal-cell 樣式與 openMonthJumpPicker，
+   這裡只是換一份獨立的年月狀態（jdsYear/jdsMonth），互不影響。 */
+let jdsYear = new Date().getFullYear();
+let jdsMonth = new Date().getMonth();
+function renderJdsGrid(){
+  const grid = document.getElementById("jdsGrid");
+  const dows = ["日","一","二","三","四","五","六"];
+  let html = dows.map(d=>`<div class="cal-dow">${d}</div>`).join("");
+  const firstDay = new Date(jdsYear, jdsMonth, 1).getDay();
+  const daysInMonth = new Date(jdsYear, jdsMonth+1, 0).getDate();
+  for(let i=0;i<firstDay;i++) html += `<div class="cal-cell empty"></div>`;
+  const today = todayStr();
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${jdsYear}-${String(jdsMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const isToday = dateStr===today;
+    html += `<div class="cal-cell ${isToday?'today':''}" data-date="${dateStr}"><div>${d}</div></div>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".cal-cell:not(.empty)").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const dateStr = el.dataset.date;
+      const entry = DB.journal.find(e=>e.date===dateStr);
+      if(entry){
+        openJournalEntryView(entry.id);
+      }else{
+        // 目前不提供補寫過去日期的日記，選到沒有記錄的日期只給提示，不建立任何 journal。
+        toast("這一天沒有留下小日記呦～🌱");
+        openJournalHistory();
+      }
+    });
+  });
+}
+function openJournalDatePicker(){
+  openSheet(`
+    <div class="sheet-head"><h3>選擇日期</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="cal-head">
+      <button class="cal-nav-btn" id="jdsPrev">‹</button>
+      <h3 class="cal-title-btn" id="jdsTitleBtn">${jdsYear}年 ${jdsMonth+1}月</h3>
+      <button class="cal-nav-btn" id="jdsNext">›</button>
+    </div>
+    <div class="cal-grid" id="jdsGrid"></div>
+  `);
+  renderJdsGrid();
+  document.getElementById("jdsPrev").addEventListener("click", ()=>{
+    jdsMonth--; if(jdsMonth<0){ jdsMonth=11; jdsYear--; }
+    document.getElementById("jdsTitleBtn").textContent = `${jdsYear}年 ${jdsMonth+1}月`;
+    renderJdsGrid();
+  });
+  document.getElementById("jdsNext").addEventListener("click", ()=>{
+    jdsMonth++; if(jdsMonth>11){ jdsMonth=0; jdsYear++; }
+    document.getElementById("jdsTitleBtn").textContent = `${jdsYear}年 ${jdsMonth+1}月`;
+    renderJdsGrid();
+  });
+  document.getElementById("jdsTitleBtn").addEventListener("click", ()=>{
+    openMonthJumpPicker(jdsYear, jdsMonth, (y,m)=>{ jdsYear=y; jdsMonth=m; openJournalDatePicker(); });
+  });
+}
+
+// 一天一篇小日記：某個日期已經有「另一篇」entry 才算衝突，編輯中的這篇本身要排除掉。
+function journalDateHasConflict(dateStr, excludeId){
+  return DB.journal.some(e=>e.date===dateStr && e.id!==excludeId);
+}
+function journalFullDateLabel(dateStr){
+  const [y,m,d] = dateStr.split("-").map(Number);
+  return `${y}年${m}月${d}日`;
+}
+
+let currentHistoryJournalId = null;
+let historyJournalEditing = false;
+let historyJournalDraftMood = null;
+let historyJournalDraftText = null;
+let historyJournalDraftDate = null;
+
+function openJournalEntryView(entryId){
+  currentHistoryJournalId = entryId;
+  historyJournalEditing = false;
+  renderJournalEntryView();
+}
+
+function renderJournalEntryView(){
+  const entry = DB.journal.find(e=>e.id===currentHistoryJournalId);
+  if(!entry){ openJournalHistory(); return; }
+
+  if(!historyJournalEditing){
+    openSheet(`
+      <button class="back-btn" id="btnBackToJournalHistory">‹ 返回</button>
+      <div class="muted" style="margin-bottom:14px;">${journalFullDateLabel(entry.date)}${entry.time?` · ${entry.time}`:""}</div>
+      ${entry.mood ? `<div style="font-size:28px; margin-bottom:10px;">${entry.mood}</div>` : ""}
+      <div class="journal-display">${escapeHtml(entry.text || "")}</div>
+      <button class="small-link" id="btnEditHistoryJournal" style="margin-top:14px;">編輯</button>
+    `);
+    document.getElementById("btnBackToJournalHistory").addEventListener("click", openJournalHistory);
+    document.getElementById("btnEditHistoryJournal").addEventListener("click", ()=>{
+      historyJournalEditing = true;
+      historyJournalDraftMood = entry.mood || null;
+      historyJournalDraftText = entry.text || "";
+      historyJournalDraftDate = entry.date;
+      renderJournalEntryView();
+    });
+    return;
+  }
+
+  openSheet(`
+    <div class="field"><label>日期</label><input id="hj_date" type="date" value="${historyJournalDraftDate}"></div>
+    <div class="muted" style="margin-bottom:6px;">選一個來代表這天的你吧！🧸</div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+      <button class="emoji-pick-btn" id="hj_pickMood">
+        ${historyJournalDraftMood ? `<span class="cur-emoji">${historyJournalDraftMood}</span>` : `<span>＋ 選擇 Emoji</span>`}
+      </button>
+      ${historyJournalDraftMood ? `<button class="small-link" id="hj_clearMood">清除</button>` : ""}
+    </div>
+    <div class="field">
+      <textarea id="hj_text">${escapeHtml(historyJournalDraftText||"")}</textarea>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button class="btn-ghost" id="hj_save">儲存</button>
+      <button class="small-link" id="hj_cancel">取消</button>
+    </div>
+  `);
+  document.getElementById("hj_date").addEventListener("input", (e)=>{ historyJournalDraftDate = e.target.value; });
+  document.getElementById("hj_text").addEventListener("input", (e)=>{ historyJournalDraftText = e.target.value; });
+  document.getElementById("hj_pickMood").addEventListener("click", ()=>{
+    openEmojiPicker((emoji)=>{ historyJournalDraftMood = emoji; renderJournalEntryView(); }, historyJournalDraftMood);
+  });
+  const hjClearBtn = document.getElementById("hj_clearMood");
+  if(hjClearBtn) hjClearBtn.addEventListener("click", ()=>{ historyJournalDraftMood = null; renderJournalEntryView(); });
+  document.getElementById("hj_save").addEventListener("click", ()=>{
+    const newDate = document.getElementById("hj_date").value || entry.date;
+    const text = document.getElementById("hj_text").value.trim();
+    if(journalDateHasConflict(newDate, entry.id)){
+      toast("這一天已經有小日記囉～📔");
+      return;
+    }
+    // 只修正 date／mood／text，id 跟 time（第一次留下這篇小日記的時間）都不動。
+    entry.date = newDate; entry.mood = historyJournalDraftMood; entry.text = text;
+    save();
+    historyJournalEditing = false;
+    renderJournal(); // 如果改動的剛好是今天這篇，讓首頁的今日小日記卡片同步更新
+    renderJournalEntryView();
+  });
+  document.getElementById("hj_cancel").addEventListener("click", ()=>{
+    historyJournalEditing = false;
+    renderJournalEntryView();
+  });
 }
 document.getElementById("btnViewJournalHistory").addEventListener("click", openJournalHistory);
 
