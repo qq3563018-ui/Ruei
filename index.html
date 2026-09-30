@@ -380,6 +380,53 @@ emoji-picker{
   100%{ opacity:0; }
 }
 .farm-anim-glow{ inset:0; left:auto; display:flex; align-items:center; justify-content:center; font-size:130%; animation: farmAnimGlow 2.2s ease-in-out forwards; }
+
+/* ===== 我的習慣：印章月曆 =====
+   刻意跟 .cal-grid（小格子的日期選擇器）分開一套，因為這裡格子要大很多，
+   日期數字固定在左上角，中間留給印泥章當主要視覺。 */
+.habit-cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; }
+.habit-cal-dow{ font-size:11px; color:var(--gray); text-align:center; padding-bottom:4px; }
+.habit-cal-cell{
+  position:relative; aspect-ratio:1; border-radius:10px; background:var(--cream);
+  min-width:0;
+}
+.habit-cal-cell.empty{ background:transparent; }
+.habit-cal-cell.today{ box-shadow:0 0 0 2px var(--accent) inset; }
+.habit-cal-cell.disabled{ opacity:.5; }
+.habit-cal-daynum{
+  position:absolute; top:3px; left:5px; font-size:10px; font-weight:700; color:var(--medium); z-index:2;
+  line-height:1; background:rgba(255,255,255,.75); border-radius:5px; padding:1px 3px;
+}
+/* 好寶寶印泥章：用不規則的 border-radius 讓外圈不是正圓、疊兩層放射狀漸層做出缺墨與顆粒感，
+   emoji 是主視覺、文字小一號貼在下方，整顆置中在格子裡但避開左上角日期數字（上緣特別多留白）。 */
+.habit-stamp{
+  position:absolute; inset:32% 5% 4% 5%; border-radius:70% 53% 45% 55% / 72% 45% 58% 42%;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255,255,255,.35), transparent 45%),
+    radial-gradient(circle at 75% 30%, transparent 60%, rgba(0,0,0,.05) 100%),
+    radial-gradient(circle at 60% 80%, rgba(0,0,0,.06), transparent 40%),
+    var(--stamp-bg, var(--accent));
+  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.3), 0 1px 2px rgba(0,0,0,.1);
+  transform: rotate(var(--stamp-rot, 0deg));
+  cursor:pointer;
+}
+.habit-stamp-emoji{ font-size:clamp(16px,5.2vw,24px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12)); }
+.habit-stamp-msg{
+  font-size:6.5px; font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.15);
+  max-width:92%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:.02em;
+}
+@keyframes habitStampPress{
+  0%{ transform: scale(.35) translateY(-16px) rotate(var(--stamp-rot,0deg)); opacity:0; }
+  45%{ transform: scale(1.18) translateY(-4px) rotate(var(--stamp-rot,0deg)); opacity:1; }
+  65%{ transform: scale(.9) translateY(1px) rotate(var(--stamp-rot,0deg)); }
+  82%{ transform: scale(1.05) translateY(0) rotate(var(--stamp-rot,0deg)); }
+  100%{ transform: scale(1) translateY(0) rotate(var(--stamp-rot,0deg)); }
+}
+.habit-stamp.stamp-anim{ animation: habitStampPress .45s cubic-bezier(.34,1.56,.64,1); }
+@media (prefers-reduced-motion: reduce){
+  .habit-stamp.stamp-anim{ animation:none; }
+}
 </style>
 </head>
 <body data-theme="pink">
@@ -492,28 +539,104 @@ emoji-picker{
   <div id="todoGroupedList"></div>
 </div>
 
-<!-- 4. 我的目標 -->
+<!-- 4. 我的目標：先進雙入口（年度目標／我的習慣），不直接跳目標清單 -->
 <div class="view" id="view-goals">
-  <div id="goalListPanel">
+
+  <div id="goalsHubPanel">
     <div class="card">
       <div class="card-title">🎯 我的目標</div>
-      <div class="muted" style="margin-bottom:10px;">想完成的事，不管大小，都可以放進來，一步一步準備就好。</div>
-      <div id="goalList"></div>
-      <button class="btn-ghost" id="btnAddGoal" style="width:100%; margin-top:10px;">＋ 新增目標</button>
+      <div class="muted">先想想要往哪裡去，再決定路上想持續做點什麼。</div>
+    </div>
+    <div class="card nav-card" id="goGoalListCard">
+      <div class="nav-card-row">
+        <div>
+          <div class="card-title" style="margin-bottom:2px;">🎯 年度目標</div>
+          <div class="muted">我要去哪裡？想完成的事，一步一步準備。</div>
+        </div>
+        <div class="nav-card-arrow">›</div>
+      </div>
+    </div>
+    <div class="card nav-card" id="goHabitListCard">
+      <div class="nav-card-row">
+        <div>
+          <div class="card-title" style="margin-bottom:2px;">🔥 我的習慣</div>
+          <div class="muted">為了到那裡，我想持續做什麼。</div>
+        </div>
+        <div class="nav-card-arrow">›</div>
+      </div>
     </div>
   </div>
+
+  <!-- 年度目標列表 -->
+  <div id="goalListPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromGoalList">‹ 返回我的目標</button>
+    <div class="card">
+      <div class="card-title">🎯 進行中的年度目標</div>
+      <div class="muted" style="margin-bottom:10px;">想完成的事，不管大小，都可以放進來，一步一步準備就好。</div>
+      <div id="goalListActive"></div>
+      <button class="btn-ghost" id="btnAddGoal" style="width:100%; margin-top:10px;">＋ 新增年度目標</button>
+    </div>
+    <div class="card" id="goalListDoneCard" style="display:none;">
+      <div class="card-title">✨ 已完成的年度目標</div>
+      <div id="goalListDone"></div>
+    </div>
+  </div>
+
+  <!-- 年度目標詳細頁 -->
   <div id="goalDetailPanel" style="display:none;">
-    <button class="back-btn" id="btnBackFromGoal">‹ 返回我的目標</button>
+    <button class="back-btn" id="btnBackFromGoal">‹ 返回年度目標</button>
     <div class="card">
       <div class="card-title" id="goalDetailTitle"></div>
       <div class="muted" id="goalDetailNote" style="margin-bottom:10px; display:none;"></div>
+      <div id="goalCompletedBadge" style="margin-bottom:10px; display:none;"></div>
       <div id="goalProgressBox" style="margin-bottom:12px;"></div>
-      <button class="btn-ghost" id="btnEditGoal" style="width:100%;">✎ 編輯目標</button>
+      <div id="goalCompleteCTA"></div>
+      <button class="btn-ghost" id="btnEditGoal" style="width:100%; margin-top:8px;">✎ 編輯目標</button>
     </div>
     <div class="card">
       <div class="card-title">🌱 完成這個目標需要什麼？</div>
       <div id="goalItemList"></div>
       <button class="btn-main" id="btnAddGoalItem" style="width:100%; margin-top:10px;">＋ 新增目標事項</button>
+    </div>
+    <div class="card">
+      <div class="card-title">🔥 正在為這個目標養成</div>
+      <div id="goalHabitList"></div>
+    </div>
+  </div>
+
+  <!-- 我的習慣列表 -->
+  <div id="habitListPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromHabitList">‹ 返回我的目標</button>
+    <div class="card">
+      <div class="card-title">🔥 進行中的習慣</div>
+      <div class="muted" style="margin-bottom:10px;">想持續做的事，留下有做到的日子就好。</div>
+      <div id="habitListActive"></div>
+      <button class="btn-ghost" id="btnAddHabit" style="width:100%; margin-top:10px;">＋ 新增習慣</button>
+    </div>
+    <div class="card" id="habitListStoppedCard" style="display:none;">
+      <div class="card-title">⏸ 已停止的習慣</div>
+      <div id="habitListStopped"></div>
+    </div>
+  </div>
+
+  <!-- 習慣詳細頁：印章月曆 -->
+  <div id="habitDetailPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromHabit">‹ 返回我的習慣</button>
+    <div class="card">
+      <div class="card-title" id="habitDetailTitle"></div>
+      <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
+      <div id="habitStoppedNotice"></div>
+      <div class="cal-head">
+        <button class="cal-nav-btn" id="habitCalPrev">‹</button>
+        <h3 class="cal-title-btn" id="habitCalTitleBtn"></h3>
+        <button class="cal-nav-btn" id="habitCalNext">›</button>
+      </div>
+      <div class="habit-cal-grid" id="habitCalGrid"></div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button class="btn-ghost" id="btnEditHabit" style="flex:1;">✎ 編輯</button>
+        <button class="btn-ghost" id="btnToggleHabitActive" style="flex:1;"></button>
+      </div>
+      <button class="btn-ghost" id="btnDeleteHabit" style="width:100%; margin-top:8px;">刪除這個習慣</button>
     </div>
   </div>
 </div>
@@ -708,8 +831,8 @@ function loadDB(){
   return withDefaults({});
 }
 function withDefaults(obj){
-  return Object.assign({
-    theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[],
+  const merged = Object.assign({
+    theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[], habits:[],
     customCategories:{expense:[], income:[]}, customExpenseCategories:[], budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
     seenDiscoveryNotices:[], gardenAcknowledgedMilestone:0,
     // 農場殭屍入侵／訪客／稀有事件的永久狀態，全部是新增欄位，向後相容：
@@ -725,6 +848,17 @@ function withDefaults(obj){
       includedDebtIds:null, manualDebtPayments:[]
     }
   }, obj);
+  // 上面的 Object.assign 只會合併頂層欄位，陣列內部每一筆資料的欄位相容性要在這裡另外補齊，
+  // 確保舊備份／舊資料在沒有 completed／habits 相關欄位時，也能用合理的預設值正常運作，不需要手動 migration。
+  if(!Array.isArray(merged.goals)) merged.goals = [];
+  merged.goals = merged.goals.map(g=>({ completed:false, completedAt:null, ...g }));
+  if(!Array.isArray(merged.habits)) merged.habits = [];
+  merged.habits = merged.habits.map(h=>({
+    goalId:null, active:true, inactivePeriods:[], stamps:{}, ...h,
+    inactivePeriods: Array.isArray(h.inactivePeriods) ? h.inactivePeriods : [],
+    stamps: (h.stamps && typeof h.stamps==="object") ? h.stamps : {}
+  }));
+  return merged;
 }
 let DB = loadDB();
 function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }
@@ -1532,7 +1666,7 @@ function openMoreSheet(){
       </div>
     </div>
   `);
-  document.getElementById("moreGoGoals").addEventListener("click", ()=>{ closeSheet(); switchView("goals"); });
+  document.getElementById("moreGoGoals").addEventListener("click", ()=>{ closeSheet(); switchView("goals"); showGoalsSub("hub"); });
   document.getElementById("moreGoAsset").addEventListener("click", ()=>{ closeSheet(); switchView("debt"); });
   document.getElementById("moreBtnExport").addEventListener("click", ()=>{ closeSheet(); exportBackup(); });
   document.getElementById("moreBtnImport").addEventListener("click", ()=>{ closeSheet(); document.getElementById("importFile").click(); });
@@ -2660,137 +2794,275 @@ function openTodoForm(editId, presetDate){
 
 /* ============ 我的目標 ============ *
    設計原則（不要跟待辦搞混）：
-   🎯 目標＝我想去哪裡（長期方向，例如「今年去日本旅行」）
+   🎯 年度目標＝我想去哪裡（長期方向，例如「今年去日本旅行」）
    🌱 目標事項＝完成這個目標大概要做哪些事（沒有日期，是一份清單，不是待辦）
-   目標事項「絕對不會」自動變成待辦，使用者完成目標事項也不會自動建立待辦，兩者完全獨立。 */
+   🔥 我的習慣＝為了到那裡，我想持續做什麼（跟農場打卡是完全獨立的兩件事）
+   目標事項／習慣「絕對不會」自動變成待辦，兩者完全獨立。 */
 let currentGoalId = null;
-let goalSubView = "list"; // list | detail
-function showGoalSub(name){
-  goalSubView = name;
-  document.getElementById("goalListPanel").style.display = name==="list" ? "block" : "none";
-  document.getElementById("goalDetailPanel").style.display = name==="detail" ? "block" : "none";
+let currentHabitId = null;
+let goalsSubView = "hub"; // hub | goalList | goalDetail | habitList | habitDetail
+let habitCalYear, habitCalMonth;
+
+function showGoalsSub(name){
+  goalsSubView = name;
+  document.getElementById("goalsHubPanel").style.display = name==="hub" ? "block" : "none";
+  document.getElementById("goalListPanel").style.display = name==="goalList" ? "block" : "none";
+  document.getElementById("goalDetailPanel").style.display = name==="goalDetail" ? "block" : "none";
+  document.getElementById("habitListPanel").style.display = name==="habitList" ? "block" : "none";
+  document.getElementById("habitDetailPanel").style.display = name==="habitDetail" ? "block" : "none";
 }
+document.getElementById("goGoalListCard").addEventListener("click", ()=>{ showGoalsSub("goalList"); renderGoalsView(); });
+document.getElementById("goHabitListCard").addEventListener("click", ()=>{ showGoalsSub("habitList"); renderHabitsView(); });
+document.getElementById("btnBackFromGoalList").addEventListener("click", ()=>showGoalsSub("hub"));
+document.getElementById("btnBackFromHabitList").addEventListener("click", ()=>showGoalsSub("hub"));
+document.getElementById("btnBackFromGoal").addEventListener("click", ()=>{ showGoalsSub("goalList"); renderGoalsView(); });
+document.getElementById("btnBackFromHabit").addEventListener("click", ()=>{ showGoalsSub("habitList"); renderHabitsView(); });
+
+/* ---------- 年度目標 ---------- */
 function goalProgress(g){
   const total = g.items.length;
   const done = g.items.filter(i=>i.done).length;
   return { done, total };
 }
-// 有生活感的成長式進度條：完成的用 🌿，還沒完成的用 ○，不用死板的長條圖。
+// 用單一成長階段 emoji 表示進度，取代舊版「一個完成事項一個🌿」的做法。
+function goalGrowthEmoji(done, total){
+  if(total===0) return "🌱";
+  const pct = done/total*100;
+  if(pct>=100) return "🌳✨";
+  if(pct>=75) return "🪴";
+  if(pct>=50) return "🍀";
+  if(pct>=25) return "🌿";
+  return "🌱";
+}
 function renderGoalProgressVisual(done, total){
-  if(total===0) return `<div class="empty-state">尚未建立目標事項</div>`;
+  if(total===0) return `<div class="empty-state">🌱 尚未建立目標事項</div>`;
   const pct = Math.round(done/total*100);
-  const dots = Array.from({length: total}, (_, i) => i < done ? "🌿" : "○").join(" ");
   return `
     <div style="font-size:13px; margin-bottom:6px;">${done} / ${total}（${pct}%）</div>
-    <div style="font-size:16px; letter-spacing:2px;">🌱 ${dots}</div>
+    <div style="font-size:32px;">${goalGrowthEmoji(done, total)}</div>
   `;
 }
+function goalCompletionLabel(g){
+  if(!g.completedAt) return "已完成 ✨";
+  const d = parseYMD(g.completedAt);
+  return `已完成 · ${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ✨`;
+}
+function goalRowHTML(g){
+  const {done,total} = goalProgress(g);
+  const statusText = total>0 ? `${done} / ${total}（${Math.round(done/total*100)}%）` : "尚未建立目標事項";
+  return `<div class="item-row" data-id="${g.id}">
+    <div class="goal-edit-target" data-id="${g.id}" style="flex:1; cursor:pointer;">
+      <div class="item-title">${g.completed?"✨":"🎯"} ${escapeHtml(g.title)}</div>
+      <div class="item-sub">${g.completed?goalCompletionLabel(g):statusText+" · 查看目標 →"}</div>
+    </div>
+    <button class="del-btn goal-del" data-id="${g.id}">✕</button>
+  </div>`;
+}
+function bindGoalRowEvents(container){
+  container.querySelectorAll(".goal-edit-target").forEach(el=>{
+    el.addEventListener("click", ()=>openGoalDetail(el.dataset.id));
+  });
+  container.querySelectorAll(".goal-del").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const item = DB.goals.find(x=>x.id===el.dataset.id);
+      confirmDelete(item?item.title:"這個目標", ()=>deleteGoalWithUndo(el.dataset.id));
+    });
+  });
+}
+// 刪除目標：把所有連結到這個目標的習慣解除關聯（habit.goalId=null），習慣本身、打卡紀錄完全不受影響。
+// 這個解除關聯是「立即且不可逆」的，就算之後點了 Undo 復原目標本身，也不會重新把習慣接回去（避免使用者在等待期間又手動調整了關聯卻被覆蓋）。
+function unlinkHabitsFromGoal(goalId){
+  DB.habits.forEach(h=>{ if(h.goalId===goalId) h.goalId=null; });
+}
+function deleteGoalWithUndo(id){
+  const idx = DB.goals.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  const [removed] = DB.goals.splice(idx,1);
+  unlinkHabitsFromGoal(id);
+  save();
+  renderGoalsView();
+  if(currentGoalId===id) showGoalsSub("goalList");
+  showUndoToast(`已刪除「${removed.title}」`, ()=>{
+    DB.goals.splice(Math.min(idx, DB.goals.length), 0, removed);
+    save(); renderGoalsView(); toast("已復原");
+  });
+}
 function renderGoalsView(){
-  const list = document.getElementById("goalList");
-  if(!DB.goals.length){
-    list.innerHTML = `<div class="empty-state">還沒有建立目標，先想一件你想完成的事情吧。</div>`;
-  }else{
-    list.innerHTML = DB.goals.map(g=>{
-      const {done,total} = goalProgress(g);
-      const statusText = total>0 ? `${done} / ${total}（${Math.round(done/total*100)}%）` : "尚未建立目標事項";
-      return `<div class="item-row" data-id="${g.id}">
-        <div class="goal-edit-target" data-id="${g.id}" style="flex:1; cursor:pointer;">
-          <div class="item-title">🎯 ${escapeHtml(g.title)}</div>
-          <div class="item-sub">${statusText} · 查看目標 →</div>
-        </div>
-        <button class="del-btn goal-del" data-id="${g.id}">✕</button>
-      </div>`;
-    }).join("");
-    list.querySelectorAll(".goal-edit-target").forEach(el=>{
-      el.addEventListener("click", ()=>openGoalDetail(el.dataset.id));
-    });
-    list.querySelectorAll(".goal-del").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        const item = DB.goals.find(x=>x.id===el.dataset.id);
-        deleteWithUndo("goals", el.dataset.id, item?item.title:"這個目標", ()=>{ renderGoalsView(); if(currentGoalId===el.dataset.id) showGoalSub("list"); });
-      });
-    });
+  const activeBox = document.getElementById("goalListActive");
+  const doneBox = document.getElementById("goalListDone");
+  const doneCard = document.getElementById("goalListDoneCard");
+  if(activeBox){
+    const active = DB.goals.filter(g=>!g.completed);
+    const done = DB.goals.filter(g=>g.completed);
+    activeBox.innerHTML = active.length
+      ? active.map(goalRowHTML).join("")
+      : `<div class="empty-state">還沒有建立目標，先想一件你想完成的事情吧。</div>`;
+    bindGoalRowEvents(activeBox);
+    if(done.length){
+      doneCard.style.display = "block";
+      doneBox.innerHTML = done.map(goalRowHTML).join("");
+      bindGoalRowEvents(doneBox);
+    }else{
+      doneCard.style.display = "none";
+    }
   }
-  if(goalSubView==="detail" && currentGoalId) renderGoalDetail(currentGoalId);
+  if(goalsSubView==="goalDetail" && currentGoalId) renderGoalDetail(currentGoalId);
 }
 function openGoalDetail(id){
   currentGoalId = id;
-  showGoalSub("detail");
+  showGoalsSub("goalDetail");
   renderGoalDetail(id);
 }
 function renderGoalDetail(id){
   const g = DB.goals.find(x=>x.id===id);
-  if(!g){ showGoalSub("list"); return; }
-  document.getElementById("goalDetailTitle").textContent = `🎯 ${g.title}`;
+  if(!g){ showGoalsSub("goalList"); renderGoalsView(); return; }
+  document.getElementById("goalDetailTitle").textContent = `${g.completed?"✨":"🎯"} ${g.title}`;
   const noteEl = document.getElementById("goalDetailNote");
   noteEl.style.display = g.note ? "block" : "none";
   noteEl.textContent = g.note || "";
+
+  const badge = document.getElementById("goalCompletedBadge");
+  badge.style.display = g.completed ? "block" : "none";
+  badge.innerHTML = g.completed ? `<div class="pill">${goalCompletionLabel(g)}</div>` : "";
+
   const {done,total} = goalProgress(g);
   const progressBox = document.getElementById("goalProgressBox");
-  progressBox.innerHTML = total>0
-    ? `<div class="muted" style="margin-bottom:4px; font-weight:700;">🌱 目標進度</div>${renderGoalProgressVisual(done, total)}`
-    : "";
+  progressBox.innerHTML = `<div class="muted" style="margin-bottom:4px; font-weight:700;">🌱 目標進度</div>${renderGoalProgressVisual(done, total)}`;
 
+  const cta = document.getElementById("goalCompleteCTA");
+  if(!g.completed && total>0 && done===total){
+    cta.innerHTML = `<div class="muted" style="margin-bottom:8px;">目標事項都完成囉，要把這個目標標記為完成嗎？</div><button class="btn-main" id="btnCompleteGoal" style="width:100%;">完成這個目標 ✨</button>`;
+    document.getElementById("btnCompleteGoal").addEventListener("click", ()=>{
+      g.completed = true; g.completedAt = todayStr();
+      save(); renderGoalDetail(id); renderGoalsView(); toast("已完成這個目標 ✨");
+    });
+  }else if(g.completed){
+    cta.innerHTML = `<button class="btn-ghost" id="btnRestoreGoal" style="width:100%;">恢復為進行中</button>`;
+    document.getElementById("btnRestoreGoal").addEventListener("click", ()=>{
+      g.completed = false; g.completedAt = null;
+      save(); renderGoalDetail(id); renderGoalsView(); toast("已恢復為進行中");
+    });
+  }else{
+    cta.innerHTML = "";
+  }
+
+  renderGoalItemList(g);
+  renderGoalHabitList(g);
+}
+// 目標已完成時，任何會讓「事項不再全部完成」的操作，都要先跳出提醒，使用者確認繼續才會真的套用改動並把目標打回「進行中」。
+// 純粹的文字編輯／排序不會觸發這個提醒。
+function guardGoalCompletionDrop(g, applyFn){
+  if(g.completed){
+    openSheet(`
+      <div class="sheet-head"><h3>提醒</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+      <div class="muted" style="margin-bottom:16px;">這個目標目前已經完成囉 ✨ 這次修改會讓目標事項不再全部完成，因此這個目標會恢復為「進行中」。</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-ghost" id="guardCancel" style="flex:1;">取消</button>
+        <button class="btn-main" id="guardContinue" style="flex:1;">繼續修改</button>
+      </div>
+    `);
+    document.getElementById("guardCancel").addEventListener("click", ()=>closeSheet());
+    document.getElementById("guardContinue").addEventListener("click", ()=>{
+      closeSheet();
+      applyFn();
+      g.completed = false; g.completedAt = null;
+      save(); renderGoalDetail(g.id); renderGoalsView();
+    });
+  }else{
+    applyFn();
+    save(); renderGoalDetail(g.id); renderGoalsView();
+  }
+}
+function renderGoalItemList(g){
   const itemBox = document.getElementById("goalItemList");
   if(!g.items.length){
     itemBox.innerHTML = `<div class="empty-state">尚未建立目標事項<br>把完成這個目標需要做的事情列出來吧！</div>`;
-  }else{
-    itemBox.innerHTML = g.items.map((item,idx)=>`
-      <div class="item-row" data-id="${item.id}">
-        <div class="check-circle goal-item-toggle ${item.done?'done':''}" data-id="${item.id}">${item.done?'✓':''}</div>
-        <div class="goal-item-edit-target" data-id="${item.id}" style="flex:1; cursor:pointer;">
-          <div class="item-title ${item.done?'done':''}">${escapeHtml(item.text)}</div>
-        </div>
-        <div style="display:flex; flex-direction:column;">
-          <button class="del-btn goal-item-up" data-id="${item.id}" style="${idx===0?'opacity:.3;pointer-events:none;':''}">↑</button>
-          <button class="del-btn goal-item-down" data-id="${item.id}" style="${idx===g.items.length-1?'opacity:.3;pointer-events:none;':''}">↓</button>
-        </div>
-        <button class="del-btn goal-item-del" data-id="${item.id}">✕</button>
+    return;
+  }
+  itemBox.innerHTML = g.items.map((item,idx)=>`
+    <div class="item-row" data-id="${item.id}">
+      <div class="check-circle goal-item-toggle ${item.done?'done':''}" data-id="${item.id}">${item.done?'✓':''}</div>
+      <div class="goal-item-edit-target" data-id="${item.id}" style="flex:1; cursor:pointer;">
+        <div class="item-title ${item.done?'done':''}">${escapeHtml(item.text)}</div>
       </div>
-    `).join("");
-    itemBox.querySelectorAll(".goal-item-toggle").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        const it = g.items.find(i=>i.id===el.dataset.id);
-        it.done = !it.done;
-        save(); renderGoalDetail(id); renderGoalsView();
-      });
+      <div style="display:flex; flex-direction:column;">
+        <button class="del-btn goal-item-up" data-id="${item.id}" style="${idx===0?'opacity:.3;pointer-events:none;':''}">↑</button>
+        <button class="del-btn goal-item-down" data-id="${item.id}" style="${idx===g.items.length-1?'opacity:.3;pointer-events:none;':''}">↓</button>
+      </div>
+      <button class="del-btn goal-item-del" data-id="${item.id}">✕</button>
+    </div>
+  `).join("");
+  itemBox.querySelectorAll(".goal-item-toggle").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const it = g.items.find(i=>i.id===el.dataset.id);
+      const wasDone = it.done;
+      const toggle = ()=>{ it.done = !it.done; };
+      // 只有「取消打勾」才可能讓已完成目標掉出 100%，打勾（完成一項）不會，不需要 guard。
+      if(wasDone) guardGoalCompletionDrop(g, toggle);
+      else { toggle(); save(); renderGoalDetail(g.id); renderGoalsView(); }
     });
-    itemBox.querySelectorAll(".goal-item-edit-target").forEach(el=>{
-      el.addEventListener("click", ()=>openGoalItemForm(id, el.dataset.id));
+  });
+  itemBox.querySelectorAll(".goal-item-edit-target").forEach(el=>{
+    el.addEventListener("click", ()=>openGoalItemForm(g.id, el.dataset.id));
+  });
+  itemBox.querySelectorAll(".goal-item-up").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const i = g.items.findIndex(x=>x.id===el.dataset.id);
+      if(i>0){ [g.items[i-1],g.items[i]] = [g.items[i],g.items[i-1]]; save(); renderGoalDetail(g.id); }
     });
-    itemBox.querySelectorAll(".goal-item-up").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        const i = g.items.findIndex(x=>x.id===el.dataset.id);
-        if(i>0){ [g.items[i-1],g.items[i]] = [g.items[i],g.items[i-1]]; save(); renderGoalDetail(id); }
-      });
+  });
+  itemBox.querySelectorAll(".goal-item-down").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const i = g.items.findIndex(x=>x.id===el.dataset.id);
+      if(i<g.items.length-1){ [g.items[i+1],g.items[i]] = [g.items[i],g.items[i+1]]; save(); renderGoalDetail(g.id); }
     });
-    itemBox.querySelectorAll(".goal-item-down").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        const i = g.items.findIndex(x=>x.id===el.dataset.id);
-        if(i<g.items.length-1){ [g.items[i+1],g.items[i]] = [g.items[i],g.items[i+1]]; save(); renderGoalDetail(id); }
-      });
-    });
-    itemBox.querySelectorAll(".goal-item-del").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        const item = g.items.find(x=>x.id===el.dataset.id);
-        confirmDelete(item.text, ()=>{
-          const idx = g.items.findIndex(x=>x.id===el.dataset.id);
-          const [removed] = g.items.splice(idx,1);
-          save(); renderGoalDetail(id); renderGoalsView();
-          showUndoToast(`已刪除「${removed.text}」`, ()=>{
-            g.items.splice(Math.min(idx, g.items.length), 0, removed);
-            save(); renderGoalDetail(id); renderGoalsView(); toast("已復原");
-          });
+  });
+  itemBox.querySelectorAll(".goal-item-del").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const item = g.items.find(x=>x.id===el.dataset.id);
+      confirmDelete(item.text, ()=>{
+        const idx = g.items.findIndex(x=>x.id===el.dataset.id);
+        const [removed] = g.items.splice(idx,1);
+        save(); renderGoalDetail(g.id); renderGoalsView();
+        showUndoToast(`已刪除「${removed.text}」`, ()=>{
+          g.items.splice(Math.min(idx, g.items.length), 0, removed);
+          save(); renderGoalDetail(g.id); renderGoalsView(); toast("已復原");
         });
       });
     });
+  });
+}
+function renderGoalHabitList(g){
+  const box = document.getElementById("goalHabitList");
+  const linked = DB.habits.filter(h=>h.goalId===g.id);
+  if(!linked.length){
+    box.innerHTML = `<div class="empty-state">還沒有習慣連結到這個目標</div>`;
+    return;
   }
+  box.innerHTML = linked.map(h=>`
+    <div class="item-row" data-id="${h.id}">
+      <div class="goal-habit-open" data-id="${h.id}" style="flex:1; cursor:pointer;">
+        <div class="item-title">🔥 ${escapeHtml(h.title)}</div>
+        <div class="item-sub">${h.active?"進行中":"已停止"}</div>
+      </div>
+      <button class="small-link goal-habit-unlink" data-id="${h.id}">解除關聯</button>
+    </div>
+  `).join("");
+  box.querySelectorAll(".goal-habit-open").forEach(el=>{
+    el.addEventListener("click", ()=>openHabitDetail(el.dataset.id));
+  });
+  box.querySelectorAll(".goal-habit-unlink").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const h = DB.habits.find(x=>x.id===el.dataset.id);
+      if(h){ h.goalId = null; save(); renderGoalHabitList(g); toast("已解除關聯"); }
+    });
+  });
 }
 function openGoalForm(editId){
   const editing = editId ? DB.goals.find(g=>g.id===editId) : null;
   openSheet(`
     <div class="sheet-head"><h3>${editing?"編輯目標":"新增目標"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="field"><label>目標名稱</label><input id="f_title" placeholder="例如：去日本旅行、學會日文、養成運動習慣" value="${editing?escapeHtml(editing.title):""}"></div>
+    <div class="field"><label>目標名稱</label><input id="f_title" placeholder="例如：去日本旅行、學會日文" value="${editing?escapeHtml(editing.title):""}"></div>
     <div class="field"><label>備註（可選）</label><textarea id="f_note" placeholder="">${editing&&editing.note?escapeHtml(editing.note):""}</textarea></div>
     <button class="btn-main" id="f_submit">儲存</button>
     ${editing?`<button class="btn-ghost" id="f_delete" style="width:100%; margin-top:8px;">刪除這個目標</button>`:""}
@@ -2803,7 +3075,7 @@ function openGoalForm(editId){
       editing.title = title; editing.note = note;
       save(); closeSheet(); renderGoalDetail(editId); renderGoalsView(); toast("已更新目標");
     }else{
-      const newGoal = {id:uid(), title, note, items:[], createdAt:todayStr()};
+      const newGoal = {id:uid(), title, note, items:[], createdAt:todayStr(), completed:false, completedAt:null};
       DB.goals.push(newGoal);
       save(); closeSheet(); renderGoalsView();
       openGoalDetail(newGoal.id); // 建立成功直接進入這個目標的詳細頁，不要只跳個提示就結束
@@ -2811,8 +3083,8 @@ function openGoalForm(editId){
   });
   const delBtn = document.getElementById("f_delete");
   if(delBtn) delBtn.addEventListener("click", ()=>{
-    DB.goals = DB.goals.filter(g=>g.id!==editId);
-    save(); closeSheet(); showGoalSub("list"); renderGoalsView(); toast("已刪除這個目標");
+    closeSheet();
+    confirmDelete(editing.title, ()=>deleteGoalWithUndo(editId));
   });
 }
 function openGoalItemForm(goalId, itemId){
@@ -2827,9 +3099,15 @@ function openGoalItemForm(goalId, itemId){
   document.getElementById("f_submit").addEventListener("click", ()=>{
     const text = document.getElementById("f_text").value.trim();
     if(!text){ toast("請輸入內容"); return; }
-    if(editing){ editing.text = text; toast("已更新"); }
-    else{ g.items.push({id:uid(), text, done:false}); toast("已新增"); }
-    save(); closeSheet(); renderGoalDetail(goalId); renderGoalsView();
+    if(editing){
+      editing.text = text; toast("已更新");
+      save(); closeSheet(); renderGoalDetail(goalId); renderGoalsView();
+    }else{
+      // 新增一件「尚未完成」的事項，如果目標已完成會讓它掉出 100%，需要 guard。
+      closeSheet();
+      guardGoalCompletionDrop(g, ()=>{ g.items.push({id:uid(), text, done:false}); });
+      toast("已新增");
+    }
   });
   const delBtn = document.getElementById("f_delete");
   if(delBtn) delBtn.addEventListener("click", ()=>{
@@ -2840,7 +3118,300 @@ function openGoalItemForm(goalId, itemId){
 document.getElementById("btnAddGoal").addEventListener("click", ()=>openGoalForm(null));
 document.getElementById("btnEditGoal").addEventListener("click", ()=>openGoalForm(currentGoalId));
 document.getElementById("btnAddGoalItem").addEventListener("click", ()=>openGoalItemForm(currentGoalId, null));
-document.getElementById("btnBackFromGoal").addEventListener("click", ()=>showGoalSub("list"));
+
+/* ---------- 我的習慣 ---------- */
+// 固定 20 句鼓勵語，只在蓋章／換章的當下抽一句並永久存起來，絕對不會在重新渲染／換月／匯出匯入時重新抽。
+const HABIT_STAMP_MESSAGES = [
+  "今天也做到了，很棒喔", "又留下了一個小小的紀錄", "這一步，你走到了", "持續本身就很了不起",
+  "今天的你，值得被記得", "沒有中斷，真的很好",
+  "今日もよくできました", "続けているあなたはすごい", "また一歩、前に進んだね", "今日の自分を褒めてあげて",
+  "小さな積み重ねが力になる",
+  "오늘도 해냈어요", "꾸준함이 진짜 멋져요", "오늘의 기록, 남겼어요", "이 순간을 기억할게요",
+  "포기하지 않아줘서 고마워요",
+  "You showed up today", "Small steps still count", "Proud of this moment", "Consistency looks good on you",
+  "Another day, another mark"
+];
+function randomStampMessage(){
+  return HABIT_STAMP_MESSAGES[Math.floor(Math.random()*HABIT_STAMP_MESSAGES.length)];
+}
+// inactivePeriods：一份永久保存的「停止→恢復」區間清單，{start, end}，end為null代表目前仍是停止狀態。
+// 判斷某天是否落在任何一段停止區間：start <= date < end（end為null視為目前仍持續到未來）。
+function habitPeriodBlocks(h, dateStr){
+  return h.inactivePeriods.some(p => dateStr>=p.start && (p.end===null || dateStr<p.end));
+}
+function habitCanStamp(h, dateStr){
+  if(!h.active) return false;
+  if(dateStr < h.startDate) return false;
+  if(dateStr > todayStr()) return false;
+  if(habitPeriodBlocks(h, dateStr)) return false;
+  return true;
+}
+function stopHabit(h){
+  h.active = false;
+  h.inactivePeriods.push({start:todayStr(), end:null});
+  save();
+}
+function resumeHabit(h){
+  h.active = true;
+  const open = h.inactivePeriods.find(p=>p.end===null);
+  if(open) open.end = todayStr();
+  save();
+}
+function stampHabitDate(h, dateStr, emoji){
+  h.stamps[dateStr] = { emoji, message: randomStampMessage() };
+  save();
+}
+function unstampHabitDate(h, dateStr){
+  delete h.stamps[dateStr];
+  save();
+}
+// 用日期字串做簡單雜湊，取代 Math.random()，讓每一天的印章旋轉角度固定不變（不會每次重繪就跳動）。
+function stampRotationDeg(dateStr){
+  let hash = 0;
+  for(let i=0;i<dateStr.length;i++){ hash = (hash*31 + dateStr.charCodeAt(i)) | 0; }
+  return (Math.abs(hash)%17) - 8; // -8 ~ 8 度
+}
+function playStampSound(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(520, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ctx.currentTime+0.09);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.12);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime+0.13);
+    osc.onended = ()=>ctx.close();
+  }catch(e){ /* 音效失敗就靜默跳過，不影響蓋章 */ }
+}
+function playStampAnim(cellEl){
+  const stampEl = cellEl && cellEl.querySelector(".habit-stamp");
+  if(!stampEl) return;
+  stampEl.classList.remove("stamp-anim");
+  void stampEl.offsetWidth; // 強制 reflow 讓動畫可以重新觸發
+  stampEl.classList.add("stamp-anim");
+}
+function renderHabitStampHTML(dateStr, stamp){
+  const rot = stampRotationDeg(dateStr);
+  return `<div class="habit-stamp" style="--stamp-rot:${rot}deg;">
+    <div class="habit-stamp-emoji">${stamp.emoji}</div>
+    <div class="habit-stamp-msg">${escapeHtml(stamp.message)}</div>
+  </div>`;
+}
+// 習慣列表卡片刻意不顯示任何連續天數／完成率／打勾打叉，只留標題跟一個「查看印章月曆」的入口。
+function habitRowHTML(h){
+  return `<div class="item-row" data-id="${h.id}">
+    <div class="habit-open-target" data-id="${h.id}" style="flex:1; cursor:pointer;">
+      <div class="item-title">🔥 ${escapeHtml(h.title)}</div>
+      <div class="item-sub">查看印章月曆 →</div>
+    </div>
+    <button class="del-btn habit-del" data-id="${h.id}">✕</button>
+  </div>`;
+}
+function bindHabitRowEvents(container){
+  container.querySelectorAll(".habit-open-target").forEach(el=>{
+    el.addEventListener("click", ()=>openHabitDetail(el.dataset.id));
+  });
+  container.querySelectorAll(".habit-del").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      const h = DB.habits.find(x=>x.id===el.dataset.id);
+      confirmDelete(h?h.title:"這個習慣", ()=>{
+        deleteWithUndo("habits", el.dataset.id, h?h.title:"這個習慣", ()=>{
+          renderHabitsView();
+          if(currentHabitId===el.dataset.id) showGoalsSub("habitList");
+        });
+      });
+    });
+  });
+}
+function renderHabitsView(){
+  const activeBox = document.getElementById("habitListActive");
+  const stoppedBox = document.getElementById("habitListStopped");
+  const stoppedCard = document.getElementById("habitListStoppedCard");
+  if(activeBox){
+    const active = DB.habits.filter(h=>h.active);
+    const stopped = DB.habits.filter(h=>!h.active);
+    activeBox.innerHTML = active.length
+      ? active.map(habitRowHTML).join("")
+      : `<div class="empty-state">還沒有建立習慣，想想有什麼想持續做的事吧。</div>`;
+    bindHabitRowEvents(activeBox);
+    if(stopped.length){
+      stoppedCard.style.display = "block";
+      stoppedBox.innerHTML = stopped.map(habitRowHTML).join("");
+      bindHabitRowEvents(stoppedBox);
+    }else{
+      stoppedCard.style.display = "none";
+    }
+  }
+  if(goalsSubView==="habitDetail" && currentHabitId) renderHabitDetail(currentHabitId);
+}
+function openHabitDetail(id){
+  currentHabitId = id;
+  const h = DB.habits.find(x=>x.id===id);
+  const now = h && h.startDate>todayStr() ? parseYMD(h.startDate) : new Date();
+  habitCalYear = now.getFullYear();
+  habitCalMonth = now.getMonth();
+  showGoalsSub("habitDetail");
+  renderHabitDetail(id);
+}
+function renderHabitDetail(id){
+  const h = DB.habits.find(x=>x.id===id);
+  if(!h){ showGoalsSub("habitList"); renderHabitsView(); return; }
+  document.getElementById("habitDetailTitle").textContent = `🔥 ${h.title}`;
+  const goalLinkEl = document.getElementById("habitDetailGoalLink");
+  const goal = h.goalId ? DB.goals.find(g=>g.id===h.goalId) : null;
+  if(goal){
+    goalLinkEl.style.display = "block";
+    goalLinkEl.textContent = `🎯 連結目標：${goal.title}${goal.completed?"（已完成）":""}`;
+  }else{
+    goalLinkEl.style.display = "none";
+  }
+  const notice = document.getElementById("habitStoppedNotice");
+  notice.innerHTML = h.active ? "" : `<div class="empty-state" style="margin-bottom:10px;">⏸ 這個習慣目前已停止，恢復後才能繼續蓋章</div>`;
+
+  const toggleBtn = document.getElementById("btnToggleHabitActive");
+  toggleBtn.textContent = h.active ? "⏸ 停止" : "▶ 恢復";
+
+  renderHabitCalGrid(h);
+}
+function renderHabitCalGrid(h){
+  document.getElementById("habitCalTitleBtn").textContent = `${habitCalYear}年${habitCalMonth+1}月`;
+  const grid = document.getElementById("habitCalGrid");
+  const firstDay = new Date(habitCalYear, habitCalMonth, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(habitCalYear, habitCalMonth+1, 0).getDate();
+  let html = "";
+  for(let i=0;i<startOffset;i++) html += `<div class="habit-cal-cell empty"></div>`;
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${habitCalYear}-${String(habitCalMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const stamp = h.stamps[dateStr];
+    const editable = habitCanStamp(h, dateStr);
+    html += `<div class="habit-cal-cell${dateStr===todayStr()?' today':''}" data-date="${dateStr}">
+      <div class="habit-cal-daynum">${d}</div>
+      ${stamp ? renderHabitStampHTML(dateStr, stamp) : ""}
+    </div>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".habit-cal-cell:not(.empty)").forEach(el=>{
+    el.addEventListener("click", ()=>onHabitCellClick(h, el.dataset.date, el));
+  });
+}
+function onHabitCellClick(h, dateStr, cellEl){
+  const stamp = h.stamps[dateStr];
+  const editable = habitCanStamp(h, dateStr);
+  if(!stamp && editable){
+    openEmojiPicker((emoji)=>{
+      stampHabitDate(h, dateStr, emoji);
+      renderHabitCalGrid(h);
+      playStampAnim(document.querySelector(`.habit-cal-cell[data-date="${dateStr}"]`));
+      playStampSound();
+    }, null);
+  }else if(stamp && editable){
+    openHabitStampActions(h, dateStr);
+  }
+  // 非可編輯的日子（含已停止／超出範圍／落在停止區間）：有印章就唯讀顯示，沒印章就完全沒有動作。
+}
+function openHabitStampActions(h, dateStr){
+  openSheet(`
+    <div class="sheet-head"><h3>${dateStr}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <button class="btn-main" id="btnRestampHabit" style="width:100%;">更換印章</button>
+    <button class="btn-ghost" id="btnUnstampHabit" style="width:100%; margin-top:8px;">取消印章</button>
+  `);
+  document.getElementById("btnRestampHabit").addEventListener("click", ()=>{
+    closeSheet();
+    openEmojiPicker((emoji)=>{
+      stampHabitDate(h, dateStr, emoji);
+      renderHabitCalGrid(h);
+      playStampAnim(document.querySelector(`.habit-cal-cell[data-date="${dateStr}"]`));
+      playStampSound();
+    }, h.stamps[dateStr].emoji);
+  });
+  document.getElementById("btnUnstampHabit").addEventListener("click", ()=>{
+    unstampHabitDate(h, dateStr);
+    closeSheet();
+    renderHabitCalGrid(h);
+  });
+}
+document.getElementById("habitCalPrev").addEventListener("click", ()=>{
+  habitCalMonth--; if(habitCalMonth<0){ habitCalMonth=11; habitCalYear--; }
+  renderHabitCalGrid(DB.habits.find(x=>x.id===currentHabitId));
+});
+document.getElementById("habitCalNext").addEventListener("click", ()=>{
+  habitCalMonth++; if(habitCalMonth>11){ habitCalMonth=0; habitCalYear++; }
+  renderHabitCalGrid(DB.habits.find(x=>x.id===currentHabitId));
+});
+document.getElementById("habitCalTitleBtn").addEventListener("click", ()=>{
+  openMonthJumpPicker(habitCalYear, habitCalMonth, (y,m)=>{
+    habitCalYear = y; habitCalMonth = m;
+    renderHabitCalGrid(DB.habits.find(x=>x.id===currentHabitId));
+  });
+});
+document.getElementById("btnToggleHabitActive").addEventListener("click", ()=>{
+  const h = DB.habits.find(x=>x.id===currentHabitId);
+  if(!h) return;
+  if(h.active){ stopHabit(h); toast("已停止這個習慣"); }
+  else{ resumeHabit(h); toast("已恢復這個習慣"); }
+  renderHabitDetail(currentHabitId);
+  renderHabitsView();
+});
+document.getElementById("btnDeleteHabit").addEventListener("click", ()=>{
+  const h = DB.habits.find(x=>x.id===currentHabitId);
+  if(!h) return;
+  confirmDelete(h.title, ()=>{
+    deleteWithUndo("habits", h.id, h.title, ()=>{
+      renderHabitsView();
+      showGoalsSub("habitList");
+    });
+  });
+});
+function openHabitForm(editId){
+  const editing = editId ? DB.habits.find(h=>h.id===editId) : null;
+  const inProgressGoals = DB.goals.filter(g=>!g.completed);
+  // 一個習慣如果連結到一個「已經完成」的目標，那個目標仍要留在下拉選單裡（不能因為完成了就消失，否則會顯示不出目前的關聯）。
+  const linkedCompletedGoal = editing && editing.goalId ? DB.goals.find(g=>g.id===editing.goalId && g.completed) : null;
+  const goalOptions = [...inProgressGoals, ...(linkedCompletedGoal?[linkedCompletedGoal]:[])];
+  openSheet(`
+    <div class="sheet-head"><h3>${editing?"編輯習慣":"新增習慣"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>習慣名稱</label><input id="f_title" placeholder="例如：每天運動、睡前閱讀" value="${editing?escapeHtml(editing.title):""}"></div>
+    <div class="field"><label>開始日期</label><input type="date" id="f_startDate" value="${editing?editing.startDate:todayStr()}" ${editing?"disabled":""}></div>
+    ${editing?`<div class="muted" style="margin-top:-8px; margin-bottom:12px; font-size:12px;">開始日期建立後無法修改，才能保護過去蓋章紀錄的正確性</div>`:""}
+    <div class="field">
+      <label>連結年度目標（可選）</label>
+      <select id="f_goalId">
+        <option value="">不連結</option>
+        ${goalOptions.map(g=>`<option value="${g.id}" ${editing&&editing.goalId===g.id?"selected":""}>${escapeHtml(g.title)}${g.completed?"（已完成）":""}</option>`).join("")}
+      </select>
+    </div>
+    <button class="btn-main" id="f_submit">儲存</button>
+  `);
+  document.getElementById("f_submit").addEventListener("click", ()=>{
+    const title = document.getElementById("f_title").value.trim();
+    const goalId = document.getElementById("f_goalId").value || null;
+    if(!title){ toast("請輸入習慣名稱"); return; }
+    if(editing){
+      editing.title = title; editing.goalId = goalId;
+      save(); closeSheet(); renderHabitDetail(editId); renderHabitsView(); toast("已更新習慣");
+    }else{
+      const startDate = document.getElementById("f_startDate").value || todayStr();
+      const newHabit = { id:uid(), title, goalId, startDate, createdAt:todayStr(), active:true, inactivePeriods:[], stamps:{} };
+      DB.habits.push(newHabit);
+      save(); closeSheet(); renderHabitsView();
+      openHabitDetail(newHabit.id);
+    }
+  });
+}
+document.getElementById("btnAddHabit").addEventListener("click", ()=>openHabitForm(null));
+document.getElementById("btnEditHabit").addEventListener("click", ()=>{
+  const h = DB.habits.find(x=>x.id===currentHabitId);
+  if(!h) return;
+  if(!h.active){ toast("已停止的習慣要先恢復才能編輯"); return; }
+  openHabitForm(currentHabitId);
+});
 
 /* ============ 記帳 ============ */
 // EXPENSE_CATS 依賴後面定義的 BUCKET_DEFS／PRESET_CALC_ITEMS（記帳與預算細項共用同一份支出類別），
@@ -5416,7 +5987,11 @@ function exportBackup(){
     installmentAmount:d.installmentAmount, totalInstallments:d.totalInstallments, remainingInstallments:d.remainingInstallments,
     dueDay:d.dueDay, rate:d.rate==null?"":d.rate, note:d.note||"", paymentsJSON:JSON.stringify(d.payments||[])
   })));
-  addSheet("目標", DB.goals.map(g=>({id:g.id, title:g.title, note:g.note||"", createdAt:g.createdAt||"", itemsJSON:JSON.stringify(g.items||[])})));
+  addSheet("目標", DB.goals.map(g=>({id:g.id, title:g.title, note:g.note||"", createdAt:g.createdAt||"", completed:!!g.completed, completedAt:g.completedAt||"", itemsJSON:JSON.stringify(g.items||[])})));
+  addSheet("習慣", DB.habits.map(h=>({
+    id:h.id, title:h.title, goalId:h.goalId||"", startDate:h.startDate||"", createdAt:h.createdAt||"",
+    active:!!h.active, inactivePeriodsJSON:JSON.stringify(h.inactivePeriods||[]), stampsJSON:JSON.stringify(h.stamps||{})
+  })));
   addSheet("日記", DB.journal.map(e=>({id:e.id, date:e.date, time:e.time||"", mood:e.mood||"", text:e.text||""})));
   addSheet("設定", [
     {key:"theme", value:DB.theme||"pink"},
@@ -5481,7 +6056,14 @@ function importBackupFromWorkbook(wb){
   }));
   const goals = sheetRows(wb, "目標").map(r=>({
     id:r.id||uid(), title:String(r.title||""), note:r.note||"", createdAt:r.createdAt||todayStr(),
+    completed: r.completed===true || r.completed==="TRUE" || r.completed===1,
+    completedAt: r.completedAt || null,
     items: safeJSONParse(r.itemsJSON, [])
+  }));
+  const habits = sheetRows(wb, "習慣").map(r=>({
+    id:r.id||uid(), title:String(r.title||""), goalId:r.goalId||null, startDate:String(r.startDate||todayStr()),
+    createdAt:r.createdAt||todayStr(), active: r.active===true||r.active==="TRUE"||r.active===1,
+    inactivePeriods: safeJSONParse(r.inactivePeriodsJSON, []), stamps: safeJSONParse(r.stampsJSON, {})
   }));
   const journal = sheetRows(wb, "日記").map(r=>({
     id:r.id||uid(), date:String(r.date||""), time:r.time||"", mood:r.mood||null, text:r.text||""
@@ -5491,7 +6073,7 @@ function importBackupFromWorkbook(wb){
     theme: settings.theme || "pink",
     appName: settings.appName || "",
     farmName: settings.farmName || "",
-    todos, checkins, transactions, debts, goals, assets, journal, recurringTx,
+    todos, checkins, transactions, debts, goals, habits, assets, journal, recurringTx,
     customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
     customExpenseCategories: safeJSONParse(settings.customExpenseCategoriesJSON, []),
     budget: safeJSONParse(settings.budgetJSON, null),
@@ -5575,6 +6157,7 @@ function renderAll(){
   renderCheckin();
   renderTodo();
   renderGoalsView();
+  renderHabitsView();
   renderLedger();
   renderAssetList();
   renderDebt();
