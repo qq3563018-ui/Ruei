@@ -194,6 +194,11 @@ input,select,textarea{ font-family:inherit; }
   background:#fff; width:100%; max-width:640px; border-radius:20px 20px 0 0; padding:20px;
   max-height:85vh; overflow-y:auto; animation:slideUp .25s ease;
 }
+/* 只給小日記編輯用的大尺寸 sheet：只是把可用高度上限拉高，還是照原本內容多高就多高
+   （不是固定高度），桌面版內容通常撐不滿，才不會變成一大塊空白。textarea 的書寫空間
+   則是另外用 .journal-editor-textarea 撐開，跟其他表單共用的 .field textarea 分開。 */
+.sheet.sheet-lg{ max-height:90vh; max-height:90dvh; }
+.field textarea.journal-editor-textarea{ min-height:38vh; min-height:38dvh; }
 @keyframes slideUp{ from{ transform:translateY(30px); opacity:0;} to{ transform:translateY(0); opacity:1;} }
 .sheet-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
 .close-btn{ background:var(--light-accent); width:28px; height:28px; border-radius:50%; color:var(--medium); }
@@ -1108,32 +1113,44 @@ function openEmojiPicker(onPick, currentEmoji){
     });
   }
 }
-let journalEditing = false;
-let journalDraftMood = null;
+let journalDraftMood = undefined;
 let journalDraftText = null;
 
 function findTodayJournal(){ return DB.journal.find(e=>e.date===todayStr()); }
 
+// 首頁的今日小日記卡片本身只負責「閱讀／邀請動筆」這兩種輕量狀態，真正的書寫／編輯
+// 一律另外開 openTodayJournalEditor() 的大 sheet，卡片這裡不再直接嵌一份 textarea。
 function renderJournal(){
   const box = document.getElementById("journalContent");
   const entry = findTodayJournal();
 
-  if(entry && !journalEditing){
+  if(entry){
     box.innerHTML = `
       ${entry.mood ? `<div style="font-size:22px; margin-bottom:8px;">${entry.mood}</div>` : ""}
       <div class="journal-display">${escapeHtml(entry.text || "")}</div>
       ${entry.time ? `<div class="muted" style="font-size:11.5px; margin-top:6px;">${entry.time} · 留下這篇小日記</div>` : ""}
       <button class="small-link" id="btnEditJournal" style="margin-top:8px;">編輯</button>
     `;
-    document.getElementById("btnEditJournal").addEventListener("click", ()=>{
-      journalEditing = true; journalDraftMood = entry.mood || null; journalDraftText = entry.text || ""; renderJournal();
-    });
+    document.getElementById("btnEditJournal").addEventListener("click", openTodayJournalEditor);
     return;
   }
 
+  box.innerHTML = `
+    <div class="journal-gentle-note" style="margin-top:0;">今天有什麼想記住的嗎？一句話、幾個字也都可以呦～</div>
+    <button class="btn-ghost" id="btnStartJournal" style="margin-top:10px;">＋ 寫今天的小日記</button>
+  `;
+  document.getElementById("btnStartJournal").addEventListener("click", openTodayJournalEditor);
+}
+
+// 今天的小日記書寫／編輯：用大尺寸 sheet（openSheet 的 {large:true}）取代原本擠在首頁卡片
+// 裡的 textarea，讓手機上有真正的書寫空間；Emoji picker 選完／清除都會重新呼叫這個函式
+// 把 sheet 內容刷新，journalDraftMood/journalDraftText 在整個編輯過程中持續保留草稿。
+function openTodayJournalEditor(){
+  const entry = findTodayJournal();
   if(journalDraftMood===undefined) journalDraftMood = entry ? (entry.mood||null) : null;
   const draftText = journalDraftText !== null ? journalDraftText : (entry ? entry.text : "");
-  box.innerHTML = `
+  openSheet(`
+    <div class="sheet-head"><h3>${entry?"編輯小日記":"今天的小日記"}</h3><button class="close-btn" onclick="closeTodayJournalEditor()">✕</button></div>
     <div class="muted" style="margin-bottom:6px;">選一個來代表今天的你吧！🧸</div>
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
       <button class="emoji-pick-btn" id="btnPickMoodEmoji">
@@ -1142,23 +1159,23 @@ function renderJournal(){
       ${journalDraftMood ? `<button class="small-link" id="btnClearMoodEmoji">清除</button>` : ""}
     </div>
     <div class="field">
-      <textarea id="journalInput" placeholder="${getJournalPrompt()}">${escapeHtml(draftText||"")}</textarea>
+      <textarea id="journalInput" class="journal-editor-textarea" placeholder="${getJournalPrompt()}">${escapeHtml(draftText||"")}</textarea>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
       <button class="btn-ghost" id="btnSaveJournal">儲存</button>
       ${entry ? `<button class="small-link" id="btnCancelJournalEdit">取消</button>` : ""}
     </div>
     ${!entry ? `<div class="journal-gentle-note">今天有什麼想記住的嗎？一句話、幾個字也都可以呦～</div>` : ""}
-  `;
+  `, {large:true});
   document.getElementById("journalInput").addEventListener("input", (e)=>{ journalDraftText = e.target.value; });
   document.getElementById("btnPickMoodEmoji").addEventListener("click", ()=>{
-    openEmojiPicker((emoji)=>{ journalDraftMood = emoji; renderJournal(); }, journalDraftMood);
+    openEmojiPicker((emoji)=>{ journalDraftMood = emoji; openTodayJournalEditor(); }, journalDraftMood);
   });
   const clearBtn = document.getElementById("btnClearMoodEmoji");
-  if(clearBtn) clearBtn.addEventListener("click", ()=>{ journalDraftMood = null; renderJournal(); });
+  if(clearBtn) clearBtn.addEventListener("click", ()=>{ journalDraftMood = null; openTodayJournalEditor(); });
   document.getElementById("btnSaveJournal").addEventListener("click", ()=>{
     const text = document.getElementById("journalInput").value.trim();
-    if(!text && !journalDraftMood) { journalEditing=false; journalDraftText=null; renderJournal(); return; }
+    if(!text && !journalDraftMood){ closeTodayJournalEditor(); return; }
     const existing = findTodayJournal();
     if(existing){
       // time 是「第一次留下這篇小日記的時間」，編輯只改文字／心情，不重新蓋掉 time。
@@ -1166,10 +1183,16 @@ function renderJournal(){
     }else{
       DB.journal.push({id:uid(), date:todayStr(), time:new Date().toTimeString().slice(0,5), mood:journalDraftMood, text});
     }
-    save(); journalEditing=false; journalDraftMood=null; journalDraftText=null; renderJournal();
+    save();
+    closeTodayJournalEditor();
   });
   const cancelBtn = document.getElementById("btnCancelJournalEdit");
-  if(cancelBtn) cancelBtn.addEventListener("click", ()=>{ journalEditing=false; journalDraftMood=undefined; journalDraftText=null; renderJournal(); });
+  if(cancelBtn) cancelBtn.addEventListener("click", closeTodayJournalEditor);
+}
+function closeTodayJournalEditor(){
+  journalDraftMood = undefined; journalDraftText = null;
+  closeSheet();
+  renderJournal();
 }
 
 function openJournalHistory(){
@@ -1304,6 +1327,7 @@ function renderJournalEntryView(){
   }
 
   openSheet(`
+    <div class="sheet-head"><h3>編輯小日記</h3><button class="close-btn" onclick="historyJournalEditing=false; renderJournalEntryView();">✕</button></div>
     <div class="field"><label>日期</label><input id="hj_date" type="date" value="${historyJournalDraftDate}"></div>
     <div class="muted" style="margin-bottom:6px;">選一個來代表這天的你吧！🧸</div>
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
@@ -1313,13 +1337,13 @@ function renderJournalEntryView(){
       ${historyJournalDraftMood ? `<button class="small-link" id="hj_clearMood">清除</button>` : ""}
     </div>
     <div class="field">
-      <textarea id="hj_text">${escapeHtml(historyJournalDraftText||"")}</textarea>
+      <textarea id="hj_text" class="journal-editor-textarea">${escapeHtml(historyJournalDraftText||"")}</textarea>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
       <button class="btn-ghost" id="hj_save">儲存</button>
       <button class="small-link" id="hj_cancel">取消</button>
     </div>
-  `);
+  `, {large:true});
   document.getElementById("hj_date").addEventListener("input", (e)=>{ historyJournalDraftDate = e.target.value; });
   document.getElementById("hj_text").addEventListener("input", (e)=>{ historyJournalDraftText = e.target.value; });
   document.getElementById("hj_pickMood").addEventListener("click", ()=>{
@@ -1378,7 +1402,7 @@ function recentTodoCompletionRate(n){
 function goWriteJournal(){
   switchView("home");
   const entry = findTodayJournal();
-  if(entry){ journalEditing = true; journalDraftMood = entry.mood||null; journalDraftText = entry.text||""; renderJournal(); }
+  if(entry){ openTodayJournalEditor(); }
   setTimeout(()=>{
     const el = document.getElementById("journalCard");
     if(el) el.scrollIntoView({behavior:"smooth", block:"center"});
@@ -1527,8 +1551,12 @@ document.getElementById("mainFab").addEventListener("click", ()=>{
 });
 
 /* ============ Modal Sheet ============ */
-function openSheet(html){
-  document.getElementById("sheetContent").innerHTML = html;
+// opts.large：只給「小日記編輯」這種真的需要大量書寫空間的 sheet 用，套用 .sheet-lg
+// （約 90% 視窗高度）。每次呼叫都明確 toggle，不會被上一個 sheet 留下的 class 影響到下一個。
+function openSheet(html, opts){
+  const sheetEl = document.getElementById("sheetContent");
+  sheetEl.classList.toggle("sheet-lg", !!(opts && opts.large));
+  sheetEl.innerHTML = html;
   document.getElementById("overlay").classList.add("active");
 }
 function closeSheet(){ document.getElementById("overlay").classList.remove("active"); }
