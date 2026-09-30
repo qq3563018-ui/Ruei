@@ -386,14 +386,15 @@ emoji-picker{
    日期數字固定在左上角，中間留給印泥章當主要視覺。
    手機版重點：卡片左右 padding／格子間距盡量壓縮讓 7 欄吃滿可用寬度，
    日期格用 aspect-ratio 做成稍微偏直式（而不是死板的正方形），
-   高度自然跟著實際寬度 responsive 放大，印章才有足夠的垂直空間完整容納。 */
+   高度自然跟著實際寬度 responsive 放大，印章才有足夠的垂直空間完整容納。
+   這一輪不再調整格子本身尺寸／版面，只重做印章如何 fit 進格子。 */
 .habit-cal-card{ padding-left:clamp(6px,2.5vw,16px); padding-right:clamp(6px,2.5vw,16px); }
 .habit-cal-card .cal-head{ margin-bottom:8px; }
 .habit-cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:clamp(2px,1vw,6px); }
 .habit-cal-dow{ font-size:11px; color:var(--gray); text-align:center; padding-bottom:4px; }
 .habit-cal-cell{
   position:relative; aspect-ratio:5/7; border-radius:10px; background:var(--cream);
-  min-width:0;
+  min-width:0; container-type:size;
 }
 .habit-cal-cell.empty{ background:transparent; }
 .habit-cal-cell.today{ box-shadow:0 0 0 2px var(--accent) inset; }
@@ -402,16 +403,30 @@ emoji-picker{
   position:absolute; top:2px; left:3px; font-size:10px; font-weight:700; color:var(--medium); z-index:2;
   line-height:1; background:rgba(255,255,255,.75); border-radius:5px; padding:0 3px;
 }
-/* 好寶寶印泥章：用不規則的 border-radius 讓外圈不是正圓、疊兩層放射狀漸層做出缺墨與顆粒感，
-   整顆置中在格子裡但避開左上角日期數字（上緣特別多留白）。
-   關鍵：用 CSS container query（container-type:inline-size + cqw）讓 emoji／文字尺寸
-   直接跟著「印章實際渲染出來的寬度」縮放，而不是綁死 viewport 或固定 px——格子多寬、
-   印章跟著多大，emoji／文字永遠照比例撐滿印章，不會被迫整顆縮成小圖示。
-   上下左右 inset 的比例是配合 5:7 的格子刻意調校過，讓印章本身接近正圓，不會因為格子偏直
-   而被拉成橢圓。 */
+/* 印章的「安全區」：把格子概念上切成左上角日期保留區（上方大留白）跟其餘的 stamp safe area，
+   印章只會在這個安全區裡置中顯示，不會跑到日期數字那一塊。 */
+.habit-stamp-safe{
+  position:absolute; inset:30% 5% 6% 5%;
+  display:flex; align-items:center; justify-content:center;
+}
+/* 好寶寶印泥章：外框永遠是數學上的正圓——寬跟高用「完全同一個」min(90cqw,64cqh) 算式決定
+   （cqw/cqh 是相對日期格自己的 container query 單位，.habit-cal-cell 設了 container-type:size）。
+   核心原因：CSS 的 % 沒辦法在同一個屬性裡同時參照「父層的寬」跟「父層的高」，但 cqw／cqh
+   可以，所以只有 container query 能真正算出 min(可用寬度, 可用高度)，寬高套用同一條算式
+   保證兩者永遠是完全相等的同一個數字，不會像 aspect-ratio + max-height 那樣寬高各自獨立
+   取捨、四捨五入到不同的整數 px，導致極輕微但存在的橢圓化風險。
+   空間不足時是這個共同算出來的邊長整體變小，寬高永遠同步縮放，不會被壓扁拉長。
+   （先前實測時一度以為「月曆最後一列格子」印章尺寸對不齊，後來確認純粹是量測方式的誤判：
+   getBoundingClientRect() 量的是「旋轉後」的外接矩形，印章本身有 --stamp-rot 的輕微旋轉角度，
+   同樣大小的正圓被旋轉不同角度時外接矩形本來就會不一樣大，但正圓本身的視覺呈現完全不受旋轉
+   影響；改用 offsetWidth/offsetHeight（不受 transform 影響的真實版面尺寸）重新量測後，
+   所有格子、所有列的印章尺寸其實完全一致。）
+   emoji／文字用 container-type:inline-size 讓字級跟著「印章自己最終的實際邊長」cqw 縮放。 */
 .habit-stamp{
-  position:absolute; inset:34% 8% 8% 8%; border-radius:70% 53% 45% 55% / 72% 45% 58% 42%;
+  width:min(90cqw, 64cqh); height:min(90cqw, 64cqh);
+  aspect-ratio:1/1; border-radius:50%; flex:none;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  padding:10% 12%; box-sizing:border-box; overflow:hidden;
   container-type:inline-size;
   background:
     radial-gradient(circle at 32% 24%, rgba(255,255,255,.35), transparent 45%),
@@ -422,27 +437,26 @@ emoji-picker{
   transform: rotate(var(--stamp-rot, 0deg));
   cursor:pointer;
 }
-.habit-stamp-emoji{ font-size:clamp(15px, 60cqw, 30px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12)); }
+.habit-stamp-emoji{ font-size:clamp(13px, 44cqw, 26px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12)); }
 /* .habit-stamp-msg 本身是 .habit-stamp（flex 容器）的直接子項，會被瀏覽器「blockify」成
    flow-root，導致 -webkit-line-clamp 完全失效（文字被硬擠成一行、超出的部分整個消失不見）。
    解法是把真正要 clamp 的文字包一層 .habit-stamp-msg-text，讓它是「非 flex item」的一般區塊，
-   -webkit-line-clamp 才會確實生效，允許兩行完整顯示較長的鼓勵文字。 */
-.habit-stamp-msg{ max-width:94%; }
+   -webkit-line-clamp 才會確實生效，允許兩行完整顯示較長的鼓勵文字，而且完全不用 ellipsis 截斷。 */
+.habit-stamp-msg{ max-width:100%; min-height:0; }
 .habit-stamp-msg-text{
-  font-size:clamp(6.5px, 24cqw, 10px);
+  font-size:clamp(6px, 22cqw, 9.5px);
   font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.15);
   letter-spacing:.01em; text-align:center; line-height:1.15;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
   overflow:hidden; word-break:break-word;
 }
 @keyframes habitStampPress{
-  0%{ transform: scale(.35) translateY(-10px) rotate(var(--stamp-rot,0deg)); opacity:0; }
-  45%{ transform: scale(1.08) translateY(-2px) rotate(var(--stamp-rot,0deg)); opacity:1; }
-  65%{ transform: scale(.94) translateY(1px) rotate(var(--stamp-rot,0deg)); }
-  82%{ transform: scale(1.03) translateY(0) rotate(var(--stamp-rot,0deg)); }
-  100%{ transform: scale(1) translateY(0) rotate(var(--stamp-rot,0deg)); }
+  0%{ transform: scale(.5) rotate(var(--stamp-rot,0deg)); opacity:0; }
+  45%{ transform: scale(1.04) rotate(var(--stamp-rot,0deg)); opacity:1; }
+  70%{ transform: scale(.98) rotate(var(--stamp-rot,0deg)); }
+  100%{ transform: scale(1) rotate(var(--stamp-rot,0deg)); }
 }
-.habit-stamp.stamp-anim{ animation: habitStampPress .45s cubic-bezier(.33,1,.68,1); }
+.habit-stamp.stamp-anim{ animation: habitStampPress .4s cubic-bezier(.33,1,.68,1); }
 @media (prefers-reduced-motion: reduce){
   .habit-stamp.stamp-anim{ animation:none; }
 }
@@ -3135,20 +3149,33 @@ document.getElementById("btnEditGoal").addEventListener("click", ()=>openGoalFor
 document.getElementById("btnAddGoalItem").addEventListener("click", ()=>openGoalItemForm(currentGoalId, null));
 
 /* ---------- 我的習慣 ---------- */
-// 固定 20 句鼓勵語，只在蓋章／換章的當下抽一句並永久存起來，絕對不會在重新渲染／換月／匯出匯入時重新抽。
+// 固定 20 句鼓勵語（唯一合法來源），只在蓋章／換章的當下抽一句並永久存起來，
+// 絕對不會在重新渲染／換月／匯出匯入時重新抽，也不允許任何動態拼接的文字混進來。
 const HABIT_STAMP_MESSAGES = [
-  "今天也做到了，很棒喔", "又留下了一個小小的紀錄", "這一步，你走到了", "持續本身就很了不起",
-  "今天的你，值得被記得", "沒有中斷，真的很好",
-  "今日もよくできました", "続けているあなたはすごい", "また一歩、前に進んだね", "今日の自分を褒めてあげて",
-  "小さな積み重ねが力になる",
-  "오늘도 해냈어요", "꾸준함이 진짜 멋져요", "오늘의 기록, 남겼어요", "이 순간을 기억할게요",
-  "포기하지 않아줘서 고마워요",
-  "You showed up today", "Small steps still count", "Proud of this moment", "Consistency looks good on you",
-  "Another day, another mark"
+  "好棒！", "一百分！", "好寶寶！", "真優秀！", "做得真棒！",
+  "できた！", "えらい！", "いいね！", "よくできた！", "がんばった！",
+  "잘했어!", "최고!", "멋져!", "해냈다!", "오늘도 굿!",
+  "GOOD!", "NICE!", "GREAT!", "YOU DID IT!", "GOOD JOB!"
 ];
 function randomStampMessage(){
   return HABIT_STAMP_MESSAGES[Math.floor(Math.random()*HABIT_STAMP_MESSAGES.length)];
 }
+// 一次性資料相容修正：舊版曾經用過不同的鼓勵語文字池，導致既有 stamp 裡可能存著不屬於
+// 目前這 20 句合法清單的 message。這裡只在載入當下檢查一次、重新隨機選一句合法的寫回並
+// save()；本來就合法的 message 完全不動，之後也不會再次重新抽。
+function migrateInvalidStampMessages(){
+  let changed = false;
+  DB.habits.forEach(h=>{
+    Object.values(h.stamps || {}).forEach(stamp=>{
+      if(!HABIT_STAMP_MESSAGES.includes(stamp.message)){
+        stamp.message = randomStampMessage();
+        changed = true;
+      }
+    });
+  });
+  if(changed) save();
+}
+migrateInvalidStampMessages();
 // inactivePeriods：一份永久保存的「停止→恢復」區間清單，{start, end}，end為null代表目前仍是停止狀態。
 // 判斷某天是否落在任何一段停止區間：start <= date < end（end為null視為目前仍持續到未來）。
 function habitPeriodBlocks(h, dateStr){
@@ -3213,9 +3240,11 @@ function playStampAnim(cellEl){
 }
 function renderHabitStampHTML(dateStr, stamp){
   const rot = stampRotationDeg(dateStr);
-  return `<div class="habit-stamp" style="--stamp-rot:${rot}deg;">
-    <div class="habit-stamp-emoji">${stamp.emoji}</div>
-    <div class="habit-stamp-msg"><span class="habit-stamp-msg-text">${escapeHtml(stamp.message)}</span></div>
+  return `<div class="habit-stamp-safe">
+    <div class="habit-stamp" style="--stamp-rot:${rot}deg;">
+      <div class="habit-stamp-emoji">${stamp.emoji}</div>
+      <div class="habit-stamp-msg"><span class="habit-stamp-msg-text">${escapeHtml(stamp.message)}</span></div>
+    </div>
   </div>`;
 }
 // 習慣列表卡片刻意不顯示任何連續天數／完成率／打勾打叉，只留標題跟一個「查看印章月曆」的入口。
