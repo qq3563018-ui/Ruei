@@ -383,25 +383,36 @@ emoji-picker{
 
 /* ===== 我的習慣：印章月曆 =====
    刻意跟 .cal-grid（小格子的日期選擇器）分開一套，因為這裡格子要大很多，
-   日期數字固定在左上角，中間留給印泥章當主要視覺。 */
-.habit-cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; }
+   日期數字固定在左上角，中間留給印泥章當主要視覺。
+   手機版重點：卡片左右 padding／格子間距盡量壓縮讓 7 欄吃滿可用寬度，
+   日期格用 aspect-ratio 做成稍微偏直式（而不是死板的正方形），
+   高度自然跟著實際寬度 responsive 放大，印章才有足夠的垂直空間完整容納。 */
+.habit-cal-card{ padding-left:clamp(6px,2.5vw,16px); padding-right:clamp(6px,2.5vw,16px); }
+.habit-cal-card .cal-head{ margin-bottom:8px; }
+.habit-cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:clamp(2px,1vw,6px); }
 .habit-cal-dow{ font-size:11px; color:var(--gray); text-align:center; padding-bottom:4px; }
 .habit-cal-cell{
-  position:relative; aspect-ratio:1; border-radius:10px; background:var(--cream);
+  position:relative; aspect-ratio:5/7; border-radius:10px; background:var(--cream);
   min-width:0;
 }
 .habit-cal-cell.empty{ background:transparent; }
 .habit-cal-cell.today{ box-shadow:0 0 0 2px var(--accent) inset; }
 .habit-cal-cell.disabled{ opacity:.5; }
 .habit-cal-daynum{
-  position:absolute; top:3px; left:5px; font-size:10px; font-weight:700; color:var(--medium); z-index:2;
-  line-height:1; background:rgba(255,255,255,.75); border-radius:5px; padding:1px 3px;
+  position:absolute; top:2px; left:3px; font-size:10px; font-weight:700; color:var(--medium); z-index:2;
+  line-height:1; background:rgba(255,255,255,.75); border-radius:5px; padding:0 3px;
 }
 /* 好寶寶印泥章：用不規則的 border-radius 讓外圈不是正圓、疊兩層放射狀漸層做出缺墨與顆粒感，
-   emoji 是主視覺、文字小一號貼在下方，整顆置中在格子裡但避開左上角日期數字（上緣特別多留白）。 */
+   整顆置中在格子裡但避開左上角日期數字（上緣特別多留白）。
+   關鍵：用 CSS container query（container-type:inline-size + cqw）讓 emoji／文字尺寸
+   直接跟著「印章實際渲染出來的寬度」縮放，而不是綁死 viewport 或固定 px——格子多寬、
+   印章跟著多大，emoji／文字永遠照比例撐滿印章，不會被迫整顆縮成小圖示。
+   上下左右 inset 的比例是配合 5:7 的格子刻意調校過，讓印章本身接近正圓，不會因為格子偏直
+   而被拉成橢圓。 */
 .habit-stamp{
-  position:absolute; inset:32% 5% 4% 5%; border-radius:70% 53% 45% 55% / 72% 45% 58% 42%;
+  position:absolute; inset:34% 8% 8% 8%; border-radius:70% 53% 45% 55% / 72% 45% 58% 42%;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  container-type:inline-size;
   background:
     radial-gradient(circle at 32% 24%, rgba(255,255,255,.35), transparent 45%),
     radial-gradient(circle at 75% 30%, transparent 60%, rgba(0,0,0,.05) 100%),
@@ -411,19 +422,27 @@ emoji-picker{
   transform: rotate(var(--stamp-rot, 0deg));
   cursor:pointer;
 }
-.habit-stamp-emoji{ font-size:clamp(16px,5.2vw,24px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12)); }
-.habit-stamp-msg{
-  font-size:6.5px; font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.15);
-  max-width:92%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:.02em;
+.habit-stamp-emoji{ font-size:clamp(15px, 60cqw, 30px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12)); }
+/* .habit-stamp-msg 本身是 .habit-stamp（flex 容器）的直接子項，會被瀏覽器「blockify」成
+   flow-root，導致 -webkit-line-clamp 完全失效（文字被硬擠成一行、超出的部分整個消失不見）。
+   解法是把真正要 clamp 的文字包一層 .habit-stamp-msg-text，讓它是「非 flex item」的一般區塊，
+   -webkit-line-clamp 才會確實生效，允許兩行完整顯示較長的鼓勵文字。 */
+.habit-stamp-msg{ max-width:94%; }
+.habit-stamp-msg-text{
+  font-size:clamp(6.5px, 24cqw, 10px);
+  font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.15);
+  letter-spacing:.01em; text-align:center; line-height:1.15;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; word-break:break-word;
 }
 @keyframes habitStampPress{
-  0%{ transform: scale(.35) translateY(-16px) rotate(var(--stamp-rot,0deg)); opacity:0; }
-  45%{ transform: scale(1.18) translateY(-4px) rotate(var(--stamp-rot,0deg)); opacity:1; }
-  65%{ transform: scale(.9) translateY(1px) rotate(var(--stamp-rot,0deg)); }
-  82%{ transform: scale(1.05) translateY(0) rotate(var(--stamp-rot,0deg)); }
+  0%{ transform: scale(.35) translateY(-10px) rotate(var(--stamp-rot,0deg)); opacity:0; }
+  45%{ transform: scale(1.08) translateY(-2px) rotate(var(--stamp-rot,0deg)); opacity:1; }
+  65%{ transform: scale(.94) translateY(1px) rotate(var(--stamp-rot,0deg)); }
+  82%{ transform: scale(1.03) translateY(0) rotate(var(--stamp-rot,0deg)); }
   100%{ transform: scale(1) translateY(0) rotate(var(--stamp-rot,0deg)); }
 }
-.habit-stamp.stamp-anim{ animation: habitStampPress .45s cubic-bezier(.34,1.56,.64,1); }
+.habit-stamp.stamp-anim{ animation: habitStampPress .45s cubic-bezier(.33,1,.68,1); }
 @media (prefers-reduced-motion: reduce){
   .habit-stamp.stamp-anim{ animation:none; }
 }
@@ -618,7 +637,7 @@ emoji-picker{
   <!-- 習慣詳細頁：印章月曆 -->
   <div id="habitDetailPanel" style="display:none;">
     <button class="back-btn" id="btnBackFromHabit">‹ 返回我的習慣</button>
-    <div class="card">
+    <div class="card habit-cal-card">
       <div class="card-title" id="habitDetailTitle"></div>
       <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
       <div id="habitStoppedNotice"></div>
@@ -3196,7 +3215,7 @@ function renderHabitStampHTML(dateStr, stamp){
   const rot = stampRotationDeg(dateStr);
   return `<div class="habit-stamp" style="--stamp-rot:${rot}deg;">
     <div class="habit-stamp-emoji">${stamp.emoji}</div>
-    <div class="habit-stamp-msg">${escapeHtml(stamp.message)}</div>
+    <div class="habit-stamp-msg"><span class="habit-stamp-msg-text">${escapeHtml(stamp.message)}</span></div>
   </div>`;
 }
 // 習慣列表卡片刻意不顯示任何連續天數／完成率／打勾打叉，只留標題跟一個「查看印章月曆」的入口。
