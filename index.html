@@ -425,8 +425,7 @@ emoji-picker{
 .habit-stamp{
   width:min(90cqw, 64cqh); height:min(90cqw, 64cqh);
   aspect-ratio:1/1; border-radius:50%; flex:none;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
-  padding:10% 12%; box-sizing:border-box; overflow:hidden;
+  position:relative; box-sizing:border-box; overflow:hidden;
   container-type:inline-size;
   background:
     radial-gradient(circle at 32% 24%, rgba(255,255,255,.35), transparent 45%),
@@ -437,18 +436,24 @@ emoji-picker{
   transform: rotate(var(--stamp-rot, 0deg));
   cursor:pointer;
 }
-.habit-stamp-emoji{ font-size:clamp(13px, 44cqw, 26px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12)); }
-/* .habit-stamp-msg 本身是 .habit-stamp（flex 容器）的直接子項，會被瀏覽器「blockify」成
-   flow-root，導致 -webkit-line-clamp 完全失效（文字被硬擠成一行、超出的部分整個消失不見）。
-   解法是把真正要 clamp 的文字包一層 .habit-stamp-msg-text，讓它是「非 flex item」的一般區塊，
-   -webkit-line-clamp 才會確實生效，允許兩行完整顯示較長的鼓勵文字，而且完全不用 ellipsis 截斷。 */
-.habit-stamp-msg{ max-width:100%; min-height:0; }
-.habit-stamp-msg-text{
-  font-size:clamp(6px, 22cqw, 9.5px);
-  font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.15);
-  letter-spacing:.01em; text-align:center; line-height:1.15;
-  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-  overflow:hidden; word-break:break-word;
+/* 中央大 Emoji + 下半圈弧形鼓勵文字，兩者是各自獨立的視覺區域（Emoji 用中央偏上的絕對定位，
+   文字沿圓弧走），不再是舊版「上下垂直堆疊」會互相蓋到的排法。
+   Emoji 尺寸邏輯完全沒動，一樣用 container-type:inline-size 的 cqw 跟著印章實際邊長縮放；
+   只有位置從 flex 置中改成絕對定位置中並稍微上移，讓下半圈留給弧形文字。 */
+.habit-stamp-emoji{
+  position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);
+  font-size:clamp(13px, 44cqw, 26px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12));
+  pointer-events:none;
+}
+/* 弧形文字用 SVG + textPath 沿正圓內側下半圈排列，viewBox 用 0-100 的固定座標系，
+   靠 <svg width/height:100%> 自動隨印章實際尺寸等比縮放（跟印章本身的 responsive 邏輯共用
+   同一顆父層，不需要另外用 JS 算 px）。
+   弧線是從左下（150°）經正下方（90°）到右下（30°）的 120° 短弧，sweep-flag=0，
+   保證文字方向是「由左到右正常閱讀」，不會倒著或上下顛倒。 */
+.habit-stamp-arc{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.habit-stamp-arc-text{
+  fill:#fff; font-weight:700; letter-spacing:0.3px;
+  paint-order:stroke fill; stroke:rgba(0,0,0,.22); stroke-width:1px; stroke-linejoin:round;
 }
 @keyframes habitStampPress{
   0%{ transform: scale(.5) rotate(var(--stamp-rot,0deg)); opacity:0; }
@@ -3238,14 +3243,50 @@ function playStampAnim(cellEl){
   void stampEl.offsetWidth; // 強制 reflow 讓動畫可以重新觸發
   stampEl.classList.add("stamp-anim");
 }
+// 弧形文字字級：字數愈短給愈大的字，字數愈長自動縮小，數字是 SVG viewBox 的 0-100 使用者單位
+// （不是 px），會跟著印章本身的實際大小自動等比縮放，不需要額外判斷 viewport。
+function habitArcFontSize(message){
+  const len = message.length;
+  if(len<=4) return 15;
+  if(len<=6) return 13;
+  if(len<=9) return 11.5;
+  return 10;
+}
 function renderHabitStampHTML(dateStr, stamp){
   const rot = stampRotationDeg(dateStr);
+  const arcId = `habitArc-${dateStr}`;
+  const fontSize = habitArcFontSize(stamp.message);
   return `<div class="habit-stamp-safe">
     <div class="habit-stamp" style="--stamp-rot:${rot}deg;">
       <div class="habit-stamp-emoji">${stamp.emoji}</div>
-      <div class="habit-stamp-msg"><span class="habit-stamp-msg-text">${escapeHtml(stamp.message)}</span></div>
+      <svg class="habit-stamp-arc" viewBox="0 0 100 100">
+        <path id="${arcId}" d="M 20.56,67 A 34,34 0 0 0 79.44,67" fill="none"/>
+        <text class="habit-stamp-arc-text" style="font-size:${fontSize}px;">
+          <textPath href="#${arcId}" startOffset="50%" text-anchor="middle">${escapeHtml(stamp.message)}</textPath>
+        </text>
+      </svg>
     </div>
   </div>`;
+}
+// 弧形文字保險絲：字級分級是用字數粗估，不同語言（中日韓全形字 vs 英文半形字）每字實際寬度
+// 不一樣，這裡在真正插入 DOM 之後用 SVG 原生的 getTotalLength／getComputedTextLength 量出
+// 「這段文字沿著這條弧線實際畫出來有多長」，只要超過弧線可用長度的安全範圍，
+// 才用 textLength＋lengthAdjust 把文字整體壓縮到剛好塞得進弧線內——保證任何語言、任何長度
+// 的合法 message 都不會被裁切、也不會跑出正圓，同時平常沒超過安全範圍時完全不介入，
+// 維持原本依字數分級的字級大小。
+function fitHabitArcText(container){
+  container.querySelectorAll(".habit-stamp-arc").forEach(svg=>{
+    const path = svg.querySelector("path");
+    const textPath = svg.querySelector("textPath");
+    if(!path || !textPath) return;
+    const pathLen = path.getTotalLength();
+    const maxLen = pathLen * 0.92;
+    const actualLen = textPath.getComputedTextLength();
+    if(actualLen > maxLen){
+      textPath.setAttribute("textLength", maxLen.toFixed(2));
+      textPath.setAttribute("lengthAdjust", "spacingAndGlyphs");
+    }
+  });
 }
 // 習慣列表卡片刻意不顯示任何連續天數／完成率／打勾打叉，只留標題跟一個「查看印章月曆」的入口。
 function habitRowHTML(h){
@@ -3341,6 +3382,7 @@ function renderHabitCalGrid(h){
     </div>`;
   }
   grid.innerHTML = html;
+  fitHabitArcText(grid);
   grid.querySelectorAll(".habit-cal-cell:not(.empty)").forEach(el=>{
     el.addEventListener("click", ()=>onHabitCellClick(h, el.dataset.date, el));
   });
