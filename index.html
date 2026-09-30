@@ -593,7 +593,7 @@ emoji-picker{
     <div class="card nav-card" id="goHabitListCard">
       <div class="nav-card-row">
         <div>
-          <div class="card-title" style="margin-bottom:2px;">🔥 我的習慣</div>
+          <div class="card-title" style="margin-bottom:2px;">🍀 印章集點卡</div>
           <div class="muted">有沒有想養成什麼習慣呢？可以從今天開始慢慢累積呦！<br>也可以把它客製化成你的打卡單✨<br>例如：你想實施30天存錢打卡、喝水的打卡單等等📃</div>
         </div>
         <div class="nav-card-arrow">›</div>
@@ -633,7 +633,7 @@ emoji-picker{
       <button class="btn-main" id="btnAddGoalItem" style="width:100%; margin-top:10px;">＋ 新增目標事項</button>
     </div>
     <div class="card">
-      <div class="card-title">🔥 正在為這個目標養成</div>
+      <div class="card-title">🍀 關聯的集點卡</div>
       <div id="goalHabitList"></div>
     </div>
   </div>
@@ -642,20 +642,20 @@ emoji-picker{
   <div id="habitListPanel" style="display:none;">
     <button class="back-btn" id="btnBackFromHabitList">‹ 返回我的目標</button>
     <div class="card">
-      <div class="card-title">🔥 進行中的習慣</div>
+      <div class="card-title">🍀 進行中的集點卡</div>
       <div class="muted" style="margin-bottom:10px;">今天也有做到嗎～來蓋一顆好寶寶印章吧！👶🏻💮</div>
       <div id="habitListActive"></div>
-      <button class="btn-ghost" id="btnAddHabit" style="width:100%; margin-top:10px;">＋ 新增習慣</button>
+      <button class="btn-ghost" id="btnAddHabit" style="width:100%; margin-top:10px;">＋ 新增集點卡</button>
     </div>
     <div class="card" id="habitListStoppedCard" style="display:none;">
-      <div class="card-title">⏸ 已停止的習慣</div>
+      <div class="card-title">⏸ 已停止的集點卡</div>
       <div id="habitListStopped"></div>
     </div>
   </div>
 
   <!-- 習慣詳細頁：印章月曆 -->
   <div id="habitDetailPanel" style="display:none;">
-    <button class="back-btn" id="btnBackFromHabit">‹ 返回我的習慣</button>
+    <button class="back-btn" id="btnBackFromHabit">‹ 返回印章集點卡</button>
     <div class="card habit-cal-card">
       <div class="card-title" id="habitDetailTitle"></div>
       <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
@@ -670,7 +670,7 @@ emoji-picker{
         <button class="btn-ghost" id="btnEditHabit" style="flex:1;">✎ 編輯</button>
         <button class="btn-ghost" id="btnToggleHabitActive" style="flex:1;"></button>
       </div>
-      <button class="btn-ghost" id="btnDeleteHabit" style="width:100%; margin-top:8px;">刪除這個習慣</button>
+      <button class="btn-ghost" id="btnDeleteHabit" style="width:100%; margin-top:8px;">刪除這張集點卡</button>
     </div>
   </div>
 </div>
@@ -3070,13 +3070,13 @@ function renderGoalHabitList(g){
   const box = document.getElementById("goalHabitList");
   const linked = DB.habits.filter(h=>h.goalId===g.id);
   if(!linked.length){
-    box.innerHTML = `<div class="empty-state">還沒有習慣連結到這個目標</div>`;
+    box.innerHTML = `<div class="empty-state">還沒有集點卡連結到這個目標</div>`;
     return;
   }
   box.innerHTML = linked.map(h=>`
     <div class="item-row" data-id="${h.id}">
       <div class="goal-habit-open" data-id="${h.id}" style="flex:1; cursor:pointer;">
-        <div class="item-title">🔥 ${escapeHtml(h.title)}</div>
+        <div class="item-title">🍀 ${escapeHtml(h.title)}</div>
         <div class="item-sub">${h.active?"進行中":"已停止"}</div>
       </div>
       <button class="small-link goal-habit-unlink" data-id="${h.id}">解除關聯</button>
@@ -3292,7 +3292,7 @@ function fitHabitArcText(container){
 function habitRowHTML(h){
   return `<div class="item-row" data-id="${h.id}">
     <div class="habit-open-target" data-id="${h.id}" style="flex:1; cursor:pointer;">
-      <div class="item-title">🔥 ${escapeHtml(h.title)}</div>
+      <div class="item-title">🍀 ${escapeHtml(h.title)}</div>
       <div class="item-sub">查看印章月曆 →</div>
     </div>
     <button class="del-btn habit-del" data-id="${h.id}">✕</button>
@@ -3305,8 +3305,8 @@ function bindHabitRowEvents(container){
   container.querySelectorAll(".habit-del").forEach(el=>{
     el.addEventListener("click", ()=>{
       const h = DB.habits.find(x=>x.id===el.dataset.id);
-      confirmDelete(h?h.title:"這個習慣", ()=>{
-        deleteWithUndo("habits", el.dataset.id, h?h.title:"這個習慣", ()=>{
+      confirmDelete(h?h.title:"這張集點卡", ()=>{
+        deleteWithUndo("habits", el.dataset.id, h?h.title:"這張集點卡", ()=>{
           renderHabitsView();
           if(currentHabitId===el.dataset.id) showGoalsSub("habitList");
         });
@@ -3323,7 +3323,7 @@ function renderHabitsView(){
     const stopped = DB.habits.filter(h=>!h.active);
     activeBox.innerHTML = active.length
       ? active.map(habitRowHTML).join("")
-      : `<div class="empty-state">還沒有建立習慣，想想有什麼想持續做的事吧。</div>`;
+      : `<div class="empty-state">還沒有建立集點卡，想想有什麼想持續做的事吧。</div>`;
     bindHabitRowEvents(activeBox);
     if(stopped.length){
       stoppedCard.style.display = "block";
@@ -3347,7 +3347,7 @@ function openHabitDetail(id){
 function renderHabitDetail(id){
   const h = DB.habits.find(x=>x.id===id);
   if(!h){ showGoalsSub("habitList"); renderHabitsView(); return; }
-  document.getElementById("habitDetailTitle").textContent = `🔥 ${h.title}`;
+  document.getElementById("habitDetailTitle").textContent = `🍀 ${h.title}`;
   const goalLinkEl = document.getElementById("habitDetailGoalLink");
   const goal = h.goalId ? DB.goals.find(g=>g.id===h.goalId) : null;
   if(goal){
@@ -3357,7 +3357,7 @@ function renderHabitDetail(id){
     goalLinkEl.style.display = "none";
   }
   const notice = document.getElementById("habitStoppedNotice");
-  notice.innerHTML = h.active ? "" : `<div class="empty-state" style="margin-bottom:10px;">⏸ 這個習慣目前已停止，恢復後才能繼續蓋章</div>`;
+  notice.innerHTML = h.active ? "" : `<div class="empty-state" style="margin-bottom:10px;">⏸ 這張集點卡目前已停止，恢復後才能繼續蓋章</div>`;
 
   const toggleBtn = document.getElementById("btnToggleHabitActive");
   toggleBtn.textContent = h.active ? "⏸ 停止" : "▶ 恢復";
@@ -3440,8 +3440,8 @@ document.getElementById("habitCalTitleBtn").addEventListener("click", ()=>{
 document.getElementById("btnToggleHabitActive").addEventListener("click", ()=>{
   const h = DB.habits.find(x=>x.id===currentHabitId);
   if(!h) return;
-  if(h.active){ stopHabit(h); toast("已停止這個習慣"); }
-  else{ resumeHabit(h); toast("已恢復這個習慣"); }
+  if(h.active){ stopHabit(h); toast("已停止這張集點卡"); }
+  else{ resumeHabit(h); toast("已恢復這張集點卡"); }
   renderHabitDetail(currentHabitId);
   renderHabitsView();
 });
@@ -3462,8 +3462,8 @@ function openHabitForm(editId){
   const linkedCompletedGoal = editing && editing.goalId ? DB.goals.find(g=>g.id===editing.goalId && g.completed) : null;
   const goalOptions = [...inProgressGoals, ...(linkedCompletedGoal?[linkedCompletedGoal]:[])];
   openSheet(`
-    <div class="sheet-head"><h3>${editing?"編輯習慣":"新增習慣"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="field"><label>習慣名稱</label><input id="f_title" placeholder="例如：每天運動、睡前閱讀" value="${editing?escapeHtml(editing.title):""}"></div>
+    <div class="sheet-head"><h3>${editing?"編輯集點卡":"新增集點卡"}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>集點卡名稱</label><input id="f_title" placeholder="例如：每天運動、睡前閱讀" value="${editing?escapeHtml(editing.title):""}"></div>
     <div class="field"><label>開始日期</label><input type="date" id="f_startDate" value="${editing?editing.startDate:todayStr()}" ${editing?"disabled":""}></div>
     ${editing?`<div class="muted" style="margin-top:-8px; margin-bottom:12px; font-size:12px;">開始日期建立後無法修改，才能保護過去蓋章紀錄的正確性</div>`:""}
     <div class="field">
@@ -3478,10 +3478,10 @@ function openHabitForm(editId){
   document.getElementById("f_submit").addEventListener("click", ()=>{
     const title = document.getElementById("f_title").value.trim();
     const goalId = document.getElementById("f_goalId").value || null;
-    if(!title){ toast("請輸入習慣名稱"); return; }
+    if(!title){ toast("請輸入集點卡名稱"); return; }
     if(editing){
       editing.title = title; editing.goalId = goalId;
-      save(); closeSheet(); renderHabitDetail(editId); renderHabitsView(); toast("已更新習慣");
+      save(); closeSheet(); renderHabitDetail(editId); renderHabitsView(); toast("已更新集點卡");
     }else{
       const startDate = document.getElementById("f_startDate").value || todayStr();
       const newHabit = { id:uid(), title, goalId, startDate, createdAt:todayStr(), active:true, inactivePeriods:[], stamps:{} };
@@ -3495,7 +3495,7 @@ document.getElementById("btnAddHabit").addEventListener("click", ()=>openHabitFo
 document.getElementById("btnEditHabit").addEventListener("click", ()=>{
   const h = DB.habits.find(x=>x.id===currentHabitId);
   if(!h) return;
-  if(!h.active){ toast("已停止的習慣要先恢復才能編輯"); return; }
+  if(!h.active){ toast("已停止的集點卡要先恢復才能編輯"); return; }
   openHabitForm(currentHabitId);
 });
 
