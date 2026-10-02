@@ -580,43 +580,58 @@ emoji-picker{
   100%{ transform:translateY(-85%) scale(.88); opacity:0; }
 }
 .wstamp.picked{ animation:wstampPick .32s ease forwards; pointer-events:none; }
+/* 鉸鏈在「盒蓋與盒底交界」那條線（= .wbox-lid 自己的上緣，剛好也是 .wbox-base
+   的上緣，兩者預設就疊在同一個位置），不是盒蓋中央、也不是盒蓋前緣：
+   - CLOSED（rotateX(0)）：蓋子從鉸鏈線往下延伸，長度跟 .wbox-base 一樣高，
+     正好完全蓋住底下的 8 顆章。
+   - OPEN（rotateX(-172deg)，幾乎轉滿 180 度但留一點點角度避免浮點數邊界問題）：
+     蓋子從鉸鏈線往「上、往後」翻過去，落在盒底的正上方、.wbox 本體範圍之外
+     （.wbox-scene／.sheet-stampbox 都刻意 overflow:visible，不會被裁切），
+     跟盒底不再有任何重疊——這是這一輪的關鍵修正：之前蓋子縮小後仍停留在
+     「蓋住第一排印章」的同一塊畫面區域，現在蓋子是真的被「挪到」盒底上方的
+     另一塊空間，角度越接近 180 度、離盒底的重疊就越接近 0。
+   蓋子是雙面卡片（.wbox-lid-closed-face / .wbox-lid-open-face，各自
+   backface-visibility:hidden，裡面那面預先轉 180 度）：角度在 ±90 度以內時
+   看到「關閉」那面（兔兔／Stamp Box），超過 90 度翻到另一側時看到「打開」那面
+   （今天想拿哪個印章呢～♡），兩種文字都是正的、不會鏡像。 */
 .wbox-lid{
-  position:absolute; inset:0; z-index:5; pointer-events:none;
-  /* 3D 旋轉後的實際可點擊區域不會跟著視覺上的「縮短」一起縮小（瀏覽器對
-     rotateX 的 hit-test 仍以未旋轉前的完整矩形計算），蓋子本身又沒有任何
-     可互動內容，所以直接整片設 pointer-events:none，避免半開/全開時蓋子
-     擋住點不到下面的木章。 */
-  border-radius:12px; padding:10px;
-  background:linear-gradient(180deg,#E7C492,#CC9D65);
-  box-shadow:0 2px 0 rgba(255,255,255,.25) inset, 0 6px 10px rgba(80,55,20,.3);
+  position:absolute; top:0; left:0; right:0; height:var(--lid-h, 150px);
+  z-index:5; pointer-events:none;
+  /* 蓋子本身沒有任何可互動內容；3D 旋轉後的實際可點擊區域不會跟著視覺縮小
+     一起縮小，所以整片設 pointer-events:none，避免擋住點不到下面的木章。 */
+  transform-style:preserve-3d;
   transform-origin:top center;
-  transform:perspective(900px) rotateX(0deg);
-  /* 開盒總時長落在規格要求的 1.15～1.30 秒：press(0~0.12s) 之後蓋子本身轉 1.1s，
-     easeInOutQuint 讓「剛抬起」「中段持續翻開」「最後減速停住」三段都清楚可見，
-     角度只到 -74deg（絕不到 -90deg），蓋子縮短但全程看得見，不會消失。 */
+  transform:rotateX(0deg);
+  /* 開盒總時長落在規格要求的 1.15～1.30 秒：press(0~0.12s) 之後蓋子本身轉 1.1s；
+     easeInOutQuint 讓「剛抬起」「中段持續翻開」「最後減速停住」三段都清楚可見。 */
   transition:transform 1.1s cubic-bezier(.83,0,.17,1);
 }
-.wbox.open .wbox-lid{ transform:perspective(900px) rotateX(-70deg); }
+.wbox.open .wbox-lid{ transform:rotateX(-172deg); }
 /* 關盒比開盒快一點（規格要求 0.7~0.9 秒），但一樣要看得到蓋子「闔上」的過程。 */
 .wbox.closing .wbox-lid{ transition-duration:.8s; }
 .wbox-lid-face{
-  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
-  justify-content:center; gap:2px; padding:0 8%; text-align:center;
-  transition:opacity .3s ease;
+  position:absolute; inset:0; backface-visibility:hidden;
+  border-radius:12px; padding:10px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:4px; text-align:center;
 }
-.wbox-lid-closed-face .wbox-lid-deco{ font-size:15px; filter:sepia(.3) saturate(1.3); opacity:.85; }
+.wbox-lid-closed-face{
+  background:linear-gradient(180deg,#E7C492,#CC9D65);
+  box-shadow:0 2px 0 rgba(255,255,255,.25) inset, 0 6px 10px rgba(80,55,20,.3);
+}
+.wbox-lid-closed-face .wbox-lid-deco{ font-size:20px; filter:sepia(.3) saturate(1.3); opacity:.85; }
 .wbox-lid-closed-face .wbox-lid-title{
-  font-size:11px; font-weight:700; letter-spacing:.05em; font-style:italic; color:#7C5527;
+  font-size:13px; font-weight:700; letter-spacing:.05em; font-style:italic; color:#7C5527;
   text-shadow:0 1px 0 rgba(255,255,255,.45), 0 -1px 0 rgba(110,74,34,.25);
 }
 .wbox-lid-open-face{
-  font-size:11px; font-weight:700; color:#7C5527; opacity:0;
-  text-shadow:0 1px 0 rgba(255,255,255,.4);
+  transform:rotateX(180deg); /* 預先反轉：父層轉到接近 -180 度時，疊加起來剛好接近「轉正」，文字不會鏡像 */
+  background:linear-gradient(180deg,#F4E6CB,#ECD8AE);
+  box-shadow:0 3px 8px rgba(80,55,20,.2), inset 0 -2px 0 rgba(255,255,255,.4);
+  font-size:13px; font-weight:700; color:#7C5527;
 }
-.wbox.open .wbox-lid-closed-face{ opacity:0; }
-.wbox.open .wbox-lid-open-face{ opacity:1; }
 @media (prefers-reduced-motion: reduce){
-  .wbox-lid, .wstamp, .wbox-entry, .wbox-lid-face{ transition:none; }
+  .wbox-lid, .wstamp, .wbox-entry{ transition:none; }
   .wstamp.picked{ animation:none; opacity:0; }
 }
 
@@ -3733,14 +3748,14 @@ function openStampBoxSheet(h, fromEl){
               </div>
             `).join("")}
           </div>
-          <div class="wbox-lid">
-            <div class="wbox-lid-face wbox-lid-closed-face">
-              <span class="wbox-lid-deco">🐰</span>
-              <span class="wbox-lid-title">Stamp Box</span>
-            </div>
-            <div class="wbox-lid-face wbox-lid-open-face">今天想拿哪個印章呢～♡</div>
-          </div>
         </div></div>
+        <div class="wbox-lid">
+          <div class="wbox-lid-face wbox-lid-closed-face">
+            <span class="wbox-lid-deco">🐰</span>
+            <span class="wbox-lid-title">Stamp Box</span>
+          </div>
+          <div class="wbox-lid-face wbox-lid-open-face">今天想拿哪個印章呢～♡</div>
+        </div>
       </div>
     </div>
   `;
@@ -3752,6 +3767,10 @@ function openStampBoxSheet(h, fromEl){
   overlay.classList.add("overlay-center", "active");
 
   const wbox = document.getElementById("wbox");
+  // 蓋子的高度要跟 .wbox-base 實際算出來的高度一致，鉸鏈（蓋子上緣）才會剛好
+  // 貼齊盒底上緣：關閉時完全蓋住 8 顆章，打開時翻到盒底正上方、完全不重疊。
+  const baseH = wbox.querySelector(".wbox-base").getBoundingClientRect().height;
+  wbox.style.setProperty("--lid-h", baseH + "px");
   const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if(reduced){
     wbox.classList.add("open");
