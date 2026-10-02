@@ -381,20 +381,17 @@ emoji-picker{
 }
 .farm-anim-glow{ inset:0; left:auto; display:flex; align-items:center; justify-content:center; font-size:130%; animation: farmAnimGlow 2.2s ease-in-out forwards; }
 
-/* ===== 我的習慣：印章月曆 =====
+/* ===== 🍀 印章集點卡：印章月曆 =====
    刻意跟 .cal-grid（小格子的日期選擇器）分開一套，因為這裡格子要大很多，
-   日期數字固定在左上角，中間留給印泥章當主要視覺。
-   手機版重點：卡片左右 padding／格子間距盡量壓縮讓 7 欄吃滿可用寬度，
-   日期格用 aspect-ratio 做成稍微偏直式（而不是死板的正方形），
-   高度自然跟著實際寬度 responsive 放大，印章才有足夠的垂直空間完整容納。
-   這一輪不再調整格子本身尺寸／版面，只重做印章如何 fit 進格子。 */
+   日期數字固定在左上角，中間留給印章當主要視覺。
+   7 欄／5:7 cell／日期左上角，這些版面規格這一輪完全不動。 */
 .habit-cal-card{ padding-left:clamp(6px,2.5vw,16px); padding-right:clamp(6px,2.5vw,16px); }
 .habit-cal-card .cal-head{ margin-bottom:8px; }
 .habit-cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:clamp(2px,1vw,6px); }
 .habit-cal-dow{ font-size:11px; color:var(--gray); text-align:center; padding-bottom:4px; }
 .habit-cal-cell{
   position:relative; aspect-ratio:5/7; border-radius:10px; background:var(--cream);
-  min-width:0; container-type:size;
+  min-width:0;
 }
 .habit-cal-cell.empty{ background:transparent; }
 .habit-cal-cell.today{ box-shadow:0 0 0 2px var(--accent) inset; }
@@ -403,68 +400,75 @@ emoji-picker{
   position:absolute; top:2px; left:3px; font-size:10px; font-weight:700; color:var(--medium); z-index:2;
   line-height:1; background:rgba(255,255,255,.75); border-radius:5px; padding:0 3px;
 }
-/* 印章的「安全區」：把格子概念上切成左上角日期保留區（上方大留白）跟其餘的 stamp safe area，
-   印章只會在這個安全區裡置中顯示，不會跑到日期數字那一塊。 */
+/* 印章的「安全區」：上方 20% 留給日期數字（原本 30% 對目前 5:7 的格子太保守，
+   會讓印章顯得過小），其餘空間置中顯示印章圖片，維持 responsive、不強制正方形／正圓。 */
 .habit-stamp-safe{
-  position:absolute; inset:30% 5% 6% 5%;
+  position:absolute; inset:20% 4% 4% 4%;
   display:flex; align-items:center; justify-content:center;
 }
-/* 好寶寶印泥章：外框永遠是數學上的正圓——寬跟高用「完全同一個」min(90cqw,64cqh) 算式決定
-   （cqw/cqh 是相對日期格自己的 container query 單位，.habit-cal-cell 設了 container-type:size）。
-   核心原因：CSS 的 % 沒辦法在同一個屬性裡同時參照「父層的寬」跟「父層的高」，但 cqw／cqh
-   可以，所以只有 container query 能真正算出 min(可用寬度, 可用高度)，寬高套用同一條算式
-   保證兩者永遠是完全相等的同一個數字，不會像 aspect-ratio + max-height 那樣寬高各自獨立
-   取捨、四捨五入到不同的整數 px，導致極輕微但存在的橢圓化風險。
-   空間不足時是這個共同算出來的邊長整體變小，寬高永遠同步縮放，不會被壓扁拉長。
-   （先前實測時一度以為「月曆最後一列格子」印章尺寸對不齊，後來確認純粹是量測方式的誤判：
-   getBoundingClientRect() 量的是「旋轉後」的外接矩形，印章本身有 --stamp-rot 的輕微旋轉角度，
-   同樣大小的正圓被旋轉不同角度時外接矩形本來就會不一樣大，但正圓本身的視覺呈現完全不受旋轉
-   影響；改用 offsetWidth/offsetHeight（不受 transform 影響的真實版面尺寸）重新量測後，
-   所有格子、所有列的印章尺寸其實完全一致。）
-   emoji／文字用 container-type:inline-size 讓字級跟著「印章自己最終的實際邊長」cqw 縮放。 */
-.habit-stamp{
-  width:min(90cqw, 64cqh); height:min(90cqw, 64cqh);
-  aspect-ratio:1/1; border-radius:50%; flex:none;
-  position:relative; box-sizing:border-box; overflow:hidden;
-  container-type:inline-size;
-  background:
-    radial-gradient(circle at 32% 24%, rgba(255,255,255,.35), transparent 45%),
-    radial-gradient(circle at 75% 30%, transparent 60%, rgba(0,0,0,.05) 100%),
-    radial-gradient(circle at 60% 80%, rgba(0,0,0,.06), transparent 40%),
-    var(--stamp-bg, var(--accent));
-  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.3), 0 1px 2px rgba(0,0,0,.1);
+/* 印章本體：真實 PNG（透明背景＋自己的外型與顏色），用 max-width/height:100% + object-fit
+   概念讓圖片依自己的長寬比 contain 進安全區，不強制方形／圓形外框，不同印章可以有不同輪廓。
+   --stamp-rot 是依日期字串算出的固定隨機角度，疊一點點「蓋得不是很正」的手感。 */
+.habit-stamp-img{
+  max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.18));
   transform: rotate(var(--stamp-rot, 0deg));
-  cursor:pointer;
-}
-/* 中央大 Emoji + 下半圈弧形鼓勵文字，兩者是各自獨立的視覺區域（Emoji 用中央偏上的絕對定位，
-   文字沿圓弧走），不再是舊版「上下垂直堆疊」會互相蓋到的排法。
-   Emoji 尺寸邏輯完全沒動，一樣用 container-type:inline-size 的 cqw 跟著印章實際邊長縮放；
-   只有位置從 flex 置中改成絕對定位置中並稍微上移，讓下半圈留給弧形文字。 */
-.habit-stamp-emoji{
-  position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);
-  font-size:clamp(13px, 44cqw, 26px); line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.12));
   pointer-events:none;
 }
-/* 弧形文字用 SVG + textPath 沿正圓內側下半圈排列，viewBox 用 0-100 的固定座標系，
-   靠 <svg width/height:100%> 自動隨印章實際尺寸等比縮放（跟印章本身的 responsive 邏輯共用
-   同一顆父層，不需要另外用 JS 算 px）。
-   弧線是從左下（150°）經正下方（90°）到右下（30°）的 120° 短弧，sweep-flag=0，
-   保證文字方向是「由左到右正常閱讀」，不會倒著或上下顛倒。 */
-.habit-stamp-arc{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
-.habit-stamp-arc-text{
-  fill:#fff; font-weight:700; letter-spacing:0.3px;
-  paint-order:stroke fill; stroke:rgba(0,0,0,.22); stroke-width:1px; stroke-linejoin:round;
-}
+/* 蓋章動畫：印章從稍微上方、稍微放大的位置「壓下」，45% 左右是接觸紙面的瞬間
+   （JS 的音效／震動會跟這個時間點對齊），接著一個很輕微的回彈後定住，
+   不是簡單的 fade in，也不做誇張的彈跳。 */
 @keyframes habitStampPress{
-  0%{ transform: scale(.5) rotate(var(--stamp-rot,0deg)); opacity:0; }
-  45%{ transform: scale(1.04) rotate(var(--stamp-rot,0deg)); opacity:1; }
-  70%{ transform: scale(.98) rotate(var(--stamp-rot,0deg)); }
-  100%{ transform: scale(1) rotate(var(--stamp-rot,0deg)); }
+  0%{ transform: translateY(-14%) scale(1.08) rotate(var(--stamp-rot,0deg)); opacity:0; }
+  45%{ transform: translateY(0) scale(.97) rotate(var(--stamp-rot,0deg)); opacity:1; }
+  70%{ transform: translateY(0) scale(1.02) rotate(var(--stamp-rot,0deg)); }
+  100%{ transform: translateY(0) scale(1) rotate(var(--stamp-rot,0deg)); }
 }
-.habit-stamp.stamp-anim{ animation: habitStampPress .4s cubic-bezier(.33,1,.68,1); }
+.habit-stamp-img.stamp-anim{ animation: habitStampPress .38s cubic-bezier(.33,1,.68,1); }
 @media (prefers-reduced-motion: reduce){
-  .habit-stamp.stamp-anim{ animation:none; }
+  .habit-stamp-img.stamp-anim{ animation:none; }
 }
+
+/* ===== 目前拿著的印章（held stamp，只存在於當下 session，不寫進 DB） ===== */
+.held-stamp-bar{
+  display:flex; align-items:center; gap:8px;
+  background:var(--light-accent); border-radius:12px;
+  padding:7px 10px; margin-bottom:10px;
+}
+.held-stamp-thumb{ width:30px; height:30px; object-fit:contain; flex:none; }
+.held-stamp-label{ flex:1; font-size:13px; font-weight:700; color:var(--medium); }
+
+/* ===== 印章盒：打開後的小抽屜式面板，4×2 木章 =====
+   木頭／奶油色文具盒質感，開啟動畫只靠既有 openSheet() 的滑入 + 這裡的小 lid 淡入，
+   刻意保持輕量，不做 3D／物理效果。 */
+.stamp-box{
+  background: linear-gradient(180deg, #F5E7D3, #ECD9B9);
+  border:1px solid #DCC297; border-radius:16px;
+  padding:14px 12px 16px;
+}
+.stamp-box-lid{
+  width:46px; height:5px; margin:0 auto 12px; border-radius:4px; background:#DCC297;
+  animation: stampBoxLid .28s ease;
+  transform-origin:center;
+}
+@keyframes stampBoxLid{
+  0%{ transform:scaleX(.2); opacity:0; }
+  100%{ transform:scaleX(1); opacity:1; }
+}
+.stamp-box-title{ text-align:center; font-size:14px; font-weight:700; color:#8A6D46; margin-bottom:14px; }
+.stamp-box-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:9px; }
+.stamp-box-tile{
+  aspect-ratio:1; border-radius:12px; background:#FFFBF4; border:1px solid #E9D7B8;
+  display:flex; align-items:center; justify-content:center; padding:7%;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,.04);
+  transition: transform .12s ease;
+}
+.stamp-box-tile:active{ transform:scale(.92); }
+.stamp-box-tile.held-empty{
+  background:repeating-linear-gradient(45deg, #F0E5D1, #F0E5D1 5px, #E7D9BC 5px, #E7D9BC 10px);
+  border-style:dashed; cursor:default;
+}
+.stamp-box-tile-img{ max-width:100%; max-height:100%; object-fit:contain; }
 </style>
 </head>
 <body data-theme="pink">
@@ -660,6 +664,11 @@ emoji-picker{
       <div class="card-title" id="habitDetailTitle"></div>
       <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
       <div id="habitStoppedNotice"></div>
+      <div id="heldStampBar" class="held-stamp-bar" style="display:none;"></div>
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button class="btn-ghost" id="btnOpenStampBox" style="flex:1;">💮 打開印章盒</button>
+        <button class="btn-ghost" id="btnToggleStampSound" style="flex:none; width:44px;">🔊</button>
+      </div>
       <div class="cal-head">
         <button class="cal-nav-btn" id="habitCalPrev">‹</button>
         <h3 class="cal-title-btn" id="habitCalTitleBtn"></h3>
@@ -2836,6 +2845,12 @@ let currentGoalId = null;
 let currentHabitId = null;
 let goalsSubView = "hub"; // hub | goalList | goalDetail | habitList | habitDetail
 let habitCalYear, habitCalMonth;
+// 目前「拿在手上」的印章 id：純 UI session 狀態，故意不寫進 DB／localStorage。
+// 離開這張集點卡（返回列表）或重新整理頁面都會重置成 null，規格明確要求如此。
+let heldStampId = null;
+// 「換一顆」流程用：使用者在沒有拿著印章時點一個已蓋章的日期選擇換一顆，
+// 這裡先記住是哪一天，等使用者在印章盒裡選好新印章後，直接完成那一天的替換。
+let pendingReplaceDate = null;
 
 function showGoalsSub(name){
   goalsSubView = name;
@@ -2850,7 +2865,10 @@ document.getElementById("goHabitListCard").addEventListener("click", ()=>{ showG
 document.getElementById("btnBackFromGoalList").addEventListener("click", ()=>showGoalsSub("hub"));
 document.getElementById("btnBackFromHabitList").addEventListener("click", ()=>showGoalsSub("hub"));
 document.getElementById("btnBackFromGoal").addEventListener("click", ()=>{ showGoalsSub("goalList"); renderGoalsView(); });
-document.getElementById("btnBackFromHabit").addEventListener("click", ()=>{ showGoalsSub("habitList"); renderHabitsView(); });
+document.getElementById("btnBackFromHabit").addEventListener("click", ()=>{
+  heldStampId = null; pendingReplaceDate = null; // 離開這張集點卡，手上不會再留著印章
+  showGoalsSub("habitList"); renderHabitsView();
+});
 
 /* ---------- 年度目標 ---------- */
 function goalProgress(g){
@@ -3153,34 +3171,46 @@ document.getElementById("btnAddGoal").addEventListener("click", ()=>openGoalForm
 document.getElementById("btnEditGoal").addEventListener("click", ()=>openGoalForm(currentGoalId));
 document.getElementById("btnAddGoalItem").addEventListener("click", ()=>openGoalItemForm(currentGoalId, null));
 
-/* ---------- 我的習慣 ---------- */
-// 固定 20 句鼓勵語（唯一合法來源），只在蓋章／換章的當下抽一句並永久存起來，
-// 絕對不會在重新渲染／換月／匯出匯入時重新抽，也不允許任何動態拼接的文字混進來。
-const HABIT_STAMP_MESSAGES = [
-  "好棒！", "一百分！", "好寶寶！", "真優秀！", "做得真棒！",
-  "できた！", "えらい！", "いいね！", "よくできた！", "がんばった！",
-  "잘했어!", "최고!", "멋져!", "해냈다!", "오늘도 굿!",
-  "GOOD!", "NICE!", "GREAT!", "YOU DID IT!", "GOOD JOB!"
+/* ---------- 🍀 印章集點卡 ---------- */
+// 印章定義：data-driven，之後要加第二盒、或換正式 PNG，只需要改這裡跟對應圖檔，
+// 完全不用動任何蓋章互動邏輯。asset 之後直接把正式 PNG 放到相同路徑覆蓋掉
+// placeholder 檔案即可替換外觀，不需要改程式。底層不假設只能有一盒／八顆，
+// 但第一版 UI（印章盒）只呈現 firstSet 這一盒。
+const STAMP_SETS = [
+  {
+    id: "firstSet",
+    stamps: [
+      { id:"bunny_good",     label:"好棒！",   asset:"assets/stamps/stamp_bunny_good.png",     color:"#E995AB", setId:"firstSet" },
+      { id:"bear_excellent", label:"真優秀！", asset:"assets/stamps/stamp_bear_excellent.png", color:"#B77A52", setId:"firstSet" },
+      { id:"flower_good",    label:"GOOD!",    asset:"assets/stamps/stamp_flower_good.png",    color:"#E99372", setId:"firstSet" },
+      { id:"clover_iine",    label:"いいね！", asset:"assets/stamps/stamp_clover_iine.png",    color:"#76986F", setId:"firstSet" },
+      { id:"dog_jalhaesseo", label:"잘했어!",  asset:"assets/stamps/stamp_dog_jalhaesseo.png", color:"#78B8D8", setId:"firstSet" },
+      { id:"star_100",       label:"一百分！", asset:"assets/stamps/stamp_star_100.png",       color:"#E4B53F", setId:"firstSet" },
+      { id:"cat_erai",       label:"えらい！", asset:"assets/stamps/stamp_cat_erai.png",       color:"#82729D", setId:"firstSet" },
+      { id:"flower_goodkid", label:"好寶寶！", asset:"assets/stamps/stamp_flower_goodkid.png", color:"#CF5F6B", setId:"firstSet" }
+    ]
+  }
 ];
-function randomStampMessage(){
-  return HABIT_STAMP_MESSAGES[Math.floor(Math.random()*HABIT_STAMP_MESSAGES.length)];
-}
-// 一次性資料相容修正：舊版曾經用過不同的鼓勵語文字池，導致既有 stamp 裡可能存著不屬於
-// 目前這 20 句合法清單的 message。這裡只在載入當下檢查一次、重新隨機選一句合法的寫回並
-// save()；本來就合法的 message 完全不動，之後也不會再次重新抽。
-function migrateInvalidStampMessages(){
+function allStamps(){ return STAMP_SETS.flatMap(s=>s.stamps); }
+function getStampDef(stampId){ return allStamps().find(s=>s.id===stampId); }
+
+// 一次性清掉舊版開發測試資料：舊格式是每天存 {emoji,message} 物件，新格式是單純的
+// stampId 字串（date → stampId）。產品還在研發階段，不需要幫舊測試資料寫轉換邏輯，
+// 直接把不是字串的 stamp 紀錄清掉即可，不影響其他欄位（開始日期／停用區間／關聯目標）。
+function cleanupLegacyHabitStamps(){
   let changed = false;
   DB.habits.forEach(h=>{
-    Object.values(h.stamps || {}).forEach(stamp=>{
-      if(!HABIT_STAMP_MESSAGES.includes(stamp.message)){
-        stamp.message = randomStampMessage();
+    Object.keys(h.stamps||{}).forEach(dateStr=>{
+      if(typeof h.stamps[dateStr] !== "string"){
+        delete h.stamps[dateStr];
         changed = true;
       }
     });
   });
   if(changed) save();
 }
-migrateInvalidStampMessages();
+cleanupLegacyHabitStamps();
+
 // inactivePeriods：一份永久保存的「停止→恢復」區間清單，{start, end}，end為null代表目前仍是停止狀態。
 // 判斷某天是否落在任何一段停止區間：start <= date < end（end為null視為目前仍持續到未來）。
 function habitPeriodBlocks(h, dateStr){
@@ -3204,21 +3234,27 @@ function resumeHabit(h){
   if(open) open.end = todayStr();
   save();
 }
-function stampHabitDate(h, dateStr, emoji){
-  h.stamps[dateStr] = { emoji, message: randomStampMessage() };
-  save();
-}
-function unstampHabitDate(h, dateStr){
-  delete h.stamps[dateStr];
-  save();
-}
 // 用日期字串做簡單雜湊，取代 Math.random()，讓每一天的印章旋轉角度固定不變（不會每次重繪就跳動）。
 function stampRotationDeg(dateStr){
   let hash = 0;
   for(let i=0;i<dateStr.length;i++){ hash = (hash*31 + dateStr.charCodeAt(i)) | 0; }
   return (Math.abs(hash)%17) - 8; // -8 ~ 8 度
 }
-function playStampSound(){
+
+/* ---- 音效：獨立、容易替換的 asset/reference 結構 ----
+   正式音效之後請放在下面這個路徑（.mp3），放進去就會自動改用正式檔案，完全不用改
+   蓋章邏輯；目前還沒有正式檔案，<audio> 會載入失敗，此時自動 fallback 成用 Web Audio
+   即時合成的短促「啵」聲（而不是硬去抓一個不相關的外部音效檔）。 */
+const STAMP_SOUND_ASSET = "assets/sounds/stamp_pop.mp3";
+const STAMP_SOUND_KEY = "lifeflow_stamp_sound_enabled";
+function stampSoundEnabled(){
+  const v = localStorage.getItem(STAMP_SOUND_KEY);
+  return v === null ? true : v === "1";
+}
+function setStampSoundEnabled(on){
+  localStorage.setItem(STAMP_SOUND_KEY, on ? "1" : "0");
+}
+function playStampSoundSynthFallback(){
   try{
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if(!Ctx) return;
@@ -3236,57 +3272,64 @@ function playStampSound(){
     osc.onended = ()=>ctx.close();
   }catch(e){ /* 音效失敗就靜默跳過，不影響蓋章 */ }
 }
-function playStampAnim(cellEl){
-  const stampEl = cellEl && cellEl.querySelector(".habit-stamp");
-  if(!stampEl) return;
-  stampEl.classList.remove("stamp-anim");
-  void stampEl.offsetWidth; // 強制 reflow 讓動畫可以重新觸發
-  stampEl.classList.add("stamp-anim");
+function playStampSound(){
+  if(!stampSoundEnabled()) return;
+  try{
+    const a = new Audio(STAMP_SOUND_ASSET);
+    a.volume = 0.85;
+    let fellBack = false;
+    const fallback = ()=>{ if(fellBack) return; fellBack = true; playStampSoundSynthFallback(); };
+    a.addEventListener("error", fallback, { once:true });
+    const p = a.play();
+    if(p && typeof p.catch === "function") p.catch(fallback);
+  }catch(e){ playStampSoundSynthFallback(); }
 }
-// 弧形文字字級：字數愈短給愈大的字，字數愈長自動縮小，數字是 SVG viewBox 的 0-100 使用者單位
-// （不是 px），會跟著印章本身的實際大小自動等比縮放，不需要額外判斷 viewport。
-function habitArcFontSize(message){
-  const len = message.length;
-  if(len<=4) return 15;
-  if(len<=6) return 13;
-  if(len<=9) return 11.5;
-  return 10;
+
+/* ---- 觸覺回饋：接觸紙面的瞬間極短震動一下，裝置／瀏覽器不支援就直接略過 ---- */
+function triggerStampHaptic(){
+  try{ if(navigator.vibrate) navigator.vibrate(12); }catch(e){ /* 不支援就略過 */ }
 }
-function renderHabitStampHTML(dateStr, stamp){
-  const rot = stampRotationDeg(dateStr);
-  const arcId = `habitArc-${dateStr}`;
-  const fontSize = habitArcFontSize(stamp.message);
-  return `<div class="habit-stamp-safe">
-    <div class="habit-stamp" style="--stamp-rot:${rot}deg;">
-      <div class="habit-stamp-emoji">${stamp.emoji}</div>
-      <svg class="habit-stamp-arc" viewBox="0 0 100 100">
-        <path id="${arcId}" d="M 20.56,67 A 34,34 0 0 0 79.44,67" fill="none"/>
-        <text class="habit-stamp-arc-text" style="font-size:${fontSize}px;">
-          <textPath href="#${arcId}" startOffset="50%" text-anchor="middle">${escapeHtml(stamp.message)}</textPath>
-        </text>
-      </svg>
-    </div>
-  </div>`;
+
+/* ---- 蓋章動畫：壓下 → 接觸紙面瞬間（音效＋震動＋印泥出現）→ 輕微回彈 ----
+   impact 時機跟 CSS 的 habitStampPress keyframes 的 45% 對齊。 */
+const STAMP_IMPACT_MS = 160;
+function playStampPressAnim(cellEl, onImpact){
+  const imgEl = cellEl && cellEl.querySelector(".habit-stamp-img");
+  if(!imgEl){ if(onImpact) onImpact(); return; }
+  imgEl.classList.remove("stamp-anim");
+  void imgEl.offsetWidth; // 強制 reflow 讓動畫可以重新觸發
+  imgEl.classList.add("stamp-anim");
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(onImpact) setTimeout(onImpact, reduced ? 0 : STAMP_IMPACT_MS);
 }
-// 弧形文字保險絲：字級分級是用字數粗估，不同語言（中日韓全形字 vs 英文半形字）每字實際寬度
-// 不一樣，這裡在真正插入 DOM 之後用 SVG 原生的 getTotalLength／getComputedTextLength 量出
-// 「這段文字沿著這條弧線實際畫出來有多長」，只要超過弧線可用長度的安全範圍，
-// 才用 textLength＋lengthAdjust 把文字整體壓縮到剛好塞得進弧線內——保證任何語言、任何長度
-// 的合法 message 都不會被裁切、也不會跑出正圓，同時平常沒超過安全範圍時完全不介入，
-// 維持原本依字數分級的字級大小。
-function fitHabitArcText(container){
-  container.querySelectorAll(".habit-stamp-arc").forEach(svg=>{
-    const path = svg.querySelector("path");
-    const textPath = svg.querySelector("textPath");
-    if(!path || !textPath) return;
-    const pathLen = path.getTotalLength();
-    const maxLen = pathLen * 0.92;
-    const actualLen = textPath.getComputedTextLength();
-    if(actualLen > maxLen){
-      textPath.setAttribute("textLength", maxLen.toFixed(2));
-      textPath.setAttribute("lengthAdjust", "spacingAndGlyphs");
-    }
+// 真正把印章蓋到某一天：寫資料、重繪、播放「壓下→啵！→抬起→留下印泥」的完整動畫。
+function applyStampToDate(h, dateStr, stampId){
+  h.stamps[dateStr] = stampId;
+  save();
+  renderHabitCalGrid(h);
+  const cellEl = document.querySelector(`.habit-cal-cell[data-date="${dateStr}"]`);
+  playStampPressAnim(cellEl, ()=>{ playStampSound(); triggerStampHaptic(); });
+}
+// 「擦掉」：不另外跳確認框，直接做，並提供一次短暫可復原（只保留最近一次擦除）。
+function eraseStamp(h, dateStr){
+  const prevStampId = h.stamps[dateStr];
+  delete h.stamps[dateStr];
+  save();
+  renderHabitCalGrid(h);
+  showUndoToast("印章擦掉囉～", ()=>{
+    h.stamps[dateStr] = prevStampId;
+    save();
+    renderHabitCalGrid(h);
   });
+}
+
+function renderHabitStampHTML(dateStr, stampId){
+  const def = getStampDef(stampId);
+  if(!def) return ""; // 不認得的資料（例如清不乾淨的舊格式）：當作沒有印章，不做相容渲染
+  const rot = stampRotationDeg(dateStr);
+  return `<div class="habit-stamp-safe">
+    <img class="habit-stamp-img" src="${def.asset}" alt="${escapeHtml(def.label)}" style="--stamp-rot:${rot}deg;">
+  </div>`;
 }
 // 習慣列表卡片刻意不顯示任何連續天數／完成率／打勾打叉，只留標題跟一個「查看印章月曆」的入口。
 function habitRowHTML(h){
@@ -3337,6 +3380,8 @@ function renderHabitsView(){
 }
 function openHabitDetail(id){
   currentHabitId = id;
+  heldStampId = null; // 每次重新進入這張集點卡都是乾淨的開始，手上不會留著上次拿的印章
+  pendingReplaceDate = null;
   const h = DB.habits.find(x=>x.id===id);
   const now = h && h.startDate>todayStr() ? parseYMD(h.startDate) : new Date();
   habitCalYear = now.getFullYear();
@@ -3359,6 +3404,17 @@ function renderHabitDetail(id){
   const notice = document.getElementById("habitStoppedNotice");
   notice.innerHTML = h.active ? "" : `<div class="empty-state" style="margin-bottom:10px;">⏸ 這張集點卡目前已停止，恢復後才能繼續蓋章</div>`;
 
+  // 已停止：完全唯讀，印章盒入口整個藏起來，手上也不該留著印章。
+  const openBoxBtn = document.getElementById("btnOpenStampBox");
+  if(!h.active){
+    heldStampId = null;
+    openBoxBtn.style.display = "none";
+  }else{
+    openBoxBtn.style.display = "";
+  }
+  renderHeldStampBar();
+  document.getElementById("btnToggleStampSound").textContent = stampSoundEnabled() ? "🔊" : "🔇";
+
   const toggleBtn = document.getElementById("btnToggleHabitActive");
   toggleBtn.textContent = h.active ? "⏸ 停止" : "▶ 恢復";
 
@@ -3374,55 +3430,118 @@ function renderHabitCalGrid(h){
   for(let i=0;i<startOffset;i++) html += `<div class="habit-cal-cell empty"></div>`;
   for(let d=1; d<=daysInMonth; d++){
     const dateStr = `${habitCalYear}-${String(habitCalMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    const stamp = h.stamps[dateStr];
-    const editable = habitCanStamp(h, dateStr);
+    const stampId = h.stamps[dateStr];
     html += `<div class="habit-cal-cell${dateStr===todayStr()?' today':''}" data-date="${dateStr}">
       <div class="habit-cal-daynum">${d}</div>
-      ${stamp ? renderHabitStampHTML(dateStr, stamp) : ""}
+      ${stampId ? renderHabitStampHTML(dateStr, stampId) : ""}
     </div>`;
   }
   grid.innerHTML = html;
-  fitHabitArcText(grid);
   grid.querySelectorAll(".habit-cal-cell:not(.empty)").forEach(el=>{
     el.addEventListener("click", ()=>onHabitCellClick(h, el.dataset.date, el));
   });
 }
-function onHabitCellClick(h, dateStr, cellEl){
-  const stamp = h.stamps[dateStr];
-  const editable = habitCanStamp(h, dateStr);
-  if(!stamp && editable){
-    openEmojiPicker((emoji)=>{
-      stampHabitDate(h, dateStr, emoji);
-      renderHabitCalGrid(h);
-      playStampAnim(document.querySelector(`.habit-cal-cell[data-date="${dateStr}"]`));
-      playStampSound();
-    }, null);
-  }else if(stamp && editable){
-    openHabitStampActions(h, dateStr);
-  }
-  // 非可編輯的日子（含已停止／超出範圍／落在停止區間）：有印章就唯讀顯示，沒印章就完全沒有動作。
+function renderHeldStampBar(){
+  const bar = document.getElementById("heldStampBar");
+  if(!bar) return;
+  if(!heldStampId){ bar.style.display = "none"; bar.innerHTML = ""; return; }
+  const def = getStampDef(heldStampId);
+  if(!def){ heldStampId = null; bar.style.display = "none"; bar.innerHTML = ""; return; }
+  bar.style.display = "flex";
+  bar.innerHTML = `
+    <img src="${def.asset}" class="held-stamp-thumb" alt="">
+    <span class="held-stamp-label">${escapeHtml(def.label)}</span>
+    <button class="small-link" id="btnPutBackStamp">放回去</button>
+  `;
+  document.getElementById("btnPutBackStamp").addEventListener("click", ()=>{
+    heldStampId = null;
+    renderHeldStampBar();
+  });
 }
-function openHabitStampActions(h, dateStr){
+// 點日期格的核心邏輯：
+// - 不可編輯（停止／超出範圍／落在停用區間）：不論有沒有印章都完全不反應。
+// - 空白日期＋手上有印章：直接蓋章（可連續蓋很多天，印章不會自動放回盒子）。
+// - 空白日期＋手上沒印章：提醒先去開印章盒，不會直接開啟 picker。
+// - 已有印章＋手上有印章：顯示「換成手上的印章」／「擦掉」，不直接覆蓋。
+// - 已有印章＋手上沒印章：顯示「換一顆」／「擦掉」。
+function onHabitCellClick(h, dateStr, cellEl){
+  const editable = habitCanStamp(h, dateStr);
+  if(!editable) return;
+  const stampId = h.stamps[dateStr];
+  if(!stampId){
+    if(heldStampId){
+      applyStampToDate(h, dateStr, heldStampId);
+    }else{
+      toast("先打開印章盒，拿一顆印章吧！");
+    }
+  }else{
+    openReplaceActions(h, dateStr, !!heldStampId);
+  }
+}
+function openReplaceActions(h, dateStr, hasHeld){
   openSheet(`
     <div class="sheet-head"><h3>${dateStr}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <button class="btn-main" id="btnRestampHabit" style="width:100%;">更換印章</button>
-    <button class="btn-ghost" id="btnUnstampHabit" style="width:100%; margin-top:8px;">取消印章</button>
+    <button class="btn-main" id="btnReplaceStamp" style="width:100%;">${hasHeld?"換成手上的印章":"換一顆"}</button>
+    <button class="btn-ghost" id="btnEraseStamp" style="width:100%; margin-top:8px;">擦掉</button>
   `);
-  document.getElementById("btnRestampHabit").addEventListener("click", ()=>{
+  document.getElementById("btnReplaceStamp").addEventListener("click", ()=>{
     closeSheet();
-    openEmojiPicker((emoji)=>{
-      stampHabitDate(h, dateStr, emoji);
-      renderHabitCalGrid(h);
-      playStampAnim(document.querySelector(`.habit-cal-cell[data-date="${dateStr}"]`));
-      playStampSound();
-    }, h.stamps[dateStr].emoji);
+    if(hasHeld){
+      applyStampToDate(h, dateStr, heldStampId);
+    }else{
+      pendingReplaceDate = dateStr;
+      openStampBoxSheet(h);
+    }
   });
-  document.getElementById("btnUnstampHabit").addEventListener("click", ()=>{
-    unstampHabitDate(h, dateStr);
+  document.getElementById("btnEraseStamp").addEventListener("click", ()=>{
     closeSheet();
-    renderHabitCalGrid(h);
+    eraseStamp(h, dateStr);
   });
 }
+// 印章盒：4×2 顆木章。手上正拿著的那一顆顯示成空槽（不能再點一次拿起來），
+// 點其餘任何一顆就「拿起來」變成 heldStampId，收起盒子回到月曆；
+// 如果是從「換一顆」流程進來的（pendingReplaceDate 有值），選完直接完成那一天的替換，
+// 新選的印章之後也會繼續留在手上，可以馬上接著蓋其他天。
+function openStampBoxSheet(h){
+  const stamps = allStamps();
+  openSheet(`
+    <div class="sheet-head"><h3>打開印章盒</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="stamp-box">
+      <div class="stamp-box-lid"></div>
+      <div class="stamp-box-title">今天想拿哪個印章呢～♡</div>
+      <div class="stamp-box-grid">
+        ${stamps.map(s=>`
+          <button class="stamp-box-tile${heldStampId===s.id?' held-empty':''}" data-stamp-id="${s.id}" ${heldStampId===s.id?'disabled':''} aria-label="${escapeHtml(s.label)}">
+            ${heldStampId===s.id ? '' : `<img src="${s.asset}" alt="${escapeHtml(s.label)}" class="stamp-box-tile-img">`}
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `);
+  document.querySelectorAll(".stamp-box-tile:not(.held-empty)").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      heldStampId = btn.dataset.stampId;
+      closeSheet();
+      renderHeldStampBar();
+      if(pendingReplaceDate){
+        const dateStr = pendingReplaceDate;
+        pendingReplaceDate = null;
+        applyStampToDate(h, dateStr, heldStampId);
+      }
+    });
+  });
+}
+document.getElementById("btnOpenStampBox").addEventListener("click", ()=>{
+  const h = DB.habits.find(x=>x.id===currentHabitId);
+  if(!h || !h.active) return;
+  pendingReplaceDate = null;
+  openStampBoxSheet(h);
+});
+document.getElementById("btnToggleStampSound").addEventListener("click", (e)=>{
+  const on = !stampSoundEnabled();
+  setStampSoundEnabled(on);
+  e.currentTarget.textContent = on ? "🔊" : "🔇";
+});
 document.getElementById("habitCalPrev").addEventListener("click", ()=>{
   habitCalMonth--; if(habitCalMonth<0){ habitCalMonth=11; habitCalYear--; }
   renderHabitCalGrid(DB.habits.find(x=>x.id===currentHabitId));
@@ -3442,6 +3561,8 @@ document.getElementById("btnToggleHabitActive").addEventListener("click", ()=>{
   if(!h) return;
   if(h.active){ stopHabit(h); toast("已停止這張集點卡"); }
   else{ resumeHabit(h); toast("已恢復這張集點卡"); }
+  heldStampId = null; // 停止／恢復都讓手上的印章重置，避免恢復後還殘留一顆舊的 held stamp
+  pendingReplaceDate = null;
   renderHabitDetail(currentHabitId);
   renderHabitsView();
 });
