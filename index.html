@@ -257,6 +257,9 @@ input,select,textarea{ font-family:inherit; }
 .nav-card-row{ display:flex; align-items:center; justify-content:space-between; }
 .nav-card-arrow{ font-size:24px; color:var(--gray); }
 .back-btn{ background:none; color:var(--medium); font-size:13.5px; font-weight:700; padding:6px 0 12px; }
+/* 集點卡模組名稱可以自訂，長度不固定；返回按鈕限制最大寬度＋省略號，
+   避免使用者取一個很長的名字把 header 撐爆手機版版面。 */
+#btnBackFromHabit{ max-width:100%; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .networth-line{ display:flex; justify-content:space-between; align-items:baseline; padding:6px 0; font-size:14px; }
 .networth-line .label{ color:var(--medium); }
 .networth-line .value{ font-weight:700; font-size:16px; }
@@ -480,8 +483,10 @@ emoji-picker{
 .held-stamp-thumb{ max-width:100%; max-height:100%; object-fit:contain; }
 .held-stamp-label{ flex:1; font-size:13px; font-weight:700; color:#8A6D46; }
 .held-stamp-putback{
-  font-size:12px; font-weight:700; color:#B5793F; background:#fff;
-  border:1px solid #E3CDA0; border-radius:999px; padding:5px 12px;
+  flex:none; width:26px; height:26px; padding:0;
+  font-size:13px; font-weight:700; color:#B5793F; background:#fff;
+  border:1px solid #E3CDA0; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
 }
 
 /* ===== 印章盒入口：習慣詳細頁上「隨時都看得到」的一個關閉中的木盒 =====
@@ -815,7 +820,7 @@ emoji-picker{
     <div class="card nav-card" id="goHabitListCard">
       <div class="nav-card-row">
         <div>
-          <div class="card-title" style="margin-bottom:2px;">🍀 印章集點卡</div>
+          <div class="card-title" style="margin-bottom:2px;"><span id="habitModuleHubText">🍀 集點卡</span></div>
           <div class="muted">有沒有想養成什麼習慣呢？可以從今天開始慢慢累積呦！<br>也可以把它客製化成你的打卡單✨<br>例如：你想實施30天存錢打卡、喝水的打卡單等等📃</div>
         </div>
         <div class="nav-card-arrow">›</div>
@@ -864,7 +869,7 @@ emoji-picker{
   <div id="habitListPanel" style="display:none;">
     <button class="back-btn" id="btnBackFromHabitList">‹ 返回我的目標</button>
     <div class="card">
-      <div class="card-title">🍀 進行中的集點卡</div>
+      <div class="card-title"><span style="display:inline-flex; align-items:center; gap:4px;"><span id="habitModuleTitleText">🍀 集點卡</span><button class="icon-btn" id="btnEditHabitModuleName" title="幫集點卡取名字" style="width:22px; height:22px; font-size:11px;">✎</button></span></div>
       <div class="muted" style="margin-bottom:10px;">今天也有做到嗎～來蓋一顆好寶寶印章吧！👶🏻💮</div>
       <div id="habitListActive"></div>
       <button class="btn-ghost" id="btnAddHabit" style="width:100%; margin-top:10px;">＋ 新增集點卡</button>
@@ -877,7 +882,7 @@ emoji-picker{
 
   <!-- 習慣詳細頁：印章月曆 -->
   <div id="habitDetailPanel" style="display:none;">
-    <button class="back-btn" id="btnBackFromHabit">‹ 返回印章集點卡</button>
+    <button class="back-btn" id="btnBackFromHabit">‹ 返回集點卡</button>
     <div class="card habit-cal-card">
       <div class="card-title" id="habitDetailTitle"></div>
       <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
@@ -900,7 +905,7 @@ emoji-picker{
             <span class="wbox-wood-title">Stamp Box</span>
           </div>
         </button>
-        <div class="wbox-entry-hint">打開印章盒</div>
+        <div class="wbox-entry-hint">印章盒</div>
       </div>
       <div class="cal-head">
         <button class="cal-nav-btn" id="habitCalPrev">‹</button>
@@ -1108,7 +1113,7 @@ function loadDB(){
 }
 function withDefaults(obj){
   const merged = Object.assign({
-    theme:"pink", appName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[], habits:[],
+    theme:"pink", appName:"", habitModuleName:"", todos:[], checkins:{}, transactions:[], debts:[], goals:[], habits:[],
     customCategories:{expense:[], income:[]}, customExpenseCategories:[], budget:null, budgetsByMonth:{}, reviewsByMonth:{}, assets:[], journal:[], insightsMemory:{}, recurringTx:[], farmName:"",
     seenDiscoveryNotices:[], gardenAcknowledgedMilestone:0,
     // 農場殭屍入侵／訪客／稀有事件的永久狀態，全部是新增欄位，向後相容：
@@ -1251,6 +1256,32 @@ document.getElementById("btnEditFarmName").addEventListener("click", ()=>{
   document.getElementById("f_savefarmname").addEventListener("click", ()=>{
     DB.farmName = document.getElementById("f_farmname").value.trim();
     save(); closeSheet(); renderFarmTitle(); toast("已更新農場名稱");
+  });
+});
+// 🍀 集點卡「整個模組」的自訂名稱（跟上面的 appName／farmName 同一種模式）：
+// 只存使用者輸入的名字本身（例如「阿睿的集點卡」），不含 🍀 icon；留空或
+// 清空儲存都會恢復顯示預設的「集點卡」。這跟「單張集點卡」的 h.title 是完全
+// 不同的兩筆資料，不會互相影響。
+function habitModuleName(){ return (DB.habitModuleName||"").trim() || "集點卡"; }
+function renderHabitModuleTitle(){
+  const name = habitModuleName();
+  const hubEl = document.getElementById("habitModuleHubText");
+  if(hubEl) hubEl.textContent = `🍀 ${name}`;
+  const listEl = document.getElementById("habitModuleTitleText");
+  if(listEl) listEl.textContent = `🍀 ${name}`;
+  const backEl = document.getElementById("btnBackFromHabit");
+  if(backEl) backEl.textContent = `‹ 返回${name}`;
+}
+document.getElementById("btnEditHabitModuleName").addEventListener("click", ()=>{
+  openSheet(`
+    <div class="sheet-head"><h3>幫集點卡取個名字吧 🍀</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>集點卡名稱</label><input id="f_habitmodulename" placeholder="例如：阿睿的集點卡" value="${DB.habitModuleName?escapeHtml(DB.habitModuleName):""}"></div>
+    <div class="muted" style="margin-bottom:12px;">留空或清空儲存，會恢復顯示預設的「集點卡」。這是整個功能的名字，不會改到你已經建立的每一張集點卡（例如「擦乳液」）。</div>
+    <button class="btn-main" id="f_savehabitmodulename">儲存</button>
+  `);
+  document.getElementById("f_savehabitmodulename").addEventListener("click", ()=>{
+    DB.habitModuleName = document.getElementById("f_habitmodulename").value.trim();
+    save(); closeSheet(); renderHabitModuleTitle(); toast("已更新集點卡名稱");
   });
 });
 
@@ -3715,7 +3746,7 @@ function renderHeldStampBar(){
   bar.innerHTML = `
     <div class="held-stamp-block"><img src="${def.asset}" class="held-stamp-thumb" alt=""></div>
     <span class="held-stamp-label">現在拿著：${escapeHtml(def.label)}</span>
-    <button class="held-stamp-putback" id="btnPutBackStamp">✕ 放回去</button>
+    <button class="held-stamp-putback" id="btnPutBackStamp" aria-label="放回印章">✕</button>
   `;
   document.getElementById("btnPutBackStamp").addEventListener("click", ()=>{
     heldStampId = null;
@@ -6554,6 +6585,7 @@ function exportBackup(){
     {key:"theme", value:DB.theme||"pink"},
     {key:"appName", value:DB.appName||""},
     {key:"farmName", value:DB.farmName||""},
+    {key:"habitModuleName", value:DB.habitModuleName||""},
     {key:"budgetJSON", value:JSON.stringify(DB.budget||null)},
     {key:"budgetsByMonthJSON", value:JSON.stringify(DB.budgetsByMonth||{})},
     {key:"reviewsByMonthJSON", value:JSON.stringify(DB.reviewsByMonth||{})},
@@ -6630,6 +6662,7 @@ function importBackupFromWorkbook(wb){
     theme: settings.theme || "pink",
     appName: settings.appName || "",
     farmName: settings.farmName || "",
+    habitModuleName: settings.habitModuleName || "",
     todos, checkins, transactions, debts, goals, habits, assets, journal, recurringTx,
     customCategories: safeJSONParse(settings.customCategoriesJSON, {expense:[],income:[]}),
     customExpenseCategories: safeJSONParse(settings.customExpenseCategoriesJSON, []),
@@ -6704,6 +6737,7 @@ function renderWeeklyReview(){
 function renderAll(){
   renderThemeRow();
   renderBrand();
+  renderHabitModuleTitle();
   renderDailyQuote();
   renderWeeklyReview();
   renderInsight();
