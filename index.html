@@ -488,36 +488,51 @@ emoji-picker{
    短、厚、有份量感的小木盒（寬度約容器的 70%、置中），跟展開後的 .wbox 同一套
    木頭材質／配色／圓角語言，目的是讓人一眼認出「這是裝印章的小木盒」，
    點下去之後展開的才是「同一個盒子」被放大、打開，而不是換成另一個 UI。 */
-.wbox-entry-wrap{ position:relative; display:flex; flex-direction:column; align-items:center; margin-bottom:10px; }
+/* 統一整顆盒子（入口木盒／展開後木盒／蓋子兩面）共用的暖淺木色調色盤，
+   數值是從正式參考圖（關閉狀態木盒照片）實際取樣來的，確保蓋子跟盒身
+   不會變成「兩種不同材質拼起來」。 */
+.wbox-entry-wrap{
+  --wood-1:#E3C8A4; --wood-2:#D4AF83; --wood-3:#B98F68; --wood-4:#9C7652; --wood-ink:#7A5234;
+  position:relative; display:flex; flex-direction:column; align-items:center; margin-bottom:10px;
+}
 .wbox-entry{
   width:70%; max-width:240px; position:relative; display:block; padding:0;
   background:none; border:none; cursor:pointer; transition:transform .1s ease;
 }
 .wbox-entry:active{ transform:translateY(2px) scale(.99); }
 .wbox-entry-lid{
-  position:relative; z-index:2; height:34px; margin-bottom:-10px;
+  position:relative; z-index:2; height:50px; margin-bottom:-10px; overflow:hidden;
   border-radius:14px 14px 6px 6px;
-  background:linear-gradient(180deg,#E7C492,#CC9D65);
-  box-shadow:0 4px 0 #9C7347, inset 0 1px 0 rgba(255,255,255,.35);
-  display:flex; align-items:center; justify-content:center; gap:4px;
+  background:linear-gradient(165deg, var(--wood-1), var(--wood-2) 60%, var(--wood-3));
+  box-shadow:0 4px 0 var(--wood-4), inset 0 1px 0 rgba(255,255,255,.35),
+    inset 0 -8px 10px -8px rgba(90,60,30,.3);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
 }
-.wbox-entry-lid-deco{ font-size:12px; filter:sepia(.3) saturate(1.3); opacity:.85; }
-.wbox-entry-lid-label{
-  font-size:10px; font-weight:700; letter-spacing:.05em; color:#7C5527; font-style:italic;
-  text-shadow:0 1px 0 rgba(255,255,255,.45), 0 -1px 0 rgba(110,74,34,.25);
+.wbox-wood-bunny{ color:var(--wood-ink); filter:drop-shadow(0 1px 0 rgba(255,255,255,.5)) drop-shadow(0 -1px 0 rgba(90,55,25,.3)); opacity:.88; }
+.wbox-wood-bunny .wb-line{ fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round; }
+.wbox-wood-bunny .wb-dot{ fill:currentColor; }
+.wbox-entry-lid .wbox-wood-bunny{ width:22px; height:17px; }
+.wbox-wood-title{
+  font-weight:700; letter-spacing:.05em; font-style:italic; color:var(--wood-ink);
+  text-shadow:0 1px 0 rgba(255,255,255,.5), 0 -1px 0 rgba(90,55,25,.3);
 }
+.wbox-entry-lid .wbox-wood-title{ font-size:9px; }
+.wbox-wood-flower{
+  position:absolute; color:var(--wood-ink); opacity:.4; pointer-events:none;
+  filter:drop-shadow(0 1px 0 rgba(255,255,255,.4));
+}
+.wbox-entry-lid .wbox-wood-flower{ font-size:9px; }
+.wbox-entry-lid .wf-1{ left:10%; top:20%; }
+.wbox-entry-lid .wf-2{ right:12%; top:55%; }
 .wbox-entry-base{
   position:relative; z-index:1; height:58px; border-radius:16px;
-  background:linear-gradient(180deg,#D9B384,#C3935D);
-  box-shadow:0 7px 0 #96703F, 0 10px 11px rgba(80,55,20,.22);
-}
-.wbox-entry-base::before{ /* 小花裝飾，暗示「刻在木頭表面」而不是純色塊 */
-  content:"✿"; position:absolute; left:12%; top:18%; font-size:11px; color:#B98A52; opacity:.55;
+  background:linear-gradient(165deg, var(--wood-2), var(--wood-3) 55%, var(--wood-4));
+  box-shadow:0 7px 0 var(--wood-4), 0 10px 11px rgba(80,55,20,.22), inset 0 1px 0 rgba(255,255,255,.2);
 }
 .wbox-entry-base::after{ /* 正面扣件 */
   content:""; position:absolute; left:50%; top:10px; transform:translateX(-50%);
-  width:20px; height:7px; border-radius:3px; background:#A97C4F;
-  box-shadow:inset 0 1px 1px rgba(0,0,0,.22);
+  width:20px; height:7px; border-radius:3px; background:var(--wood-4);
+  box-shadow:inset 0 1px 1px rgba(0,0,0,.25), 0 1px 0 rgba(255,255,255,.15);
 }
 .wbox-entry-hint{ margin-top:8px; text-align:center; font-size:12.5px; font-weight:700; color:#8A6D46; }
 
@@ -532,17 +547,20 @@ emoji-picker{
    （絕不超過 -90deg：超過會轉到完全側面甚至背面，蓋子會「消失」或文字鏡像，
    這正是上一輪的問題），蓋子全程都還正對著使用者、縮短但不會不見，印章是隨著
    蓋子旋轉「逐漸被露出來」，不是蓋子動畫結束後才另外 fade in。 */
-.wbox-scene{ padding:4px 2px 2px; display:flex; justify-content:center; }
+.wbox-scene{
+  --wood-1:#E3C8A4; --wood-2:#D4AF83; --wood-3:#B98F68; --wood-4:#9C7652; --wood-ink:#7A5234;
+  padding:4px 2px 2px; display:flex; justify-content:center;
+}
 .wbox{ position:relative; width:70%; max-width:240px; }
 .wbox-base{
   position:relative; z-index:1; padding:12px;
   border-radius:18px;
-  background:linear-gradient(180deg,#D9B384,#C3935D);
-  box-shadow:0 9px 0 #96703F, 0 13px 16px rgba(80,55,20,.25);
+  background:linear-gradient(165deg, var(--wood-2), var(--wood-3) 55%, var(--wood-4));
+  box-shadow:0 9px 0 var(--wood-4), 0 13px 16px rgba(80,55,20,.25);
 }
 .wbox-base-inner{
   position:relative; border-radius:12px; padding:9px 8px;
-  background:linear-gradient(180deg,#F4E6CB,#ECD8AE);
+  background:linear-gradient(180deg, var(--wood-1), var(--wood-2));
   box-shadow:inset 0 4px 10px rgba(120,80,30,.22), inset 0 -2px 0 rgba(255,255,255,.4);
 }
 .wbox-slots{ display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; }
@@ -603,32 +621,55 @@ emoji-picker{
   transform-origin:top center;
   transform:rotateX(0deg);
   /* 開盒總時長落在規格要求的 1.15～1.30 秒：press(0~0.12s) 之後蓋子本身轉 1.1s；
-     easeInOutQuint 讓「剛抬起」「中段持續翻開」「最後減速停住」三段都清楚可見。 */
+     easeInOutQuint 讓「剛抬起」「中段持續翻開」「最後減速停住」三段都清楚可見。
+     角度收在 -138deg（超過 -90 才會真的離開盒底上空，但沒有逼近 -180）：
+     太接近 -180 時蓋子內側會幾乎正對鏡頭，反而看起來像一塊立著的告示牌；
+     停在這裡才看得出「向後倚靠、微微傾斜」的開蓋感，內側文字也還維持好讀。 */
   transition:transform 1.1s cubic-bezier(.83,0,.17,1);
 }
-.wbox.open .wbox-lid{ transform:rotateX(-172deg); }
+.wbox.open .wbox-lid{ transform:rotateX(-138deg); }
 /* 關盒比開盒快一點（規格要求 0.7~0.9 秒），但一樣要看得到蓋子「闔上」的過程。 */
 .wbox.closing .wbox-lid{ transition-duration:.8s; }
+/* 鉸鏈五金：一直貼在蓋子上緣（= 鉸鏈線）的小深色色塊，不管開合角度都在同一個
+   相對位置，暗示「這塊蓋子真的用鉸鏈接在盒身上」。 */
+.wbox-lid::after{
+  content:""; position:absolute; top:-3px; left:50%; transform:translateX(-50%);
+  width:24%; height:6px; border-radius:3px; background:var(--wood-4);
+  box-shadow:0 1px 1px rgba(0,0,0,.2); z-index:2;
+}
 .wbox-lid-face{
   position:absolute; inset:0; backface-visibility:hidden;
-  border-radius:12px; padding:10px;
+  border-radius:12px; padding:8%;
   display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:4px; text-align:center;
+  gap:3px; text-align:center;
 }
+/* 蓋子外側（CLOSED 看到的那面）：跟盒身同一套木頭漸層，不是另一種奶油色。 */
 .wbox-lid-closed-face{
-  background:linear-gradient(180deg,#E7C492,#CC9D65);
+  background:linear-gradient(165deg, var(--wood-1), var(--wood-2) 55%, var(--wood-3));
   box-shadow:0 2px 0 rgba(255,255,255,.25) inset, 0 6px 10px rgba(80,55,20,.3);
 }
-.wbox-lid-closed-face .wbox-lid-deco{ font-size:20px; filter:sepia(.3) saturate(1.3); opacity:.85; }
-.wbox-lid-closed-face .wbox-lid-title{
-  font-size:13px; font-weight:700; letter-spacing:.05em; font-style:italic; color:#7C5527;
-  text-shadow:0 1px 0 rgba(255,255,255,.45), 0 -1px 0 rgba(110,74,34,.25);
-}
+.wbox-lid-closed-face .wbox-wood-bunny{ width:34px; height:26px; }
+.wbox-lid-closed-face .wbox-wood-title{ font-size:14px; }
+.wbox-lid-closed-face .wf-1{ left:8%; top:12%; font-size:12px; }
+.wbox-lid-closed-face .wf-2{ right:10%; top:16%; font-size:10px; }
+.wbox-lid-closed-face .wf-3{ left:14%; bottom:14%; font-size:10px; }
+/* 蓋子內側（OPEN 看到的那面）：外框是較深的木頭（跟盒身同一套漸層），裡面
+   疊一塊內凹的淺色木板（inset 陰影模擬凹陷），文字刻在這塊內凹木板正中央 —
+   這是這一輪要修正的重點：不要讓它看起來像一塊單純的色塊。 */
 .wbox-lid-open-face{
-  transform:rotateX(180deg); /* 預先反轉：父層轉到接近 -180 度時，疊加起來剛好接近「轉正」，文字不會鏡像 */
-  background:linear-gradient(180deg,#F4E6CB,#ECD8AE);
-  box-shadow:0 3px 8px rgba(80,55,20,.2), inset 0 -2px 0 rgba(255,255,255,.4);
-  font-size:13px; font-weight:700; color:#7C5527;
+  transform:rotateX(180deg); /* 預先反轉：父層轉到 -138deg 時疊加起來還是接近「轉正」，文字不會鏡像 */
+  background:linear-gradient(165deg, var(--wood-2), var(--wood-3) 60%, var(--wood-4));
+  box-shadow:0 3px 10px rgba(80,55,20,.32), inset 0 1px 0 rgba(255,255,255,.25);
+}
+.wbox-lid-open-panel{
+  position:absolute; inset:11%; border-radius:10px;
+  background:linear-gradient(170deg, var(--wood-1), var(--wood-2));
+  box-shadow:inset 0 3px 7px rgba(90,60,30,.38), inset 0 -1px 0 rgba(255,255,255,.3);
+  display:flex; align-items:center; justify-content:center; padding:8%;
+}
+.wbox-lid-open-text{
+  font-size:12.5px; font-weight:700; color:var(--wood-ink); line-height:1.3;
+  text-shadow:0 1px 0 rgba(255,255,255,.45), 0 -1px 1px rgba(90,55,25,.3);
 }
 @media (prefers-reduced-motion: reduce){
   .wbox-lid, .wstamp, .wbox-entry{ transition:none; }
@@ -849,8 +890,17 @@ emoji-picker{
         <button class="btn-ghost" id="btnToggleStampSound" style="position:absolute; top:0; right:0; width:40px; height:40px; padding:0; z-index:3;">🔊</button>
         <button class="wbox-entry" id="btnOpenStampBox" aria-label="打開印章盒">
           <div class="wbox-entry-lid">
-            <span class="wbox-entry-lid-deco">🐰</span>
-            <span class="wbox-entry-lid-label">Stamp Box</span>
+            <span class="wbox-wood-flower wf-1">✿</span>
+            <span class="wbox-wood-flower wf-2">✿</span>
+            <svg class="wbox-wood-bunny" viewBox="0 0 48 36" aria-hidden="true">
+              <path class="wb-line" d="M15 17 C11 8 13 2 17 2 C20 2 21 9 19 17"/>
+              <path class="wb-line" d="M33 17 C37 8 35 2 31 2 C28 2 27 9 29 17"/>
+              <circle class="wb-line" cx="24" cy="23" r="10.5"/>
+              <circle class="wb-dot" cx="20.5" cy="22" r="1"/>
+              <circle class="wb-dot" cx="27.5" cy="22" r="1"/>
+              <path class="wb-line" d="M21.5 26.5 Q24 28.5 26.5 26.5"/>
+            </svg>
+            <span class="wbox-wood-title">Stamp Box</span>
           </div>
           <div class="wbox-entry-base"></div>
         </button>
@@ -3751,10 +3801,24 @@ function openStampBoxSheet(h, fromEl){
         </div></div>
         <div class="wbox-lid">
           <div class="wbox-lid-face wbox-lid-closed-face">
-            <span class="wbox-lid-deco">🐰</span>
-            <span class="wbox-lid-title">Stamp Box</span>
+            <span class="wbox-wood-flower wf-1">✿</span>
+            <span class="wbox-wood-flower wf-2">✿</span>
+            <span class="wbox-wood-flower wf-3">✿</span>
+            <svg class="wbox-wood-bunny" viewBox="0 0 48 36" aria-hidden="true">
+              <path class="wb-line" d="M15 17 C11 8 13 2 17 2 C20 2 21 9 19 17"/>
+              <path class="wb-line" d="M33 17 C37 8 35 2 31 2 C28 2 27 9 29 17"/>
+              <circle class="wb-line" cx="24" cy="23" r="10.5"/>
+              <circle class="wb-dot" cx="20.5" cy="22" r="1"/>
+              <circle class="wb-dot" cx="27.5" cy="22" r="1"/>
+              <path class="wb-line" d="M21.5 26.5 Q24 28.5 26.5 26.5"/>
+            </svg>
+            <span class="wbox-wood-title">Stamp Box</span>
           </div>
-          <div class="wbox-lid-face wbox-lid-open-face">今天想拿哪個印章呢～♡</div>
+          <div class="wbox-lid-face wbox-lid-open-face">
+            <div class="wbox-lid-open-panel">
+              <span class="wbox-lid-open-text">今天想拿哪個印章呢～♡</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
