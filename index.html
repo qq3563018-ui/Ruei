@@ -485,63 +485,69 @@ emoji-picker{
 }
 
 /* ===== 印章盒入口：習慣詳細頁上「隨時都看得到」的一個關閉中的木盒 =====
-   這不是一個按鈕上畫了印章圖案，而是跟展開後的 .wbox 同一套木頭材質／配色／
-   圓角語言的「縮小版盒子」，目的是讓人一眼認出「這是裝印章的小木盒」，
+   短、厚、有份量感的小木盒（寬度約容器的 70%、置中），跟展開後的 .wbox 同一套
+   木頭材質／配色／圓角語言，目的是讓人一眼認出「這是裝印章的小木盒」，
    點下去之後展開的才是「同一個盒子」被放大、打開，而不是換成另一個 UI。 */
-.wbox-entry-row{ display:flex; align-items:flex-end; gap:8px; margin-bottom:10px; }
+.wbox-entry-wrap{ position:relative; display:flex; flex-direction:column; align-items:center; margin-bottom:10px; }
 .wbox-entry{
-  flex:1; position:relative; display:block; padding:0; background:none; border:none;
-  cursor:pointer; text-align:left; transition:transform .1s ease;
+  width:70%; max-width:240px; position:relative; display:block; padding:0;
+  background:none; border:none; cursor:pointer; transition:transform .1s ease;
 }
-.wbox-entry:active, .wbox-entry.pressed{ transform:translateY(2px) scale(.99); }
+.wbox-entry:active{ transform:translateY(2px) scale(.99); }
 .wbox-entry-lid{
-  position:relative; z-index:2; height:20px; margin-bottom:-9px;
-  border-radius:12px 12px 5px 5px;
-  background:linear-gradient(180deg,#E3BE8B,#CA9A62);
-  box-shadow:0 3px 0 #9C7347;
-  display:flex; align-items:center; justify-content:center;
+  position:relative; z-index:2; height:34px; margin-bottom:-10px;
+  border-radius:14px 14px 6px 6px;
+  background:linear-gradient(180deg,#E7C492,#CC9D65);
+  box-shadow:0 4px 0 #9C7347, inset 0 1px 0 rgba(255,255,255,.35);
+  display:flex; align-items:center; justify-content:center; gap:4px;
 }
+.wbox-entry-lid-deco{ font-size:12px; filter:sepia(.3) saturate(1.3); opacity:.85; }
 .wbox-entry-lid-label{
-  font-size:8px; font-weight:700; letter-spacing:.06em; color:#7C5527;
-  text-shadow:0 1px 0 rgba(255,255,255,.4);
+  font-size:10px; font-weight:700; letter-spacing:.05em; color:#7C5527; font-style:italic;
+  text-shadow:0 1px 0 rgba(255,255,255,.45), 0 -1px 0 rgba(110,74,34,.25);
 }
 .wbox-entry-base{
-  position:relative; z-index:1; height:40px; border-radius:13px;
+  position:relative; z-index:1; height:58px; border-radius:16px;
   background:linear-gradient(180deg,#D9B384,#C3935D);
-  box-shadow:0 5px 0 #96703F, 0 7px 8px rgba(80,55,20,.2);
+  box-shadow:0 7px 0 #96703F, 0 10px 11px rgba(80,55,20,.22);
 }
-.wbox-entry-base::after{
-  content:""; position:absolute; left:50%; top:7px; transform:translateX(-50%);
-  width:16px; height:6px; border-radius:3px; background:#A97C4F;
-  box-shadow:inset 0 1px 1px rgba(0,0,0,.2);
+.wbox-entry-base::before{ /* 小花裝飾，暗示「刻在木頭表面」而不是純色塊 */
+  content:"✿"; position:absolute; left:12%; top:18%; font-size:11px; color:#B98A52; opacity:.55;
 }
-.wbox-entry-hint{ margin-top:7px; text-align:center; font-size:12.5px; font-weight:700; color:#8A6D46; }
+.wbox-entry-base::after{ /* 正面扣件 */
+  content:""; position:absolute; left:50%; top:10px; transform:translateX(-50%);
+  width:20px; height:7px; border-radius:3px; background:#A97C4F;
+  box-shadow:inset 0 1px 1px rgba(0,0,0,.22);
+}
+.wbox-entry-hint{ margin-top:8px; text-align:center; font-size:12.5px; font-weight:700; color:#8A6D46; }
 
-/* ===== 印章盒展開後：跟 .wbox-entry 同一種木頭材質延續下去的「同一個盒子」 =====
+/* ===== 印章盒展開後：跟 .wbox-entry 同一種木頭材質、同一種短厚比例延續下去的
+   「同一個盒子」 =====
    刻意不透過共用的白色 .sheet（見 .sheet-stampbox 覆寫），而是用 JS 把展開的盒子
-   以「從剛剛那顆入口盒子的位置長大」的方式生成（FLIP：記下入口的 rect，
-   盒子先以該 rect 的位置/縮放出現，再動畫回正常大小），讓人感覺是同一個盒子被打開，
-   不是叫出另一個完全不同的視窗。
-   .wbox-lid 現在是蓋在 .wbox-slots 正上方、完全蓋住的一片蓋子（z-index 蓋過印章），
-   關閉時 8 顆章本來就「已經在裡面」，只是被這片蓋子擋住；打開只是把蓋子轉開，
-   印章是「被露出來」而不是另外 fade in 進來。開合速度放慢、用 ease-out、不做彈跳。 */
+   以「從剛剛那顆入口盒子的位置長大」的方式生成（FLIP），讓人感覺是同一個盒子被
+   打開，不是叫出另一個完全不同的視窗；底座尺寸 CLOSED/OPEN 全程不變，差別只在
+   蓋子的旋轉角度 —— 不會發生「關閉是小盒子、打開變成大面板」的情況。
+   .wbox-lid 蓋在 .wbox-slots 正上方、完全蓋住的一片蓋子（z-index 蓋過印章），
+   關閉時 8 顆章本來就「已經在裡面」，只是被這片蓋子擋住；掀開角度刻意停在 -74deg
+   （絕不超過 -90deg：超過會轉到完全側面甚至背面，蓋子會「消失」或文字鏡像，
+   這正是上一輪的問題），蓋子全程都還正對著使用者、縮短但不會不見，印章是隨著
+   蓋子旋轉「逐漸被露出來」，不是蓋子動畫結束後才另外 fade in。 */
 .wbox-scene{ padding:4px 2px 2px; display:flex; justify-content:center; }
-.wbox{ position:relative; width:100%; max-width:360px; }
+.wbox{ position:relative; width:70%; max-width:240px; }
 .wbox-base{
-  position:relative; z-index:1; padding:14px;
+  position:relative; z-index:1; padding:12px;
   border-radius:18px;
   background:linear-gradient(180deg,#D9B384,#C3935D);
   box-shadow:0 9px 0 #96703F, 0 13px 16px rgba(80,55,20,.25);
 }
 .wbox-base-inner{
-  position:relative; border-radius:12px; padding:12px 10px;
+  position:relative; border-radius:12px; padding:9px 8px;
   background:linear-gradient(180deg,#F4E6CB,#ECD8AE);
   box-shadow:inset 0 4px 10px rgba(120,80,30,.22), inset 0 -2px 0 rgba(255,255,255,.4);
-  overflow:hidden; /* 蓋子轉到接近闔上的角度時，不要讓邊緣露到裁切區外面 */
 }
-.wbox-slots{ display:grid; grid-template-columns:repeat(4, 1fr); gap:9px; }
+.wbox-slots{ display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; }
 .wbox-slot{
-  position:relative; aspect-ratio:1; border-radius:13px;
+  position:relative; aspect-ratio:1; border-radius:11px;
   background:radial-gradient(circle at 50% 42%, #E4CB9D, #CBA876 78%);
   box-shadow:inset 0 3px 6px rgba(100,65,25,.35), inset 0 -1px 0 rgba(255,255,255,.3);
 }
@@ -549,14 +555,24 @@ emoji-picker{
   background:radial-gradient(circle at 50% 46%, #C4A071, #AD8956 80%);
   box-shadow:inset 0 4px 9px rgba(70,45,15,.55);
 }
+/* 木章本體：厚塊感來自「底部實色邊 + 外陰影」模擬側面厚度，再疊一層內陰影
+   （上緣亮、下緣暗）模擬木塊本身圓潤的斷面，而不是一片純白的扁平按鈕。 */
 .wstamp{
-  position:absolute; inset:7%; border-radius:10px; padding:9%;
-  background:linear-gradient(160deg,#F7ECD6,#E9D3A8);
-  box-shadow:0 4px 0 #B8975F, 0 6px 8px rgba(80,55,20,.3);
+  position:absolute; inset:4%; border-radius:9px; padding:7%;
+  background:linear-gradient(160deg,#F3E4C8,#E4CBA0);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.55),
+    inset 0 -3px 4px rgba(120,85,40,.22),
+    0 5px 0 #B3904F, 0 7px 8px rgba(80,55,20,.35);
   display:flex; align-items:center; justify-content:center;
   transition:transform .12s ease, box-shadow .12s ease;
 }
-.wstamp:active{ transform:translateY(2px); box-shadow:0 2px 0 #B8975F, 0 3px 4px rgba(80,55,20,.3); }
+.wstamp:active{
+  transform:translateY(3px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.55), inset 0 -3px 4px rgba(120,85,40,.22),
+    0 2px 0 #B3904F, 0 3px 4px rgba(80,55,20,.3);
+}
 .wstamp-face{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
 @keyframes wstampPick{
   0%{ transform:translateY(0) scale(1); opacity:1; }
@@ -564,28 +580,43 @@ emoji-picker{
   100%{ transform:translateY(-85%) scale(.88); opacity:0; }
 }
 .wstamp.picked{ animation:wstampPick .32s ease forwards; pointer-events:none; }
-/* 蓋子：絕對定位蓋滿整個底座內部（跟 .wbox-slots 同一個容器裡疊在上面），
-   closed 時完全遮住印章；transform-origin 在上緣，像掀蓋一樣往後／往上翻開。
-   0.68s + ease-out（無彈跳）＝「緩緩掀開」而不是「啪！瞬間打開」。 */
 .wbox-lid{
-  position:absolute; inset:0; z-index:5;
-  border-radius:12px; padding:14px;
+  position:absolute; inset:0; z-index:5; pointer-events:none;
+  /* 3D 旋轉後的實際可點擊區域不會跟著視覺上的「縮短」一起縮小（瀏覽器對
+     rotateX 的 hit-test 仍以未旋轉前的完整矩形計算），蓋子本身又沒有任何
+     可互動內容，所以直接整片設 pointer-events:none，避免半開/全開時蓋子
+     擋住點不到下面的木章。 */
+  border-radius:12px; padding:10px;
   background:linear-gradient(180deg,#E7C492,#CC9D65);
   box-shadow:0 2px 0 rgba(255,255,255,.25) inset, 0 6px 10px rgba(80,55,20,.3);
-  display:flex; align-items:center; justify-content:center; text-align:center;
-  transform-origin:top center; transform-style:preserve-3d;
+  transform-origin:top center;
   transform:perspective(900px) rotateX(0deg);
-  transition:transform .68s cubic-bezier(.22,.7,.25,1);
+  /* 開盒總時長落在規格要求的 1.15～1.30 秒：press(0~0.12s) 之後蓋子本身轉 1.1s，
+     easeInOutQuint 讓「剛抬起」「中段持續翻開」「最後減速停住」三段都清楚可見，
+     角度只到 -74deg（絕不到 -90deg），蓋子縮短但全程看得見，不會消失。 */
+  transition:transform 1.1s cubic-bezier(.83,0,.17,1);
 }
-.wbox.open .wbox-lid{ transform:perspective(900px) rotateX(-112deg); }
-/* 關盒可以比開盒快一點點，但一樣要看得到蓋子「合上」的過程，不是瞬間消失。 */
-.wbox.closing .wbox-lid{ transition-duration:.56s; }
-.wbox-lid-text{
-  font-size:13px; font-weight:700; color:#7C5527;
-  text-shadow:0 1px 0 rgba(255,255,255,.45);
+.wbox.open .wbox-lid{ transform:perspective(900px) rotateX(-70deg); }
+/* 關盒比開盒快一點（規格要求 0.7~0.9 秒），但一樣要看得到蓋子「闔上」的過程。 */
+.wbox.closing .wbox-lid{ transition-duration:.8s; }
+.wbox-lid-face{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:2px; padding:0 8%; text-align:center;
+  transition:opacity .3s ease;
 }
+.wbox-lid-closed-face .wbox-lid-deco{ font-size:15px; filter:sepia(.3) saturate(1.3); opacity:.85; }
+.wbox-lid-closed-face .wbox-lid-title{
+  font-size:11px; font-weight:700; letter-spacing:.05em; font-style:italic; color:#7C5527;
+  text-shadow:0 1px 0 rgba(255,255,255,.45), 0 -1px 0 rgba(110,74,34,.25);
+}
+.wbox-lid-open-face{
+  font-size:11px; font-weight:700; color:#7C5527; opacity:0;
+  text-shadow:0 1px 0 rgba(255,255,255,.4);
+}
+.wbox.open .wbox-lid-closed-face{ opacity:0; }
+.wbox.open .wbox-lid-open-face{ opacity:1; }
 @media (prefers-reduced-motion: reduce){
-  .wbox-lid, .wstamp, .wbox-entry{ transition:none; }
+  .wbox-lid, .wstamp, .wbox-entry, .wbox-lid-face{ transition:none; }
   .wstamp.picked{ animation:none; opacity:0; }
 }
 
@@ -799,13 +830,16 @@ emoji-picker{
       <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
       <div id="habitStoppedNotice"></div>
       <div id="heldStampBar" class="held-stamp-bar" style="display:none;"></div>
-      <div class="wbox-entry-row">
+      <div class="wbox-entry-wrap">
+        <button class="btn-ghost" id="btnToggleStampSound" style="position:absolute; top:0; right:0; width:40px; height:40px; padding:0; z-index:3;">🔊</button>
         <button class="wbox-entry" id="btnOpenStampBox" aria-label="打開印章盒">
-          <div class="wbox-entry-lid"><span class="wbox-entry-lid-label">STAMP BOX</span></div>
+          <div class="wbox-entry-lid">
+            <span class="wbox-entry-lid-deco">🐰</span>
+            <span class="wbox-entry-lid-label">Stamp Box</span>
+          </div>
           <div class="wbox-entry-base"></div>
-          <div class="wbox-entry-hint">打開印章盒</div>
         </button>
-        <button class="btn-ghost" id="btnToggleStampSound" style="flex:none; width:44px; height:40px; padding:0;">🔊</button>
+        <div class="wbox-entry-hint">打開印章盒</div>
       </div>
       <div class="cal-head">
         <button class="cal-nav-btn" id="habitCalPrev">‹</button>
@@ -1889,7 +1923,7 @@ function closeSheet(onClosed){
     const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     wbox.classList.remove("open");
     wbox.classList.add("closing");
-    if(reduced) finish(); else setTimeout(finish, 580);
+    if(reduced) finish(); else setTimeout(finish, 820); // 配合蓋子閤上動畫 .8s 再收起 overlay
   }else{
     finish();
   }
@@ -3675,7 +3709,9 @@ function openReplaceActions(h, dateStr, hasHeld){
 //   以 fromEl 當下的畫面位置/大小出現，再放大回正常尺寸，讓人感覺是同一個盒子被
 //   點開放大，而不是跳出一個新視窗；從「換一顆」流程進來時沒有合適的入口可以對應，
 //   就退回置中淡入＋放大。
-// - 開合速度刻意放慢並用 ease-out、不做彈跳：開蓋 .68s，閤蓋 .56s（closeSheet 裡）。
+// - 開合速度刻意放慢：開蓋總長約 1.15~1.30s（press ~120ms + 蓋子旋轉 1.1s，
+//   easeInOutQuint 讓「剛抬起→持續翻開→減速停住」都看得出來），閤蓋約 0.8s
+//   （closeSheet 裡）；蓋子角度只到 -74deg（不會到 -90deg），全程看得見、不會消失。
 // - 點其餘任一顆木章：該木章先播放「拿起來」動畫（往上浮起淡出），蓋子同時闔上，
 //   闔上後才真正把 heldStampId 設起來、收起整個 overlay 回到月曆；如果是從「換一顆」
 //   流程進來的（pendingReplaceDate 有值），選完直接完成那一天的替換。
@@ -3697,7 +3733,13 @@ function openStampBoxSheet(h, fromEl){
               </div>
             `).join("")}
           </div>
-          <div class="wbox-lid"><div class="wbox-lid-text">今天想拿哪個印章呢～♡</div></div>
+          <div class="wbox-lid">
+            <div class="wbox-lid-face wbox-lid-closed-face">
+              <span class="wbox-lid-deco">🐰</span>
+              <span class="wbox-lid-title">Stamp Box</span>
+            </div>
+            <div class="wbox-lid-face wbox-lid-open-face">今天想拿哪個印章呢～♡</div>
+          </div>
         </div></div>
       </div>
     </div>
@@ -3716,7 +3758,7 @@ function openStampBoxSheet(h, fromEl){
   }else{
     const toRect = wbox.getBoundingClientRect();
     let dx = 0, dy = 10, scale = .88;
-    const growMs = 150;
+    const growMs = 120; // 跟規格的「階段1：0~0.12秒」對齊，盒子長大完當下蓋子就開始掀開
     if(fromEl){
       const fromRect = fromEl.getBoundingClientRect();
       dx = (fromRect.left + fromRect.width/2) - (toRect.left + toRect.width/2);
