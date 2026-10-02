@@ -496,44 +496,41 @@ emoji-picker{
   position:relative; display:flex; flex-direction:column; align-items:center; margin-bottom:10px;
 }
 .wbox-entry{
-  width:70%; max-width:240px; position:relative; display:block; padding:0;
+  width:58%; max-width:190px; position:relative; display:block; padding:0;
   background:none; border:none; cursor:pointer; transition:transform .1s ease;
 }
 .wbox-entry:active{ transform:translateY(2px) scale(.99); }
+/* 改成單一張緊湊的卡片（不再是「薄蓋子+厚底座」上下兩段），厚度改用底部
+   實色偏移陰影模擬，頂端一個小小的鉸鏈把手裝飾，呼應展開後蓋子頂端的
+   五金細節——視覺上更像「蓋子本身」，而不是一整條橫跨卡片的長條盒。 */
 .wbox-entry-lid{
-  position:relative; z-index:2; height:50px; margin-bottom:-10px; overflow:hidden;
-  border-radius:14px 14px 6px 6px;
+  position:relative; z-index:2; height:72px; overflow:hidden;
+  border-radius:14px;
   background:linear-gradient(165deg, var(--wood-1), var(--wood-2) 60%, var(--wood-3));
-  box-shadow:0 4px 0 var(--wood-4), inset 0 1px 0 rgba(255,255,255,.35),
-    inset 0 -8px 10px -8px rgba(90,60,30,.3);
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  box-shadow:0 5px 0 var(--wood-4), 0 7px 8px rgba(80,55,20,.22),
+    inset 0 1px 0 rgba(255,255,255,.35), inset 0 -8px 10px -8px rgba(90,60,30,.3);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+}
+.wbox-entry-lid::before{ /* 鉸鏈把手 */
+  content:""; position:absolute; top:6px; left:50%; transform:translateX(-50%);
+  width:26%; height:4px; border-radius:2px; background:var(--wood-4); opacity:.5;
 }
 .wbox-wood-bunny{ color:var(--wood-ink); filter:drop-shadow(0 1px 0 rgba(255,255,255,.5)) drop-shadow(0 -1px 0 rgba(90,55,25,.3)); opacity:.88; }
 .wbox-wood-bunny .wb-line{ fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round; }
 .wbox-wood-bunny .wb-dot{ fill:currentColor; }
-.wbox-entry-lid .wbox-wood-bunny{ width:22px; height:17px; }
+.wbox-entry-lid .wbox-wood-bunny{ width:26px; height:20px; margin-top:4px; }
 .wbox-wood-title{
   font-weight:700; letter-spacing:.05em; font-style:italic; color:var(--wood-ink);
   text-shadow:0 1px 0 rgba(255,255,255,.5), 0 -1px 0 rgba(90,55,25,.3);
 }
-.wbox-entry-lid .wbox-wood-title{ font-size:9px; }
+.wbox-entry-lid .wbox-wood-title{ font-size:10px; }
 .wbox-wood-flower{
   position:absolute; color:var(--wood-ink); opacity:.4; pointer-events:none;
   filter:drop-shadow(0 1px 0 rgba(255,255,255,.4));
 }
-.wbox-entry-lid .wbox-wood-flower{ font-size:9px; }
-.wbox-entry-lid .wf-1{ left:10%; top:20%; }
-.wbox-entry-lid .wf-2{ right:12%; top:55%; }
-.wbox-entry-base{
-  position:relative; z-index:1; height:58px; border-radius:16px;
-  background:linear-gradient(165deg, var(--wood-2), var(--wood-3) 55%, var(--wood-4));
-  box-shadow:0 7px 0 var(--wood-4), 0 10px 11px rgba(80,55,20,.22), inset 0 1px 0 rgba(255,255,255,.2);
-}
-.wbox-entry-base::after{ /* 正面扣件 */
-  content:""; position:absolute; left:50%; top:10px; transform:translateX(-50%);
-  width:20px; height:7px; border-radius:3px; background:var(--wood-4);
-  box-shadow:inset 0 1px 1px rgba(0,0,0,.25), 0 1px 0 rgba(255,255,255,.15);
-}
+.wbox-entry-lid .wbox-wood-flower{ font-size:10px; }
+.wbox-entry-lid .wf-1{ left:10%; top:28%; }
+.wbox-entry-lid .wf-2{ right:10%; top:28%; }
 .wbox-entry-hint{ margin-top:8px; text-align:center; font-size:12.5px; font-weight:700; color:#8A6D46; }
 
 /* ===== 印章盒展開後：跟 .wbox-entry 同一種木頭材質、同一種短厚比例延續下去的
@@ -902,7 +899,6 @@ emoji-picker{
             </svg>
             <span class="wbox-wood-title">Stamp Box</span>
           </div>
-          <div class="wbox-entry-base"></div>
         </button>
         <div class="wbox-entry-hint">打開印章盒</div>
       </div>
