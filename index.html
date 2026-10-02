@@ -484,33 +484,49 @@ emoji-picker{
   border:1px solid #E3CDA0; border-radius:999px; padding:5px 12px;
 }
 
-/* ===== 印章盒：真的是一個木頭盒子，不是「白色 bottom sheet + icon 按鈕」 =====
-   .wbox-lid 用 perspective()+rotateX 做掀蓋的假 3D（backface-visibility:hidden，
-   轉過 90 度後蓋子本身會「消失」，讓人感覺蓋子真的被掀到後面去了）。
-   .wbox-base 內部是裁切過的凹陷木盒底座，8 個 .wbox-slot 凹槽，
-   每顆章 .wstamp 用「底部實色色塊」模擬厚度，拿起來（.picked）會往上浮起淡出，
-   原本的凹槽立刻變成「空的」(.wbox-slot.empty)，不是 disabled 按鈕或打勾。 */
-.wbox-scene{ padding:4px 2px 2px; }
-.wbox{
-  position:relative; opacity:0; transform:translateY(10px);
-  transition:opacity .3s ease, transform .3s ease;
+/* ===== 印章盒入口：習慣詳細頁上「隨時都看得到」的一個關閉中的木盒 =====
+   這不是一個按鈕上畫了印章圖案，而是跟展開後的 .wbox 同一套木頭材質／配色／
+   圓角語言的「縮小版盒子」，目的是讓人一眼認出「這是裝印章的小木盒」，
+   點下去之後展開的才是「同一個盒子」被放大、打開，而不是換成另一個 UI。 */
+.wbox-entry-row{ display:flex; align-items:flex-end; gap:8px; margin-bottom:10px; }
+.wbox-entry{
+  flex:1; position:relative; display:block; padding:0; background:none; border:none;
+  cursor:pointer; text-align:left; transition:transform .1s ease;
 }
-.wbox.open{ opacity:1; transform:translateY(0); }
-.wbox-lid{
-  position:relative; z-index:3; min-height:52px;
-  margin-bottom:-20px; padding:12px 16px 24px;
-  border-radius:18px 18px 8px 8px;
+.wbox-entry:active, .wbox-entry.pressed{ transform:translateY(2px) scale(.99); }
+.wbox-entry-lid{
+  position:relative; z-index:2; height:20px; margin-bottom:-9px;
+  border-radius:12px 12px 5px 5px;
   background:linear-gradient(180deg,#E3BE8B,#CA9A62);
-  box-shadow:0 6px 0 #9C7347, 0 9px 12px rgba(80,55,20,.25);
-  display:flex; align-items:center; justify-content:center; text-align:center;
-  transform-origin:top center; backface-visibility:hidden;
-  transition:transform .42s cubic-bezier(.3,.85,.4,1);
+  box-shadow:0 3px 0 #9C7347;
+  display:flex; align-items:center; justify-content:center;
 }
-.wbox.open .wbox-lid{ transform:perspective(650px) rotateX(-118deg); }
-.wbox-lid-text{
-  font-size:13px; font-weight:700; color:#7C5527;
-  text-shadow:0 1px 0 rgba(255,255,255,.45);
+.wbox-entry-lid-label{
+  font-size:8px; font-weight:700; letter-spacing:.06em; color:#7C5527;
+  text-shadow:0 1px 0 rgba(255,255,255,.4);
 }
+.wbox-entry-base{
+  position:relative; z-index:1; height:40px; border-radius:13px;
+  background:linear-gradient(180deg,#D9B384,#C3935D);
+  box-shadow:0 5px 0 #96703F, 0 7px 8px rgba(80,55,20,.2);
+}
+.wbox-entry-base::after{
+  content:""; position:absolute; left:50%; top:7px; transform:translateX(-50%);
+  width:16px; height:6px; border-radius:3px; background:#A97C4F;
+  box-shadow:inset 0 1px 1px rgba(0,0,0,.2);
+}
+.wbox-entry-hint{ margin-top:7px; text-align:center; font-size:12.5px; font-weight:700; color:#8A6D46; }
+
+/* ===== 印章盒展開後：跟 .wbox-entry 同一種木頭材質延續下去的「同一個盒子」 =====
+   刻意不透過共用的白色 .sheet（見 .sheet-stampbox 覆寫），而是用 JS 把展開的盒子
+   以「從剛剛那顆入口盒子的位置長大」的方式生成（FLIP：記下入口的 rect，
+   盒子先以該 rect 的位置/縮放出現，再動畫回正常大小），讓人感覺是同一個盒子被打開，
+   不是叫出另一個完全不同的視窗。
+   .wbox-lid 現在是蓋在 .wbox-slots 正上方、完全蓋住的一片蓋子（z-index 蓋過印章），
+   關閉時 8 顆章本來就「已經在裡面」，只是被這片蓋子擋住；打開只是把蓋子轉開，
+   印章是「被露出來」而不是另外 fade in 進來。開合速度放慢、用 ease-out、不做彈跳。 */
+.wbox-scene{ padding:4px 2px 2px; display:flex; justify-content:center; }
+.wbox{ position:relative; width:100%; max-width:360px; }
 .wbox-base{
   position:relative; z-index:1; padding:14px;
   border-radius:18px;
@@ -518,9 +534,10 @@ emoji-picker{
   box-shadow:0 9px 0 #96703F, 0 13px 16px rgba(80,55,20,.25);
 }
 .wbox-base-inner{
-  border-radius:12px; padding:12px 10px;
+  position:relative; border-radius:12px; padding:12px 10px;
   background:linear-gradient(180deg,#F4E6CB,#ECD8AE);
   box-shadow:inset 0 4px 10px rgba(120,80,30,.22), inset 0 -2px 0 rgba(255,255,255,.4);
+  overflow:hidden; /* 蓋子轉到接近闔上的角度時，不要讓邊緣露到裁切區外面 */
 }
 .wbox-slots{ display:grid; grid-template-columns:repeat(4, 1fr); gap:9px; }
 .wbox-slot{
@@ -547,9 +564,44 @@ emoji-picker{
   100%{ transform:translateY(-85%) scale(.88); opacity:0; }
 }
 .wstamp.picked{ animation:wstampPick .32s ease forwards; pointer-events:none; }
+/* 蓋子：絕對定位蓋滿整個底座內部（跟 .wbox-slots 同一個容器裡疊在上面），
+   closed 時完全遮住印章；transform-origin 在上緣，像掀蓋一樣往後／往上翻開。
+   0.68s + ease-out（無彈跳）＝「緩緩掀開」而不是「啪！瞬間打開」。 */
+.wbox-lid{
+  position:absolute; inset:0; z-index:5;
+  border-radius:12px; padding:14px;
+  background:linear-gradient(180deg,#E7C492,#CC9D65);
+  box-shadow:0 2px 0 rgba(255,255,255,.25) inset, 0 6px 10px rgba(80,55,20,.3);
+  display:flex; align-items:center; justify-content:center; text-align:center;
+  transform-origin:top center; transform-style:preserve-3d;
+  transform:perspective(900px) rotateX(0deg);
+  transition:transform .68s cubic-bezier(.22,.7,.25,1);
+}
+.wbox.open .wbox-lid{ transform:perspective(900px) rotateX(-112deg); }
+/* 關盒可以比開盒快一點點，但一樣要看得到蓋子「合上」的過程，不是瞬間消失。 */
+.wbox.closing .wbox-lid{ transition-duration:.56s; }
+.wbox-lid-text{
+  font-size:13px; font-weight:700; color:#7C5527;
+  text-shadow:0 1px 0 rgba(255,255,255,.45);
+}
 @media (prefers-reduced-motion: reduce){
-  .wbox, .wbox-lid, .wstamp{ transition:none; }
+  .wbox-lid, .wstamp, .wbox-entry{ transition:none; }
   .wstamp.picked{ animation:none; opacity:0; }
+}
+
+/* ===== 印章盒展開時，借用既有的 overlay/sheet 機制做定位與關閉，
+   但視覺上拿掉白色卡片（背景變透明、不做 slideUp），因為這裡真正的
+   主角是木盒本身，不要讓使用者覺得是「白色 modal 裡面放了一個木盒」。 ===== */
+.overlay.overlay-center{ align-items:center; }
+.sheet.sheet-stampbox{
+  background:transparent; box-shadow:none; padding:0; max-width:380px;
+  max-height:none; overflow:visible; animation:none;
+}
+.wbox-close-btn{
+  position:absolute; top:-6px; right:4px; z-index:10;
+  width:28px; height:28px; border-radius:50%;
+  background:rgba(255,255,255,.9); color:#8A6D46; font-size:14px;
+  box-shadow:0 2px 6px rgba(0,0,0,.15);
 }
 </style>
 </head>
@@ -747,9 +799,13 @@ emoji-picker{
       <div class="muted" id="habitDetailGoalLink" style="margin-bottom:10px; display:none;"></div>
       <div id="habitStoppedNotice"></div>
       <div id="heldStampBar" class="held-stamp-bar" style="display:none;"></div>
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <button class="btn-ghost" id="btnOpenStampBox" style="flex:1;">💮 打開印章盒</button>
-        <button class="btn-ghost" id="btnToggleStampSound" style="flex:none; width:44px;">🔊</button>
+      <div class="wbox-entry-row">
+        <button class="wbox-entry" id="btnOpenStampBox" aria-label="打開印章盒">
+          <div class="wbox-entry-lid"><span class="wbox-entry-lid-label">STAMP BOX</span></div>
+          <div class="wbox-entry-base"></div>
+          <div class="wbox-entry-hint">打開印章盒</div>
+        </button>
+        <button class="btn-ghost" id="btnToggleStampSound" style="flex:none; width:44px; height:40px; padding:0;">🔊</button>
       </div>
       <div class="cal-head">
         <button class="cal-nav-btn" id="habitCalPrev">‹</button>
@@ -1818,7 +1874,26 @@ function openSheet(html, opts){
   sheetEl.innerHTML = html;
   document.getElementById("overlay").classList.add("active");
 }
-function closeSheet(){ document.getElementById("overlay").classList.remove("active"); }
+// onClosed：印章盒用得到的 hook——如果印章盒正開著（#wbox 有 .open），不管是從
+// ✕ 按鈕、點空白處、還是選好印章觸發的 closeSheet()，都先讓蓋子真的闔上
+// （.56s，看得到闔上過程，不是 display:none 瞬間消失）才真正收起 overlay；
+// 其他所有既有的 sheet（表單／日記／確認框…）完全不受影響，一樣是立刻關閉。
+function closeSheet(onClosed){
+  const finish = ()=>{
+    document.getElementById("overlay").classList.remove("active", "overlay-center");
+    document.getElementById("sheetContent").classList.remove("sheet-stampbox");
+    if(onClosed) onClosed();
+  };
+  const wbox = document.getElementById("wbox");
+  if(wbox && wbox.classList.contains("open")){
+    const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    wbox.classList.remove("open");
+    wbox.classList.add("closing");
+    if(reduced) finish(); else setTimeout(finish, 580);
+  }else{
+    finish();
+  }
+}
 document.getElementById("overlay").addEventListener("click", (e)=>{
   if(e.target.id==="overlay") closeSheet();
 });
@@ -3592,60 +3667,104 @@ function openReplaceActions(h, dateStr, hasHeld){
     eraseStamp(h, dateStr);
   });
 }
-// 印章盒：真的是一個木頭盒子（.wbox），開啟時盒蓋掀開露出 4×2 個凹槽（.wbox-slot），
-// 手上正拿著的那一顆對應凹槽是空的（.wbox-slot.empty，不是 disabled 按鈕或打勾）。
-// 點其餘任一顆木章：該木章先播放「拿起來」動畫（往上浮起淡出），蓋子同時闔上，
-// 動畫結束後才真正把 heldStampId 設起來、收起整個 sheet 回到月曆；
-// 如果是從「換一顆」流程進來的（pendingReplaceDate 有值），選完直接完成那一天的替換，
-// 新選的印章之後也會繼續留在手上，可以馬上接著蓋其他天。
-function openStampBoxSheet(h){
+// 印章盒：真的是同一個木頭盒子被打開，不是叫出另一個 UI。
+// - 8 顆木章跟蓋子從一開始就都在 DOM 裡：蓋子是蓋在 .wbox-slots 正上方的絕對定位
+//   元素（z-index 比章高），關閉時完全遮住印章；打開只是把這片蓋子轉開，印章是
+//   「被露出來」的，不是蓋子動畫結束後才另外 fade in。
+// - fromEl（通常是習慣頁上那顆常駐的關閉中印章盒入口）：如果有給，整個盒子會先
+//   以 fromEl 當下的畫面位置/大小出現，再放大回正常尺寸，讓人感覺是同一個盒子被
+//   點開放大，而不是跳出一個新視窗；從「換一顆」流程進來時沒有合適的入口可以對應，
+//   就退回置中淡入＋放大。
+// - 開合速度刻意放慢並用 ease-out、不做彈跳：開蓋 .68s，閤蓋 .56s（closeSheet 裡）。
+// - 點其餘任一顆木章：該木章先播放「拿起來」動畫（往上浮起淡出），蓋子同時闔上，
+//   闔上後才真正把 heldStampId 設起來、收起整個 overlay 回到月曆；如果是從「換一顆」
+//   流程進來的（pendingReplaceDate 有值），選完直接完成那一天的替換。
+function openStampBoxSheet(h, fromEl){
   const stamps = allStamps();
-  openSheet(`
-    <div class="sheet-head"><h3>打開印章盒</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+  const sheetHtml = `
+    <button class="wbox-close-btn" onclick="closeSheet()" aria-label="關閉印章盒">✕</button>
     <div class="wbox-scene">
       <div class="wbox" id="wbox">
-        <div class="wbox-lid"><div class="wbox-lid-text">今天想拿哪個印章呢～♡</div></div>
-        <div class="wbox-base"><div class="wbox-base-inner"><div class="wbox-slots">
-          ${stamps.map(s=>`
-            <div class="wbox-slot${heldStampId===s.id?' empty':''}" data-slot-id="${s.id}">
-              ${heldStampId===s.id ? '' : `
-                <button class="wstamp" data-stamp-id="${s.id}" aria-label="${escapeHtml(s.label)}">
-                  <img src="${s.asset}" alt="${escapeHtml(s.label)}" class="wstamp-face">
-                </button>
-              `}
-            </div>
-          `).join("")}
-        </div></div></div>
+        <div class="wbox-base"><div class="wbox-base-inner">
+          <div class="wbox-slots">
+            ${stamps.map(s=>`
+              <div class="wbox-slot${heldStampId===s.id?' empty':''}" data-slot-id="${s.id}">
+                ${heldStampId===s.id ? '' : `
+                  <button class="wstamp" data-stamp-id="${s.id}" aria-label="${escapeHtml(s.label)}">
+                    <img src="${s.asset}" alt="${escapeHtml(s.label)}" class="wstamp-face">
+                  </button>
+                `}
+              </div>
+            `).join("")}
+          </div>
+          <div class="wbox-lid"><div class="wbox-lid-text">今天想拿哪個印章呢～♡</div></div>
+        </div></div>
       </div>
     </div>
-  `);
+  `;
+  const overlay = document.getElementById("overlay");
+  const sheetEl = document.getElementById("sheetContent");
+  sheetEl.classList.remove("sheet-lg");
+  sheetEl.classList.add("sheet-stampbox");
+  sheetEl.innerHTML = sheetHtml;
+  overlay.classList.add("overlay-center", "active");
+
   const wbox = document.getElementById("wbox");
-  requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ wbox.classList.add("open"); }); });
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(reduced){
+    wbox.classList.add("open");
+  }else{
+    const toRect = wbox.getBoundingClientRect();
+    let dx = 0, dy = 10, scale = .88;
+    const growMs = 150;
+    if(fromEl){
+      const fromRect = fromEl.getBoundingClientRect();
+      dx = (fromRect.left + fromRect.width/2) - (toRect.left + toRect.width/2);
+      dy = (fromRect.top + fromRect.height/2) - (toRect.top + toRect.height/2);
+      scale = Math.max(.2, Math.min(1, fromRect.width / toRect.width));
+    }
+    const openDelay = growMs;
+    wbox.style.transition = "none";
+    wbox.style.opacity = "0";
+    wbox.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    void wbox.offsetWidth; // 強制 reflow，讓接下來的 transition 能從這個起始狀態播放
+    wbox.style.transition = `transform ${growMs}ms cubic-bezier(.2,.75,.3,1), opacity ${growMs}ms ease`;
+    requestAnimationFrame(()=>{
+      wbox.style.opacity = "1";
+      wbox.style.transform = "translate(0,0) scale(1)";
+    });
+    // 盒子先完整出現、停留一瞬間（關閉狀態），才開始掀蓋，不要盒子剛長大就立刻開合。
+    setTimeout(()=>{ wbox.classList.add("open"); }, openDelay);
+  }
+
   document.querySelectorAll(".wstamp").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const pickedId = btn.dataset.stampId;
-      const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       btn.classList.add("picked");
-      wbox.classList.remove("open");
-      const finish = ()=>{
+      closeSheet(()=>{
         heldStampId = pickedId;
-        closeSheet();
         renderHeldStampBar();
         if(pendingReplaceDate){
           const dateStr = pendingReplaceDate;
           pendingReplaceDate = null;
           applyStampToDate(h, dateStr, heldStampId);
         }
-      };
-      setTimeout(finish, reduced ? 0 : 400);
+      });
     });
   });
 }
-document.getElementById("btnOpenStampBox").addEventListener("click", ()=>{
+document.getElementById("btnOpenStampBox").addEventListener("click", (e)=>{
   const h = DB.habits.find(x=>x.id===currentHabitId);
   if(!h || !h.active) return;
   pendingReplaceDate = null;
-  openStampBoxSheet(h);
+  const entryEl = e.currentTarget;
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // 第一階段：入口盒子先有一個很輕微的反應，讓人知道「點到了」，再進入開盒流程。
+  entryEl.classList.add("pressed");
+  setTimeout(()=>{
+    entryEl.classList.remove("pressed");
+    openStampBoxSheet(h, entryEl);
+  }, reduced ? 0 : 130);
 });
 document.getElementById("btnToggleStampSound").addEventListener("click", (e)=>{
   const on = !stampSoundEnabled();
