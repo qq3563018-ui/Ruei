@@ -415,60 +415,142 @@ emoji-picker{
   transform: rotate(var(--stamp-rot, 0deg));
   pointer-events:none;
 }
-/* 蓋章動畫：印章從稍微上方、稍微放大的位置「壓下」，45% 左右是接觸紙面的瞬間
-   （JS 的音效／震動會跟這個時間點對齊），接著一個很輕微的回彈後定住，
-   不是簡單的 fade in，也不做誇張的彈跳。 */
-@keyframes habitStampPress{
-  0%{ transform: translateY(-14%) scale(1.08) rotate(var(--stamp-rot,0deg)); opacity:0; }
-  45%{ transform: translateY(0) scale(.97) rotate(var(--stamp-rot,0deg)); opacity:1; }
-  70%{ transform: translateY(0) scale(1.02) rotate(var(--stamp-rot,0deg)); }
-  100%{ transform: translateY(0) scale(1) rotate(var(--stamp-rot,0deg)); }
+/* 蓋章動畫：木章「工具」本身（見下方 .stamp-tool）負責壓下／啵／抬起的動作，
+   這裡的 ink img 只單純負責「印泥本身」的淡入 —— 兩者是分開的視覺元素，
+   不是同一張 PNG 自己動來動去。ink-pending 只在剛蓋下的那一格暫時出現，
+   平常重繪（翻月／已存在的印泥）一律是 opacity:1、不做任何動畫。 */
+.habit-stamp-img{
+  max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.18));
+  transform: rotate(var(--stamp-rot, 0deg));
+  pointer-events:none;
+  opacity:1; transition:opacity .2s ease;
 }
-.habit-stamp-img.stamp-anim{ animation: habitStampPress .38s cubic-bezier(.33,1,.68,1); }
+.habit-stamp-img.ink-pending{ opacity:0; transition:none; }
 @media (prefers-reduced-motion: reduce){
-  .habit-stamp-img.stamp-anim{ animation:none; }
+  .habit-stamp-img{ transition:none; }
 }
 
-/* ===== 目前拿著的印章（held stamp，只存在於當下 session，不寫進 DB） ===== */
+/* 蓋章瞬間才會出現的「印章工具」：有握把＋有厚度的木章本體，從上方落下、
+   接觸瞬間（impact，JS 音效／震動對齊這個時間點）微微壓扁，抬起後整個移除，
+   只留下 .habit-stamp-img 那張印泥。跟 held-stamp / 印章盒裡的木章共用同一種
+   「厚塊＋底部實色陰影」做法，讓三處的「這是一塊木頭」質感一致。 */
+.stamp-tool{
+  position:absolute; left:50%; top:50%; width:74%; aspect-ratio:1;
+  transform: translate(-50%,-150%) rotate(var(--rot,0deg)) scale(.85);
+  display:flex; flex-direction:column; align-items:center;
+  z-index:5; pointer-events:none; opacity:0;
+}
+.stamp-tool-handle{
+  width:26%; height:16%; border-radius:7px 7px 3px 3px; margin-bottom:-3%;
+  background:linear-gradient(180deg,#DCB683,#BD8E58);
+  box-shadow:0 2px 0 #96703F;
+}
+.stamp-tool-block{
+  width:100%; flex:1; border-radius:10px; padding:9%;
+  background:linear-gradient(160deg,#F7ECD6,#E9D3A8);
+  box-shadow:0 5px 0 #B8975F, 0 8px 10px rgba(80,55,20,.32);
+  display:flex; align-items:center; justify-content:center;
+}
+.stamp-tool-face{ max-width:100%; max-height:100%; object-fit:contain; }
+@keyframes stampToolPress{
+  0%{   transform: translate(-50%,-150%) rotate(var(--rot,0deg)) scale(.85); opacity:0; }
+  38%{  transform: translate(-50%,-50%)  rotate(var(--rot,0deg)) scale(1);   opacity:1; }
+  50%{  transform: translate(-50%,-46%)  rotate(var(--rot,0deg)) scale(1.05,.86); opacity:1; }
+  62%{  transform: translate(-50%,-50%)  rotate(var(--rot,0deg)) scale(1);   opacity:1; }
+  100%{ transform: translate(-50%,-145%) rotate(var(--rot,0deg)) scale(.85); opacity:0; }
+}
+.stamp-tool.anim{ animation: stampToolPress .6s cubic-bezier(.33,1,.68,1) forwards; }
+
+/* ===== 目前拿著的印章（held stamp，只存在於當下 session，不寫進 DB） =====
+   拿在手上的也是一塊實體木章縮圖（跟印章盒 .wstamp 同一套視覺語言），
+   不是單純文字或扁平圖示。 */
 .held-stamp-bar{
-  display:flex; align-items:center; gap:8px;
-  background:var(--light-accent); border-radius:12px;
-  padding:7px 10px; margin-bottom:10px;
+  display:flex; align-items:center; gap:10px;
+  background:linear-gradient(180deg,#FBF1DD,#F3E3C4);
+  border:1px solid #E3CDA0; border-radius:14px;
+  padding:8px 10px; margin-bottom:10px;
 }
-.held-stamp-thumb{ width:30px; height:30px; object-fit:contain; flex:none; }
-.held-stamp-label{ flex:1; font-size:13px; font-weight:700; color:var(--medium); }
+.held-stamp-block{
+  flex:none; width:38px; height:38px; border-radius:9px; padding:4px;
+  background:linear-gradient(160deg,#F7ECD6,#E9D3A8);
+  box-shadow:0 2px 0 #B8975F;
+  display:flex; align-items:center; justify-content:center;
+}
+.held-stamp-thumb{ max-width:100%; max-height:100%; object-fit:contain; }
+.held-stamp-label{ flex:1; font-size:13px; font-weight:700; color:#8A6D46; }
+.held-stamp-putback{
+  font-size:12px; font-weight:700; color:#B5793F; background:#fff;
+  border:1px solid #E3CDA0; border-radius:999px; padding:5px 12px;
+}
 
-/* ===== 印章盒：打開後的小抽屜式面板，4×2 木章 =====
-   木頭／奶油色文具盒質感，開啟動畫只靠既有 openSheet() 的滑入 + 這裡的小 lid 淡入，
-   刻意保持輕量，不做 3D／物理效果。 */
-.stamp-box{
-  background: linear-gradient(180deg, #F5E7D3, #ECD9B9);
-  border:1px solid #DCC297; border-radius:16px;
-  padding:14px 12px 16px;
+/* ===== 印章盒：真的是一個木頭盒子，不是「白色 bottom sheet + icon 按鈕」 =====
+   .wbox-lid 用 perspective()+rotateX 做掀蓋的假 3D（backface-visibility:hidden，
+   轉過 90 度後蓋子本身會「消失」，讓人感覺蓋子真的被掀到後面去了）。
+   .wbox-base 內部是裁切過的凹陷木盒底座，8 個 .wbox-slot 凹槽，
+   每顆章 .wstamp 用「底部實色色塊」模擬厚度，拿起來（.picked）會往上浮起淡出，
+   原本的凹槽立刻變成「空的」(.wbox-slot.empty)，不是 disabled 按鈕或打勾。 */
+.wbox-scene{ padding:4px 2px 2px; }
+.wbox{
+  position:relative; opacity:0; transform:translateY(10px);
+  transition:opacity .3s ease, transform .3s ease;
 }
-.stamp-box-lid{
-  width:46px; height:5px; margin:0 auto 12px; border-radius:4px; background:#DCC297;
-  animation: stampBoxLid .28s ease;
-  transform-origin:center;
+.wbox.open{ opacity:1; transform:translateY(0); }
+.wbox-lid{
+  position:relative; z-index:3; min-height:52px;
+  margin-bottom:-20px; padding:12px 16px 24px;
+  border-radius:18px 18px 8px 8px;
+  background:linear-gradient(180deg,#E3BE8B,#CA9A62);
+  box-shadow:0 6px 0 #9C7347, 0 9px 12px rgba(80,55,20,.25);
+  display:flex; align-items:center; justify-content:center; text-align:center;
+  transform-origin:top center; backface-visibility:hidden;
+  transition:transform .42s cubic-bezier(.3,.85,.4,1);
 }
-@keyframes stampBoxLid{
-  0%{ transform:scaleX(.2); opacity:0; }
-  100%{ transform:scaleX(1); opacity:1; }
+.wbox.open .wbox-lid{ transform:perspective(650px) rotateX(-118deg); }
+.wbox-lid-text{
+  font-size:13px; font-weight:700; color:#7C5527;
+  text-shadow:0 1px 0 rgba(255,255,255,.45);
 }
-.stamp-box-title{ text-align:center; font-size:14px; font-weight:700; color:#8A6D46; margin-bottom:14px; }
-.stamp-box-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:9px; }
-.stamp-box-tile{
-  aspect-ratio:1; border-radius:12px; background:#FFFBF4; border:1px solid #E9D7B8;
-  display:flex; align-items:center; justify-content:center; padding:7%;
-  box-shadow: inset 0 -2px 0 rgba(0,0,0,.04);
-  transition: transform .12s ease;
+.wbox-base{
+  position:relative; z-index:1; padding:14px;
+  border-radius:18px;
+  background:linear-gradient(180deg,#D9B384,#C3935D);
+  box-shadow:0 9px 0 #96703F, 0 13px 16px rgba(80,55,20,.25);
 }
-.stamp-box-tile:active{ transform:scale(.92); }
-.stamp-box-tile.held-empty{
-  background:repeating-linear-gradient(45deg, #F0E5D1, #F0E5D1 5px, #E7D9BC 5px, #E7D9BC 10px);
-  border-style:dashed; cursor:default;
+.wbox-base-inner{
+  border-radius:12px; padding:12px 10px;
+  background:linear-gradient(180deg,#F4E6CB,#ECD8AE);
+  box-shadow:inset 0 4px 10px rgba(120,80,30,.22), inset 0 -2px 0 rgba(255,255,255,.4);
 }
-.stamp-box-tile-img{ max-width:100%; max-height:100%; object-fit:contain; }
+.wbox-slots{ display:grid; grid-template-columns:repeat(4, 1fr); gap:9px; }
+.wbox-slot{
+  position:relative; aspect-ratio:1; border-radius:13px;
+  background:radial-gradient(circle at 50% 42%, #E4CB9D, #CBA876 78%);
+  box-shadow:inset 0 3px 6px rgba(100,65,25,.35), inset 0 -1px 0 rgba(255,255,255,.3);
+}
+.wbox-slot.empty{
+  background:radial-gradient(circle at 50% 46%, #C4A071, #AD8956 80%);
+  box-shadow:inset 0 4px 9px rgba(70,45,15,.55);
+}
+.wstamp{
+  position:absolute; inset:7%; border-radius:10px; padding:9%;
+  background:linear-gradient(160deg,#F7ECD6,#E9D3A8);
+  box-shadow:0 4px 0 #B8975F, 0 6px 8px rgba(80,55,20,.3);
+  display:flex; align-items:center; justify-content:center;
+  transition:transform .12s ease, box-shadow .12s ease;
+}
+.wstamp:active{ transform:translateY(2px); box-shadow:0 2px 0 #B8975F, 0 3px 4px rgba(80,55,20,.3); }
+.wstamp-face{ max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; }
+@keyframes wstampPick{
+  0%{ transform:translateY(0) scale(1); opacity:1; }
+  55%{ transform:translateY(-62%) scale(1.14); opacity:1; }
+  100%{ transform:translateY(-85%) scale(.88); opacity:0; }
+}
+.wstamp.picked{ animation:wstampPick .32s ease forwards; pointer-events:none; }
+@media (prefers-reduced-motion: reduce){
+  .wbox, .wbox-lid, .wstamp{ transition:none; }
+  .wstamp.picked{ animation:none; opacity:0; }
+}
 </style>
 </head>
 <body data-theme="pink">
@@ -3290,25 +3372,37 @@ function triggerStampHaptic(){
   try{ if(navigator.vibrate) navigator.vibrate(12); }catch(e){ /* 不支援就略過 */ }
 }
 
-/* ---- 蓋章動畫：壓下 → 接觸紙面瞬間（音效＋震動＋印泥出現）→ 輕微回彈 ----
-   impact 時機跟 CSS 的 habitStampPress keyframes 的 45% 對齊。 */
-const STAMP_IMPACT_MS = 160;
-function playStampPressAnim(cellEl, onImpact){
-  const imgEl = cellEl && cellEl.querySelector(".habit-stamp-img");
-  if(!imgEl){ if(onImpact) onImpact(); return; }
-  imgEl.classList.remove("stamp-anim");
-  void imgEl.offsetWidth; // 強制 reflow 讓動畫可以重新觸發
-  imgEl.classList.add("stamp-anim");
+/* ---- 蓋章動畫：一個暫時性的「印章工具」木塊（有握把＋厚度，跟月曆上最後留下的
+   印泥是兩個不同的視覺元素）從上方壓下 → 接觸紙面瞬間（音效＋震動＋印泥淡入）
+   → 抬起 → 整個工具元素從 DOM 移除，只留下 .habit-stamp-img 那張印泥。
+   impact 時機跟 CSS 的 stampToolPress keyframes 的 50% 對齊。 */
+const STAMP_IMPACT_MS = 300;
+const STAMP_TOOL_MS = 600;
+function playStampToolAnim(cellEl, dateStr, asset, onImpact){
   const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if(onImpact) setTimeout(onImpact, reduced ? 0 : STAMP_IMPACT_MS);
+  if(reduced || !cellEl || !asset){ if(onImpact) onImpact(); return; }
+  const rot = stampRotationDeg(dateStr);
+  const tool = document.createElement("div");
+  tool.className = "stamp-tool anim";
+  tool.style.setProperty("--rot", rot+"deg");
+  tool.innerHTML = `<div class="stamp-tool-handle"></div><div class="stamp-tool-block"><img class="stamp-tool-face" src="${asset}" alt=""></div>`;
+  cellEl.appendChild(tool);
+  setTimeout(()=>{ if(onImpact) onImpact(); }, STAMP_IMPACT_MS);
+  setTimeout(()=>{ tool.remove(); }, STAMP_TOOL_MS);
 }
-// 真正把印章蓋到某一天：寫資料、重繪、播放「壓下→啵！→抬起→留下印泥」的完整動畫。
+// 真正把印章蓋到某一天：寫資料、重繪（印泥先以 ink-pending 狀態存在但不可見）、
+// 播放「木章壓下→啵！→抬起→留下印泥」的完整動畫。
 function applyStampToDate(h, dateStr, stampId){
   h.stamps[dateStr] = stampId;
   save();
-  renderHabitCalGrid(h);
+  renderHabitCalGrid(h, dateStr);
   const cellEl = document.querySelector(`.habit-cal-cell[data-date="${dateStr}"]`);
-  playStampPressAnim(cellEl, ()=>{ playStampSound(); triggerStampHaptic(); });
+  const def = getStampDef(stampId);
+  playStampToolAnim(cellEl, dateStr, def ? def.asset : "", ()=>{
+    playStampSound(); triggerStampHaptic();
+    const imgEl = cellEl && cellEl.querySelector(".habit-stamp-img");
+    if(imgEl) imgEl.classList.remove("ink-pending");
+  });
 }
 // 「擦掉」：不另外跳確認框，直接做，並提供一次短暫可復原（只保留最近一次擦除）。
 function eraseStamp(h, dateStr){
@@ -3323,12 +3417,12 @@ function eraseStamp(h, dateStr){
   });
 }
 
-function renderHabitStampHTML(dateStr, stampId){
+function renderHabitStampHTML(dateStr, stampId, pending){
   const def = getStampDef(stampId);
   if(!def) return ""; // 不認得的資料（例如清不乾淨的舊格式）：當作沒有印章，不做相容渲染
   const rot = stampRotationDeg(dateStr);
   return `<div class="habit-stamp-safe">
-    <img class="habit-stamp-img" src="${def.asset}" alt="${escapeHtml(def.label)}" style="--stamp-rot:${rot}deg;">
+    <img class="habit-stamp-img${pending?' ink-pending':''}" src="${def.asset}" alt="${escapeHtml(def.label)}" style="--stamp-rot:${rot}deg;">
   </div>`;
 }
 // 習慣列表卡片刻意不顯示任何連續天數／完成率／打勾打叉，只留標題跟一個「查看印章月曆」的入口。
@@ -3420,7 +3514,7 @@ function renderHabitDetail(id){
 
   renderHabitCalGrid(h);
 }
-function renderHabitCalGrid(h){
+function renderHabitCalGrid(h, pendingDate){
   document.getElementById("habitCalTitleBtn").textContent = `${habitCalYear}年${habitCalMonth+1}月`;
   const grid = document.getElementById("habitCalGrid");
   const firstDay = new Date(habitCalYear, habitCalMonth, 1);
@@ -3433,7 +3527,7 @@ function renderHabitCalGrid(h){
     const stampId = h.stamps[dateStr];
     html += `<div class="habit-cal-cell${dateStr===todayStr()?' today':''}" data-date="${dateStr}">
       <div class="habit-cal-daynum">${d}</div>
-      ${stampId ? renderHabitStampHTML(dateStr, stampId) : ""}
+      ${stampId ? renderHabitStampHTML(dateStr, stampId, dateStr===pendingDate) : ""}
     </div>`;
   }
   grid.innerHTML = html;
@@ -3449,9 +3543,9 @@ function renderHeldStampBar(){
   if(!def){ heldStampId = null; bar.style.display = "none"; bar.innerHTML = ""; return; }
   bar.style.display = "flex";
   bar.innerHTML = `
-    <img src="${def.asset}" class="held-stamp-thumb" alt="">
-    <span class="held-stamp-label">${escapeHtml(def.label)}</span>
-    <button class="small-link" id="btnPutBackStamp">放回去</button>
+    <div class="held-stamp-block"><img src="${def.asset}" class="held-stamp-thumb" alt=""></div>
+    <span class="held-stamp-label">現在拿著：${escapeHtml(def.label)}</span>
+    <button class="held-stamp-putback" id="btnPutBackStamp">✕ 放回去</button>
   `;
   document.getElementById("btnPutBackStamp").addEventListener("click", ()=>{
     heldStampId = null;
@@ -3498,36 +3592,52 @@ function openReplaceActions(h, dateStr, hasHeld){
     eraseStamp(h, dateStr);
   });
 }
-// 印章盒：4×2 顆木章。手上正拿著的那一顆顯示成空槽（不能再點一次拿起來），
-// 點其餘任何一顆就「拿起來」變成 heldStampId，收起盒子回到月曆；
+// 印章盒：真的是一個木頭盒子（.wbox），開啟時盒蓋掀開露出 4×2 個凹槽（.wbox-slot），
+// 手上正拿著的那一顆對應凹槽是空的（.wbox-slot.empty，不是 disabled 按鈕或打勾）。
+// 點其餘任一顆木章：該木章先播放「拿起來」動畫（往上浮起淡出），蓋子同時闔上，
+// 動畫結束後才真正把 heldStampId 設起來、收起整個 sheet 回到月曆；
 // 如果是從「換一顆」流程進來的（pendingReplaceDate 有值），選完直接完成那一天的替換，
 // 新選的印章之後也會繼續留在手上，可以馬上接著蓋其他天。
 function openStampBoxSheet(h){
   const stamps = allStamps();
   openSheet(`
     <div class="sheet-head"><h3>打開印章盒</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
-    <div class="stamp-box">
-      <div class="stamp-box-lid"></div>
-      <div class="stamp-box-title">今天想拿哪個印章呢～♡</div>
-      <div class="stamp-box-grid">
-        ${stamps.map(s=>`
-          <button class="stamp-box-tile${heldStampId===s.id?' held-empty':''}" data-stamp-id="${s.id}" ${heldStampId===s.id?'disabled':''} aria-label="${escapeHtml(s.label)}">
-            ${heldStampId===s.id ? '' : `<img src="${s.asset}" alt="${escapeHtml(s.label)}" class="stamp-box-tile-img">`}
-          </button>
-        `).join("")}
+    <div class="wbox-scene">
+      <div class="wbox" id="wbox">
+        <div class="wbox-lid"><div class="wbox-lid-text">今天想拿哪個印章呢～♡</div></div>
+        <div class="wbox-base"><div class="wbox-base-inner"><div class="wbox-slots">
+          ${stamps.map(s=>`
+            <div class="wbox-slot${heldStampId===s.id?' empty':''}" data-slot-id="${s.id}">
+              ${heldStampId===s.id ? '' : `
+                <button class="wstamp" data-stamp-id="${s.id}" aria-label="${escapeHtml(s.label)}">
+                  <img src="${s.asset}" alt="${escapeHtml(s.label)}" class="wstamp-face">
+                </button>
+              `}
+            </div>
+          `).join("")}
+        </div></div></div>
       </div>
     </div>
   `);
-  document.querySelectorAll(".stamp-box-tile:not(.held-empty)").forEach(btn=>{
+  const wbox = document.getElementById("wbox");
+  requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ wbox.classList.add("open"); }); });
+  document.querySelectorAll(".wstamp").forEach(btn=>{
     btn.addEventListener("click", ()=>{
-      heldStampId = btn.dataset.stampId;
-      closeSheet();
-      renderHeldStampBar();
-      if(pendingReplaceDate){
-        const dateStr = pendingReplaceDate;
-        pendingReplaceDate = null;
-        applyStampToDate(h, dateStr, heldStampId);
-      }
+      const pickedId = btn.dataset.stampId;
+      const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      btn.classList.add("picked");
+      wbox.classList.remove("open");
+      const finish = ()=>{
+        heldStampId = pickedId;
+        closeSheet();
+        renderHeldStampBar();
+        if(pendingReplaceDate){
+          const dateStr = pendingReplaceDate;
+          pendingReplaceDate = null;
+          applyStampToDate(h, dateStr, heldStampId);
+        }
+      };
+      setTimeout(finish, reduced ? 0 : 400);
     });
   });
 }
