@@ -132,7 +132,7 @@ header.top{
 .decor-shot img{ width:100%; display:block; }
 
 /* ---------- goal extension: 集點卡 (nested inside 04 年度目標, reuses .showcase-item grid) ---------- */
-.goal-stampcard-quote{ grid-column:1 / -1; margin-top:30px; padding-top:22px; border-top:1px dashed var(--line); font-size:15px; font-weight:700; color:var(--rose-deep); line-height:1.8; text-align:center; }
+.showcase-item .blk .goal-stampcard-quip{ font-size:clamp(10.5px,3vw,13px); white-space:nowrap; max-width:none; }
 .showcase-outro{ margin-top:24px; text-align:center; }
 .showcase-outro ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
 .showcase-outro li{ font-size:15px; font-weight:700; }
@@ -498,12 +498,12 @@ body{ padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
           <p>而生活小夥伴的集點卡讓你可以替想養成的習慣、正在努力的事情建立專屬集點卡。</p>
           <p>每完成一次，就替自己蓋上一枚可愛的印章！✨</p>
           <p>還能將集點卡連結到年度目標，讓那些看似微不足道的小行動，慢慢累積成看得見的進步。</p>
+          <p class="quip goal-stampcard-quip">「每一張集點卡，都陪你記得：那些為生活增添色彩的日子！」</p>
         </div>
       </div>
       <div class="decor-shot">
         <img src="img/stampcard.png" alt="生活小夥伴集點卡畫面，顯示連結的年度目標、印章盒與本月已蓋上的可愛印章">
       </div>
-      <p class="goal-stampcard-quote">「每一張集點卡，都陪你記得：那些為生活增添色彩的日子！」</p>
     </div>
 
     <!-- 05 留下自己 -->
