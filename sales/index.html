@@ -131,17 +131,9 @@ header.top{
 .shot-row > *{ max-width:220px; flex:1 1 0; min-width:0; }
 .decor-shot img{ width:100%; display:block; }
 
-/* ---------- goal extension: 集點卡 (nested inside 04 年度目標) ---------- */
-.goal-stampcard{ margin-top:28px; padding:26px 22px; background:var(--paper-raised); border:1px solid var(--line); border-radius:20px; }
-.goal-stampcard-head h4{ font-family:"Noto Serif TC","Noto Sans TC",serif; font-weight:800; font-size:15.5px; line-height:1.7; color:var(--ink); }
-.goal-stampcard-body{ margin-top:18px; display:grid; grid-template-columns:1fr 1fr; gap:28px; align-items:center; }
-.goal-stampcard-body > *{ min-width:0; }
-@media (max-width:760px){ .goal-stampcard-body{ grid-template-columns:1fr; } }
-.goal-stampcard-text p{ font-size:14px; line-height:1.9; color:var(--ink-soft); }
-.goal-stampcard-text p + p{ margin-top:12px; }
-.goal-stampcard-shot{ max-width:300px; margin-inline:auto; }
-.goal-stampcard-shot .phone-shot img{ width:100%; display:block; }
-.goal-stampcard-quote{ margin-top:22px; padding-top:20px; border-top:1px dashed var(--line); font-size:15px; font-weight:700; color:var(--rose-deep); line-height:1.8; text-align:center; }
+/* ---------- goal extension: 集點卡 (nested inside 04 年度目標, reuses .showcase-item grid) ---------- */
+.goal-stampcard-title{ font-family:"Noto Serif TC","Noto Sans TC",serif; font-weight:800; font-size:18px; line-height:1.65; color:var(--ink); }
+.goal-stampcard-quote{ grid-column:1 / -1; margin-top:30px; padding-top:22px; border-top:1px dashed var(--line); font-size:15px; font-weight:700; color:var(--rose-deep); line-height:1.8; text-align:center; }
 .showcase-outro{ margin-top:24px; text-align:center; }
 .showcase-outro ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
 .showcase-outro li{ font-size:15px; font-weight:700; }
@@ -496,26 +488,23 @@ body{ padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
           <img src="img/goal2.png" alt="生活小夥伴年度目標畫面，一個尚未開始的目標與其行動項目">
         </div>
       </div>
+    </div>
 
-      <div class="goal-stampcard">
-        <div class="goal-stampcard-head">
-          <h4>🎟️ 集點卡｜把每一次的努力，都變成有趣的色彩～</h4>
+    <!-- 04 年度目標 · 集點卡（延伸功能，沿用上方年度目標的雙欄展示方式） -->
+    <div class="showcase-item rev">
+      <div>
+        <h4 class="goal-stampcard-title">🎟️ 集點卡｜把每一次的努力，都變成有趣的色彩～</h4>
+        <div class="blk">
+          <p>有些目標，需要一次又一次的行動。</p>
+          <p>而生活小夥伴的集點卡讓你可以替想養成的習慣、正在努力的事情建立專屬集點卡。</p>
+          <p>每完成一次，就替自己蓋上一枚可愛的印章！✨</p>
+          <p>還能將集點卡連結到年度目標，讓那些看似微不足道的小行動，慢慢累積成看得見的進步。</p>
         </div>
-        <div class="goal-stampcard-body">
-          <div class="goal-stampcard-text">
-            <p>有些目標，需要一次又一次的行動。</p>
-            <p>而生活小夥伴的集點卡讓你可以替想養成的習慣、正在努力的事情建立專屬集點卡。</p>
-            <p>每完成一次，就替自己蓋上一枚可愛的印章！✨</p>
-            <p>還能將集點卡連結到年度目標，讓那些看似微不足道的小行動，慢慢累積成看得見的進步。</p>
-          </div>
-          <div class="goal-stampcard-shot">
-            <div class="phone-shot">
-              <img src="img/stampcard.png" alt="生活小夥伴集點卡畫面，顯示連結的年度目標、印章盒與本月已蓋上的可愛印章">
-            </div>
-          </div>
-        </div>
-        <p class="goal-stampcard-quote">「每一張集點卡，都陪你記得：那些為生活增添色彩的日子！」</p>
       </div>
+      <div class="decor-shot">
+        <img src="img/stampcard.png" alt="生活小夥伴集點卡畫面，顯示連結的年度目標、印章盒與本月已蓋上的可愛印章">
+      </div>
+      <p class="goal-stampcard-quote">「每一張集點卡，都陪你記得：那些為生活增添色彩的日子！」</p>
     </div>
 
     <!-- 05 留下自己 -->
