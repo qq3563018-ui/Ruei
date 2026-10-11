@@ -156,13 +156,14 @@ header.top{
 .trace .wrap{ max-width:720px; }
 .story-title{ text-align:center; font-size:clamp(22px,3.6vw,30px); line-height:1.6; margin-bottom:34px; }
 .story-body{ text-align:left; }
-.story-body p{ font-size:15.5px; line-height:2; color:var(--ink-soft); }
+.story-body p{ font-size:15.5px; line-height:1.78; color:var(--ink-soft); }
 .story-body p + p{ margin-top:20px; }
+.story-body p.story-tight{ margin-top:8px; }
 .story-body p.story-em{ font-weight:700; color:var(--rose-deep); font-size:16.5px; line-height:1.9; }
 .story-body p + p.story-em,
-.story-body p.story-em + p{ margin-top:28px; }
+.story-body p.story-em + p{ margin-top:32px; }
 .story-body p.story-em-final{ font-size:18px; color:var(--ink); }
-.story-body p.story-sign{ margin-top:30px; font-weight:700; color:var(--ink); }
+.story-body p.story-sign{ font-weight:700; color:var(--ink); }
 .story-mascots{ margin-top:40px; display:flex; align-items:flex-end; justify-content:center; gap:18px; }
 .story-mascots .trace-mascot{ width:60px; height:auto; }
 .story-mascots .trace-star{ width:26px; height:auto; align-self:flex-start; margin-top:-6px; }
@@ -177,7 +178,7 @@ header.top{
 .story-toggle:focus-visible{ outline:2px solid var(--rose-deep); outline-offset:3px; }
 
 .story-more{ display:none; }
-.story-more.is-open{ display:block; }
+.story-more.is-open{ display:block; margin-top:20px; }
 
 .story-fade{ margin-top:28px; padding-top:24px; text-align:center; background:linear-gradient(to bottom, transparent, color-mix(in srgb, var(--line) 55%, transparent)); border-radius:16px 16px 0 0; }
 .story-fade.is-hidden{ display:none; }
@@ -559,42 +560,42 @@ body{ padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
 
     <div class="story-body">
       <p>想了很久決定和大家説説，生活小夥伴是怎麼誕生的？</p>
-      <p>其實，生活小夥伴的誕生，是從一段混亂人生開始的。</p>
+      <p class="story-tight">其實，生活小夥伴的誕生，是從一段混亂人生開始的。</p>
       <p>今年，我26歲了</p>
-      <p>可回頭看過去這些年，才發現自己的生活一塌糊塗....</p>
+      <p class="story-tight">可回頭看過去這些年，才發現自己的生活一塌糊塗....</p>
       <p>18歲曾因為相信朋友被騙光了所有積蓄</p>
-      <p>21歲，又再次遇上詐騙</p>
-      <p>這一次不只是存款沒了，還負債留下了到現在都仍在償還的貸款。</p>
+      <p class="story-tight">21歲，又再次遇上詐騙</p>
+      <p class="story-tight">這一次不只是存款沒了，還負債留下了到現在都仍在償還的貸款。</p>
 
       <div class="story-more" id="storyMore">
         <p>我感覺我的人生一團亂，絕望和所有負面情緒不斷侵蝕著我，我不知道自己在過的....到底是什麼生活？</p>
-        <p>對金錢和理財規劃完全沒有概念，對未來沒有方向，甚至連自己為什麼會做出某些選擇，都不太理解。</p>
-        <p>我一直很想做出改變，可問題是....我不知道該從哪裡開始？</p>
-        <p>因為連問題出在哪，我都看不清楚</p>
+        <p class="story-tight">對金錢和理財規劃完全沒有概念，對未來沒有方向，甚至連自己為什麼會做出某些選擇，都不太理解。</p>
+        <p class="story-tight">我一直很想做出改變，可問題是....我不知道該從哪裡開始？</p>
+        <p class="story-tight">因為連問題出在哪，我都看不清楚</p>
         <p>後來我慢慢發現，</p>
         <p class="story-em">「如果沒有留下紀錄，就很難回頭看見自己曾經做過什麼選擇、經歷過什麼事情，又是在哪些地方不斷重複相同的模式。」</p>
         <p>於是，我開始想：</p>
-        <p>如果有一個地方，可以讓我記錄每天的生活、花出去的錢、當下的心情，以及那些想完成的目標，是不是就能慢慢看清楚，自己在過的究竟是什麼樣的日子？</p>
+        <p class="story-tight">如果有一個地方，可以讓我記錄每天的生活、花出去的錢、當下的心情，以及那些想完成的目標，是不是就能慢慢看清楚，自己在過的究竟是什麼樣的日子？</p>
         <p>但我也很清楚自己的個性，我其實是一個很怕麻煩的人🤣</p>
-        <p>太複雜的記帳工具，我通常用沒多久就放棄了</p>
-        <p>太制式的生活紀錄，讓我很難每天都想打開他</p>
+        <p class="story-tight">太複雜的記帳工具，我通常用沒多久就放棄了</p>
+        <p class="story-tight">太制式的生活紀錄，讓我很難每天都想打開他</p>
         <p>所以我想，為什麼整理生活一定是一件繁瑣且嚴肅的事情？</p>
         <p class="story-em">「能不能簡單一點，有趣一點！」</p>
         <p>於是，生活小夥伴慢慢有了雛形</p>
-        <p>有記帳，讓我知道自己的錢去了哪裡甚至是我還能替自己規劃每月的生活預算！</p>
-        <p>有心情日記，讓我開始留意自己的感受</p>
-        <p>有年度目標，提醒我除了看清楚現在，也別忘了自己想前往的方向和一直想做的事情～</p>
-        <p>而農場小遊戲和集點卡，是我私心想讓那些原本平凡日常的行動，多一點期待和樂趣🤣🤓</p>
+        <p class="story-tight">有記帳，讓我知道自己的錢去了哪裡甚至是我還能替自己規劃每月的生活預算！</p>
+        <p class="story-tight">有心情日記，讓我開始留意自己的感受</p>
+        <p class="story-tight">有年度目標，提醒我除了看清楚現在，也別忘了自己想前往的方向和一直想做的事情～</p>
+        <p class="story-tight">而農場小遊戲和集點卡，是我私心想讓那些原本平凡日常的行動，多一點期待和樂趣🤣🤓</p>
         <p>在製作小夥伴的過程中我也發現，我們似乎每天都花好多時間在看別人的生活、動態，卻很少停下來好好看看自己：今天 過得如何？</p>
-        <p>還有那些曾經想完成的事情，現在進行到哪裡了呢～</p>
+        <p class="story-tight">還有那些曾經想完成的事情，現在進行到哪裡了呢～</p>
         <p>所以我想，</p>
         <p class="story-em">「察覺自己這件事，其實也是需要練習的」</p>
         <p>而生活小夥伴，就是我送給自己的一個開始。</p>
         <p>小夥伴並不是能讓誰一夜之間變得自律，也不是只要開始記錄所有問題就能迎刃而解</p>
-        <p>但我知道，當我們願意每天留下一點生活的痕跡，隨著時間的累積，也許就能發現一些過往都沒注意到的事情。</p>
-        <p>可能是某個反覆出現的習慣、某個不曾察覺的思考模式、某段時間的心情起伏、財務的變化，亦或是那些連自己都未曾察覺到的轉變。</p>
+        <p class="story-tight">但我知道，當我們願意每天留下一點生活的痕跡，隨著時間的累積，也許就能發現一些過往都沒注意到的事情。</p>
+        <p class="story-tight">可能是某個反覆出現的習慣、某個不曾察覺的思考模式、某段時間的心情起伏、財務的變化，亦或是那些連自己都未曾察覺到的轉變。</p>
         <p>生活小夥伴最初是為了讓我看清並且幫助自己的生活而誕生的</p>
-        <p>但現在，我由衷地希望，它不只能幫助我，也能陪伴每一個需要它的人。</p>
+        <p class="story-tight">但現在，我由衷地希望，它不只能幫助我，也能陪伴每一個需要它的人。</p>
         <p>因為那些看似平凡的日子，隨著時間累積也會成為只屬於你的故事。</p>
         <p class="story-em story-em-final">「願生活小夥伴能陪你整理現在、慢慢往前，也和你一起留下，一路走來的自己。」</p>
         <p class="story-sign">—— 生活小夥伴創作者-Ruei 🌱</p>
