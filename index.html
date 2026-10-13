@@ -7279,6 +7279,12 @@ function saveCompleteChatDrafts(drafts){
   const footer = `共 ${drafts.length} 筆，合計 $${total.toLocaleString()}。`;
   pushChatMessage({ role:"bot", text:"記好啦～ ✨", items:lines, footer, undoTxIds:txIds, undone:false });
   save();
+  // 根因修復：這裡是聊天記帳唯一會真的寫入 DB.transactions 的地方，但原本只呼叫了
+  // save()，沒有呼叫 renderAll()。資料本身其實有正確寫入並存檔，只是記帳頁、首頁、
+  // 分類統計等「常駐畫面」在使用者沒有切換分頁／重新整理之前，不會自動重新繪製，
+  // 導致看起來像是這筆記帳「沒有同步」。renderAll() 跟原本手動表單 openTxForm() 儲存
+  // 成功後的作法完全一致，確保記帳歷史、當月收支、分類統計、預算頁等全部立即反映最新資料。
+  renderAll();
 }
 function pushChatAskAmount(p){
   const name = cleanChatItemName(p.draftNameRaw||"");
