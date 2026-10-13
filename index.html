@@ -7387,12 +7387,28 @@ function resolveChatQuickReply(msg, choice){
   }
 }
 
+// 聊天記帳專用的確認視窗（文案跟共用的 confirmDelete() 不同，所以另外寫一個，
+// 不去改 confirmDelete() 本身，避免影響其他地方既有的刪除確認流程）。
+function confirmChatBatchDelete(count, onConfirm){
+  openSheet(`
+    <div class="sheet-head"><h3>確定要刪除本次新增的 ${count} 筆記帳嗎？</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="confirm-actions">
+      <button class="btn-ghost" id="btnCancelChatUndo">取消</button>
+      <button class="btn-main btn-danger" id="btnConfirmChatUndo">確認刪除</button>
+    </div>
+  `);
+  document.getElementById("btnCancelChatUndo").addEventListener("click", ()=>closeSheet());
+  document.getElementById("btnConfirmChatUndo").addEventListener("click", ()=>{
+    closeSheet();
+    onConfirm();
+  });
+}
 /* ---- 復原本次記帳：先檢查目前還存不存在，只動這次新增的這幾筆，批次用同一套 15 秒復原 ---- */
 function undoChatBatch(msg){
   const ids = msg.undoTxIds || [];
   const existingTxs = ids.map(id=>DB.transactions.find(t=>t.id===id)).filter(Boolean);
   if(!existingTxs.length){ msg.undone = true; save(); renderChatMessages(); toast("這些紀錄已經不在了"); return; }
-  confirmDelete(`這次記的 ${existingTxs.length} 筆帳`, ()=>{
+  confirmChatBatchDelete(existingTxs.length, ()=>{
     const removedTxs = []; const removedDeposits = [];
     existingTxs.forEach(tx=>{
       const idx = DB.transactions.findIndex(t=>t.id===tx.id);
@@ -7509,7 +7525,7 @@ function renderChatBubble(msg){
   if(msg.undoTxIds && msg.undoTxIds.length){
     undoHtml = msg.undone
       ? `<div class="muted" style="margin-top:6px;">已復原這次記帳</div>`
-      : `<button class="small-link chat-undo-btn" data-msgid="${msg.id}" style="margin-top:6px;">復原本次記帳</button>`;
+      : `<button class="small-link chat-undo-btn" data-msgid="${msg.id}" style="margin-top:6px;">刪除</button>`;
   }
   const footerHtml = msg.footer ? `<div style="margin-top:6px;">${escapeHtml(msg.footer)}</div>` : "";
   return `<div style="display:flex; justify-content:flex-start; margin-bottom:8px;">
