@@ -270,6 +270,21 @@ input,select,textarea{ font-family:inherit; }
   font-size:13.5px; font-weight:700; color:var(--dark); text-align:center;
 }
 
+/* ===== 🛟 緊急預備金：摺疊分區（階段式儲蓄路線／每月規劃／情境模擬／安全評估／歷史紀錄） ===== */
+.ef-details{ background:#fff; border:1px solid var(--line); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; }
+.ef-details summary{
+  padding:14px 16px; font-size:14px; font-weight:700; color:var(--medium); cursor:pointer;
+  list-style:none; display:flex; justify-content:space-between; align-items:center;
+}
+.ef-details summary::-webkit-details-marker{ display:none; }
+.ef-details summary::after{ content:"›"; display:inline-block; transform:rotate(90deg); transition:transform .2s ease; color:var(--gray); font-size:18px; }
+.ef-details[open] summary::after{ transform:rotate(270deg); }
+.ef-details-body{ padding:0 16px 16px; }
+.ef-stage-row{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+.ef-stage-row:last-child{ border-bottom:none; }
+.ef-stage-badge{ font-size:22px; flex-shrink:0; }
+.ef-stage-done{ color:var(--sage); font-weight:700; font-size:12px; flex-shrink:0; }
+
 /* ===== 心情小日記 ===== */
 .mood-row{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
 .mood-btn{
@@ -1126,8 +1141,16 @@ function withDefaults(obj){
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
       customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
       unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:"",
-      includedDebtIds:null, manualDebtPayments:[]
-    }
+      includedDebtIds:null, manualDebtPayments:[],
+      // 以下是「緊急預備金」升級新增的欄位，全部向後相容：舊資料沒有這些欄位時，
+      // 下面的 merged.emergencyFund 補齊區塊會用這裡的預設值補上，不影響既有欄位。
+      stageOverrides:{ stage1:null, stage2:null, stage3:null, final:null }, planMode:"monthly", monthlyAmount:0
+    },
+    // 緊急預備金的「存入」與記帳共用同一筆 DB.transactions 資料，這裡只存一個輕量的
+    // 對照索引（txId），不重複存金額／日期／備註，避免兩邊資料不同步或被重複計算；
+    // 「使用」則不是一般消費支出，單獨存在這裡，不會進記帳總支出。兩者都是全新欄位，
+    // 不會影響任何既有資料，也不會把舊的「緊急預備金」類別記帳紀錄自動轉換成存入紀錄。
+    emergencyFundDeposits:[], emergencyFundWithdrawals:[]
   }, obj);
   // 上面的 Object.assign 只會合併頂層欄位，陣列內部每一筆資料的欄位相容性要在這裡另外補齊，
   // 確保舊備份／舊資料在沒有 completed／habits 相關欄位時，也能用合理的預設值正常運作，不需要手動 migration。
@@ -1139,6 +1162,21 @@ function withDefaults(obj){
     inactivePeriods: Array.isArray(h.inactivePeriods) ? h.inactivePeriods : [],
     stamps: (h.stamps && typeof h.stamps==="object") ? h.stamps : {}
   }));
+  // emergencyFund 本身是巢狀物件，上面的 Object.assign 只要 obj.emergencyFund 存在就會整個
+  // 覆蓋掉，不會自動補齊新欄位，所以這裡額外做一次巢狀層級的預設值補齊（新欄位優先補在後面，
+  // 既有欄位用舊資料的值），舊使用者既有的評估結果、已準備金額完全不受影響。
+  merged.emergencyFund = Object.assign({
+    expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
+    customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
+    unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:"",
+    includedDebtIds:null, manualDebtPayments:[],
+    stageOverrides:{ stage1:null, stage2:null, stage3:null, final:null }, planMode:"monthly", monthlyAmount:0
+  }, merged.emergencyFund||{});
+  if(!merged.emergencyFund.stageOverrides || typeof merged.emergencyFund.stageOverrides!=="object"){
+    merged.emergencyFund.stageOverrides = { stage1:null, stage2:null, stage3:null, final:null };
+  }
+  if(!Array.isArray(merged.emergencyFundDeposits)) merged.emergencyFundDeposits = [];
+  if(!Array.isArray(merged.emergencyFundWithdrawals)) merged.emergencyFundWithdrawals = [];
   return merged;
 }
 let DB = loadDB();
@@ -4330,9 +4368,19 @@ function openTxForm(editId){
       editing.paymentMethod = paymentMethod; editing.creditCardPaymentType = creditCardPaymentType;
       save(); closeSheet(); renderAll(); toast("已更新這筆記帳");
     }else{
-      DB.transactions.push({id:uid(), date, amount, type, category, name, note, paymentMethod, creditCardPaymentType});
+      const newTx = {id:uid(), date, amount, type, category, name, note, paymentMethod, creditCardPaymentType};
+      DB.transactions.push(newTx);
+      // 記帳頁面新增一筆分類＝緊急預備金的支出，就是「從記帳頁面存入預備金」的那個入口：
+      // 直接登記成存入對照索引，跟緊急預備金頁面的「＋存入」共用同一筆交易資料，不重複
+      // 建立也不重複計算。只有「新增」會這樣做，單純「編輯」把分類改成緊急預備金不會，
+      // 避免把舊資料在不經意的情況下悄悄轉換成存入紀錄。
+      let efMsg = "";
+      if(type==="expense" && category===EF_LEDGER_CATEGORY){
+        DB.emergencyFundDeposits.push({id:uid(), txId:newTx.id, createdAt:todayStr()});
+        efMsg = "，已同步存入緊急預備金";
+      }
       save(); closeSheet(); renderAll();
-      toast("已記錄一筆"+(type==="income"?"收入":"支出"));
+      toast("已記錄一筆"+(type==="income"?"收入":"支出")+efMsg);
     }
   });
 }
@@ -4915,14 +4963,20 @@ function debtPaymentsForMonth(mk){
   const r = financeCycleRange(mk);
   return DB.debts.reduce((s,d)=>s + (d.payments||[]).filter(p=>p.date>=r.startStr && p.date<=r.endStr).reduce((s2,p)=>s2+p.amount,0), 0);
 }
+// 修正：savings 大分類（例如緊急預備金、投資／資產等）過去一直是寫死的 0，而且因為
+// 沒有被排除，這些支出會一併落入 free（自由使用），導致首頁「本月剩餘」把存進緊急預備金
+// 的錢誤算成自由花費而被扣掉。存進儲蓄與目標是資金分配，不是消費，這裡改成跟 necessary
+// 一樣用 categoryBucketKey 正確歸類，free 也要排除掉已經算進 savings 的交易，確保同一筆
+// 支出只會落在一個大分類裡，不會重複計算。
 function bucketActuals(mk){
   const txs = actualExpenseTxs(txsForMonth(mk));
   const fixed = txs.filter(t=>t.recurringRuleId);
   const nonFixed = txs.filter(t=>!t.recurringRuleId);
   const necessary = nonFixed.filter(t=>NECESSARY_BUCKET_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
-  const free = nonFixed.filter(t=>!NECESSARY_BUCKET_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
+  const savings = nonFixed.filter(t=>categoryBucketKey(t.category)==="savings").reduce((s,t)=>s+t.amount,0);
+  const free = nonFixed.filter(t=>!NECESSARY_BUCKET_CATS.includes(t.category) && categoryBucketKey(t.category)!=="savings").reduce((s,t)=>s+t.amount,0);
   const debt = fixed.reduce((s,t)=>s+t.amount,0) + debtPaymentsForMonth(mk);
-  return {necessary, debt, savings:0, free};
+  return {necessary, debt, savings, free};
 }
 function fixedExpenseExpectedForMonth(){
   const items = [];
@@ -5170,11 +5224,19 @@ function renderAllocationCardHTML(mk){
   const isOver = diff < 0;
   const allocRatio = b.available>0 ? Math.min(100, Math.round(allocatedTotal/b.available*100)) : 0;
 
+  // 緊急預備金在「儲蓄與目標」底下額外補一行即時的「已存／目標」，讀取使用者在這個財務
+  // 週期設定過的細項預算金額（calcItems），實際存入則直接讀取與記帳共用的同一份交易資料，
+  // 不是另外存一份數字，確保這裡跟緊急預備金頁面、記帳頁面看到的永遠是同一筆經濟行為。
+  const efCalcItem = ((b.calcItems && b.calcItems.savings) || []).find(it=>it.id===EF_LEDGER_CATEGORY && (Number(it.amount)||0)>0);
+  const efRowHTML = efCalcItem ? `
+        <div class="muted" style="font-size:12.5px; margin-top:2px;">🛟 緊急預備金：已存 NT$${actualAmountForCategory(mk, EF_LEDGER_CATEGORY).toLocaleString()}／目標 NT$${Number(efCalcItem.amount).toLocaleString()}</div>
+  ` : "";
   const bucketRows = BUCKET_DEFS.map(bd=>`
     <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
       <div>
         <div style="font-weight:700;">${bd.emoji} ${bd.label}</div>
         <div class="muted" style="font-size:12.5px;">已分配 NT$ ${(b.allocations[bd.key]||0).toLocaleString()}</div>
+        ${bd.key==="savings" ? efRowHTML : ""}
       </div>
       <button class="small-link alloc-bucket-assign" data-key="${bd.key}" style="flex:0 0 auto;">幫我分配 ›</button>
     </div>
@@ -5951,6 +6013,81 @@ function efMonthlyTotal(ef){
 function efInterruptionFund(ef){ return efMonthlyTotal(ef) * (ef.targetMonths||0); }
 function efTotalTarget(ef){ return efInterruptionFund(ef) + (ef.unexpectedFund||0); }
 
+/* ============ 🛟 緊急預備金升級：存入／使用／階段式儲蓄目標／儲蓄規劃 ============
+   核心原則：
+   - 「存入」永遠對應一筆 DB.transactions 支出（分類＝緊急預備金），記帳與緊急預備金頁面
+     共用同一筆資料，不重複建立、不重複計算。DB.emergencyFundDeposits 只是輕量對照索引
+     （txId），實際金額／日期／備註都即時從對應的交易讀取，交易被編輯會自動反映，交易被
+     刪除（或類別被改掉）時，這筆存入也會自動從「目前累積」消失，不需要另外同步程式碼。
+   - 舊資料裡既有的「緊急預備金」類別記帳紀錄，在這次升級之前並不在 emergencyFundDeposits
+     對照表裡，所以不會被這次升級自動當成存入——避免未經確認就把舊記帳資料轉換成預備金。
+   - 「使用」不是一般消費支出（實際花掉的那筆錢如果要記帳，使用者會另外用原本的類別記一筆），
+     所以存在獨立的 DB.emergencyFundWithdrawals，不會進記帳總支出，也不會被重複計算。
+   - 「目前累積總額」＝使用者設定的起始餘額（沿用舊版「目前已準備」欄位，原本的數字完全
+     不會消失）＋後續每一筆存入－後續每一筆使用。 */
+const EF_LEDGER_CATEGORY = "緊急預備金";
+function efDepositRecords(){
+  return (DB.emergencyFundDeposits||[]).map(d=>{
+    const tx = DB.transactions.find(t=>t.id===d.txId);
+    return (tx && tx.type==="expense" && tx.category===EF_LEDGER_CATEGORY) ? {...d, tx} : null;
+  }).filter(Boolean);
+}
+function efDepositsTotal(){ return efDepositRecords().reduce((s,d)=>s+(Number(d.tx.amount)||0),0); }
+function efWithdrawalsTotal(){ return (DB.emergencyFundWithdrawals||[]).reduce((s,w)=>s+(Number(w.amount)||0),0); }
+function efCurrentBalance(ef){
+  ef = ef || DB.emergencyFund;
+  return (Number(ef.currentFund)||0) + efDepositsTotal() - efWithdrawalsTotal();
+}
+function efDepositedInCycle(mk){
+  const r = financeCycleRange(mk);
+  return efDepositRecords().filter(d=>d.tx.date>=r.startStr && d.tx.date<=r.endStr).reduce((s,d)=>s+(Number(d.tx.amount)||0),0);
+}
+// 四個固定命名的階段，金額可以全部自訂（包含最終目標），系統只負責算出合理的起始建議值。
+function efStageDefs(){
+  return [
+    {key:"stage1", emoji:"🌱", label:"第一階段｜基本緩衝"},
+    {key:"stage2", emoji:"🌿", label:"第二階段｜初步安全網"},
+    {key:"stage3", emoji:"🛟", label:"第三階段｜生活安全墊"},
+    {key:"final",  emoji:"🏡", label:"最終階段｜完整安全墊"},
+  ];
+}
+function efStageSuggestion(ef, key){
+  const monthly = efMonthlyTotal(ef);
+  const months = ef.targetMonths||0;
+  if(key==="stage1") return monthly;
+  if(key==="stage2") return monthly * Math.max(1, Math.ceil(months/2));
+  if(key==="stage3") return efInterruptionFund(ef);
+  return efTotalTarget(ef); // final
+}
+function efStageTarget(ef, key){
+  const ov = (ef.stageOverrides||{})[key];
+  return (ov!=null && ov>0) ? ov : efStageSuggestion(ef, key);
+}
+// 每個階段獨立判斷進度／完成狀態，不強制要求四個階段的金額一定要遞增——使用者可以自由
+// 調整任何一個階段（包含最終目標），調整目標完全不會動到已累積的存款或其他階段的設定。
+function efStages(ef){
+  const current = efCurrentBalance(ef);
+  return efStageDefs().map(d=>{
+    const suggestion = efStageSuggestion(ef, d.key);
+    const override = (ef.stageOverrides||{})[d.key];
+    const target = efStageTarget(ef, d.key);
+    const pct = target>0 ? Math.min(100, Math.round(current/target*100)) : 100;
+    const remain = Math.max(0, target-current);
+    const done = target>0 && current>=target;
+    return {...d, suggestion, override, target, pct, remain, done, current};
+  });
+}
+function efMonthsToReach(remainAmount, monthlyAmount){
+  if(remainAmount<=0) return 0;
+  if(!monthlyAmount || monthlyAmount<=0) return null;
+  return Math.ceil(remainAmount/monthlyAmount);
+}
+function efAddMonthsToDate(dateStr, months){
+  const d = new Date(dateStr+"T00:00:00");
+  d.setMonth(d.getMonth()+months);
+  return fmtDate(d);
+}
+
 // STEP 1 裡「💳 必要債務還款」欄位的內容：優先讀取「我的負債」目前仍在還款中的項目，
 // 讓使用者勾選要不要納入，勾選狀態存在 state.includedDebtIds；使用者也可以在下方
 // 手動新增「我的負債」裡還沒登記的必要還款。
@@ -6188,12 +6325,19 @@ function openEmergencyWizard(){
     document.getElementById("wizNext").addEventListener("click", ()=>{ step=4; renderStep(); });
   }
   function stepCurrent(){
+    // 這裡顯示／詢問的是「目前實際總餘額」（起始餘額＋後續存入－後續使用的加總），
+    // 讓已經有存入紀錄的使用者重新評估時，看到的是他們熟悉的真實總數，不是內部的起始餘額欄位。
+    const totalNow = efCurrentBalance(DB.emergencyFund);
     wrap("目前已經有多少可以隨時動用的緊急預備金？", "請填真正可以在緊急狀況下快速使用的現金、活存或高流動性資金，不需要把股票、長期投資等全部算進來。",
-      `<div class="field"><label>目前已準備</label><input id="ef_current" type="number" placeholder="0" value="${w.currentFund||""}"></div>`,
+      `<div class="field"><label>目前已準備</label><input id="ef_current" type="number" placeholder="0" value="${totalNow||""}"></div>`,
       {nextLabel:"幫我算安全墊 🛟"}
     );
     document.getElementById("wizNext").addEventListener("click", ()=>{
-      w.currentFund = parseFloat(document.getElementById("ef_current").value)||0;
+      const typedTotal = parseFloat(document.getElementById("ef_current").value)||0;
+      // 把使用者剛剛填的「真實總數」換算回內部的起始餘額：扣掉已經透過存入／使用紀錄
+      // 算進來的部分，才不會跟後續存入／使用重複計算，也完全不會動到任何一筆歷史紀錄。
+      w.currentFund = typedTotal - (efDepositsTotal() - efWithdrawalsTotal());
+      const prevEf = DB.emergencyFund;
       DB.emergencyFund = {
         // expenses.debt 固定存 0：必要債務還款已經改成即時讀取負債資料＋手動新增項目，
         // 不再讓這個欄位殘留舊的手動輸入數字，避免之後被誤用或重複計算。
@@ -6202,7 +6346,11 @@ function openEmergencyWizard(){
         riskFactors: w.riskFactors, unexpectedFund: w.unexpectedFund||0, currentFund: w.currentFund||0,
         targetMonths: efSafetyMonths(w.incomeStability, w.hasDependents),
         completionMonths: w.completionMonths || null, updatedAt: todayStr(),
-        includedDebtIds: w.includedDebtIds, manualDebtPayments: w.manualDebtPayments
+        includedDebtIds: w.includedDebtIds, manualDebtPayments: w.manualDebtPayments,
+        // 重新評估只是重算安全墊目標，階段自訂金額、儲蓄規劃模式與每月預計金額都是另外的
+        // 設定，繼續沿用重新評估之前的值，不會被這個 4 步驟表單清空或重置。
+        stageOverrides: prevEf.stageOverrides || {stage1:null,stage2:null,stage3:null,final:null},
+        planMode: prevEf.planMode || "monthly", monthlyAmount: prevEf.monthlyAmount || 0
       };
       save(); closeSheet(); showAssetSub("emergency"); renderNetWorth();
     });
@@ -6213,7 +6361,6 @@ function openEmergencyWizard(){
 function renderEmergencyFundPanel(){
   const box = document.getElementById("emergencyFundContent");
   const ef = DB.emergencyFund;
-  const monthly = efMonthlyTotal(ef);
   if(!ef.targetMonths){
     box.innerHTML = `
       <div class="card">
@@ -6225,85 +6372,409 @@ function renderEmergencyFundPanel(){
     document.getElementById("btnStartEfWizard").addEventListener("click", openEmergencyWizard);
     return;
   }
-  const interruption = efInterruptionFund(ef);
-  const target = efTotalTarget(ef);
-  const current = ef.currentFund||0;
-  const pct = target>0 ? Math.min(100, Math.round(current/target*100)) : 0;
-  const remain = Math.max(0, target-current);
-  const monthsCovered = monthly>0 ? current/monthly : null;
-  const stageStatus = (stageTarget)=> stageTarget<=0 ? "尚未達成" : (current>=stageTarget ? "已達成" : (current>0 ? "進行中" : "尚未達成"));
 
-  let completionHTML = "";
-  if(remain>0){
-    const monthsOptions = EF_COMPLETION_PRESETS.map(m=>`<button type="button" class="btn-ghost ef-completion-btn" data-v="${m}" style="flex:1; ${ef.completionMonths===m?'background:var(--accent); color:var(--on-accent);':''}">${m}個月</button>`).join("");
-    completionHTML = `
+  const monthly = efMonthlyTotal(ef);
+  const current = efCurrentBalance(ef);
+  const stages = efStages(ef);
+  const nextStage = stages.find(s=>!s.done);
+  const finalStage = stages[stages.length-1];
+  const monthsCovered = monthly>0 ? current/monthly : null;
+
+  const mk = cycleKeyForDate(todayStr());
+  const depositedThisCycle = efDepositedInCycle(mk);
+  const monthlyTarget = ef.planMode==="monthly" ? (ef.monthlyAmount||0) : 0;
+  const monthlyPct = monthlyTarget>0 ? Math.min(100, Math.round(depositedThisCycle/monthlyTarget*100)) : 0;
+
+  let html = `
+    <div class="card">
+      <div class="card-title">🛟 目前累積</div>
+      <div style="font-size:26px; font-weight:900; color:var(--accent); margin-bottom:4px;">NT$ ${current.toLocaleString()}</div>
+      ${monthly>0 ? `<div class="muted">大約可以支撐 ${monthsCovered.toFixed(1)} 個月的必要生活費</div>` : ""}
+    </div>
+  `;
+
+  if(nextStage){
+    html += `
       <div class="card">
-        <div class="card-title">希望多久準備完成？</div>
-        <div class="seg" id="efCompletionSeg" style="margin-bottom:10px;">${monthsOptions}</div>
-        <input type="number" id="efCompletionCustom" placeholder="或自訂月數" value="${EF_COMPLETION_PRESETS.includes(ef.completionMonths)?"":(ef.completionMonths||"")}">
-        <div id="efCompletionResult" class="muted" style="margin-top:10px; line-height:1.7;"></div>
+        <div class="card-title">${nextStage.emoji} 下一階段・${nextStage.label.split("｜")[1]}</div>
+        <div style="margin-bottom:6px;">NT$${current.toLocaleString()} / NT$${nextStage.target.toLocaleString()}</div>
+        <div class="progress-bar" style="margin-bottom:6px;"><div class="progress-fill" style="width:${nextStage.pct}%"></div></div>
+        <div class="muted">${nextStage.pct}% · 還差 NT$${nextStage.remain.toLocaleString()}</div>
+      </div>
+    `;
+  }else{
+    html += `
+      <div class="card" style="background:var(--light-accent); text-align:center;">
+        <div style="font-weight:700; line-height:1.8;">🏡 所有階段都已經達成了，這份底氣是你一步一步存下來的。</div>
       </div>
     `;
   }
 
-  box.innerHTML = `
+  html += `
     <div class="card">
-      <div class="card-title">你的完整緊急預備金目標</div>
-      <div style="font-size:24px; font-weight:900; color:var(--accent); margin-bottom:12px;">NT$ ${target.toLocaleString()}</div>
-      <div class="networth-line"><span class="label">🏠 生活中斷預備金</span><span class="value">NT$ ${interruption.toLocaleString()}</span></div>
-      <div class="muted" style="margin:2px 0 10px;">每月必要生活費 NT$${monthly.toLocaleString()} × ${ef.targetMonths} 個月</div>
-      <div class="networth-line"><span class="label">🚑 突發事件預備金</span><span class="value">NT$ ${(ef.unexpectedFund||0).toLocaleString()}</span></div>
+      <div class="card-title">本月儲蓄進度</div>
+      ${monthlyTarget>0 ? `
+        <div style="margin-bottom:6px;">NT$${depositedThisCycle.toLocaleString()} / NT$${monthlyTarget.toLocaleString()}</div>
+        <div class="progress-bar" style="margin-bottom:8px;"><div class="progress-fill" style="width:${monthlyPct}%"></div></div>
+      ` : ""}
+      ${depositedThisCycle>0
+        ? `<div style="font-weight:700; margin-bottom:4px;">🌱 這個月，你又替自己累積了 NT$${depositedThisCycle.toLocaleString()} 的底氣。</div>`
+        : `<div class="muted" style="margin-bottom:4px;">這個月還沒有存入紀錄，什麼時候開始都可以。</div>`}
+      ${monthlyTarget>0
+        ? (monthlyTarget-depositedThisCycle>0
+            ? `<div class="muted">距離本月的小目標還差 NT$${(monthlyTarget-depositedThisCycle).toLocaleString()}，按照自己的步調慢慢來就好。</div>`
+            : `<div class="muted">這個月的目標已經達成了 🌱</div>`)
+        : `<div class="muted">還沒有設定每月儲蓄目標，可以到下方「每月儲蓄規劃」設定。</div>`}
     </div>
-    <div class="card">
-      <div class="card-title">目前準備</div>
-      <div style="margin-bottom:6px;">NT$${current.toLocaleString()} / NT$${target.toLocaleString()}</div>
-      <div class="progress-bar" style="margin-bottom:6px;"><div class="progress-fill" style="width:${pct}%"></div></div>
-      <div class="muted">${pct}%${remain>0?` · 還差 NT$${remain.toLocaleString()}`:" · 已經達成目標！"}</div>
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="btn-main" id="btnEfDeposit" style="flex:1;">＋ 存入預備金</button>
+      <button class="btn-ghost" id="btnEfWithdraw" style="flex:1;">－ 使用預備金</button>
     </div>
-    <div class="card">
-      <div class="card-title">如果收入從今天開始中斷……</div>
-      ${monthly>0
-        ? `<div>以目前的必要生活費計算，現有資金大約可以支撐 <b>${monthsCovered.toFixed(1)}</b> 個月。</div>`
-        : `<div class="empty-state">請先到「重新規劃」填寫每月必要生活費</div>`}
-      <div class="muted" style="margin-top:6px;">尚未扣除期間內可能發生的其他緊急支出。</div>
+  `;
+
+  const stageRowsHTML = stages.map(s=>`
+    <div class="ef-stage-row ef-stage-edit" data-key="${s.key}">
+      <div class="ef-stage-badge">${s.emoji}</div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:700;">${s.label}</div>
+        <div class="muted">NT$${current.toLocaleString()} / NT$${s.target.toLocaleString()}${s.override!=null?"（已自訂）":""}</div>
+        <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" style="width:${s.pct}%"></div></div>
+      </div>
+      <div class="ef-stage-done">${s.done?"已達成":(s.pct>0?s.pct+"%":"")}</div>
     </div>
-    <div class="card">
-      <div class="card-title">我的安全墊進度</div>
-      <div class="networth-line"><span class="label">🌱 基本緩衝（1 個月必要生活費）</span><span class="value">${stageStatus(monthly)}</span></div>
-      <div class="networth-line"><span class="label">🛟 生活安全墊（${ef.targetMonths} 個月必要生活費）</span><span class="value">${stageStatus(interruption)}</span></div>
-      <div class="networth-line"><span class="label">🏡 完整安全墊（生活中斷＋突發預備金）</span><span class="value">${stageStatus(target)}</span></div>
-    </div>
-    ${completionHTML}
-    <div class="card" style="background:var(--light-accent); text-align:center;">
+  `).join("");
+
+  html += `
+    <details class="ef-details">
+      <summary>完整階段式儲蓄路線</summary>
+      <div class="ef-details-body">
+        <div class="muted" style="margin-bottom:10px; line-height:1.6;">點一個階段可以調整金額，包含最終目標。目標可以調整，累積的底氣不會因此消失。</div>
+        ${stageRowsHTML}
+      </div>
+    </details>
+  `;
+
+  let planBodyHTML;
+  if(ef.planMode==="deadline" && ef.completionMonths){
+    const perMonth = ef.completionMonths>0 ? Math.round(finalStage.remain/ef.completionMonths) : 0;
+    planBodyHTML = `<div class="muted" style="line-height:1.7;">目前模式：我希望多久完成<br>希望在 ${ef.completionMonths} 個月內完成最終目標，平均每月需要存 NT$${perMonth.toLocaleString()}。</div>`;
+  }else if(ef.monthlyAmount>0){
+    const nextM = nextStage ? efMonthsToReach(nextStage.remain, ef.monthlyAmount) : 0;
+    const finalM = efMonthsToReach(finalStage.remain, ef.monthlyAmount);
+    planBodyHTML = `<div class="muted" style="line-height:1.7;">目前模式：我每個月可以存多少<br>每月預計存入 NT$${ef.monthlyAmount.toLocaleString()}。
+      ${nextStage ? `<br>下一階段預估：${nextM==null?"—":(nextM===0?"已達成":nextM+" 個月後")}` : ""}
+      <br>最終目標預估：${finalM==null?"—":(finalM===0?"已達成":finalM+" 個月後")}</div>`;
+  }else{
+    planBodyHTML = `<div class="empty-state">還沒有設定儲蓄規劃</div>`;
+  }
+  html += `
+    <details class="ef-details">
+      <summary>每月儲蓄規劃</summary>
+      <div class="ef-details-body">
+        ${planBodyHTML}
+        <button class="btn-ghost" id="btnEfPlan" style="width:100%; margin-top:10px;">設定儲蓄規劃</button>
+      </div>
+    </details>
+    <details class="ef-details">
+      <summary>儲蓄情境模擬</summary>
+      <div class="ef-details-body">
+        <div class="muted" style="margin-bottom:10px; line-height:1.6;">比較看看不同每月金額，大概什麼時候可以達成目標。</div>
+        <button class="btn-ghost" id="btnEfSim" style="width:100%;">開始模擬</button>
+      </div>
+    </details>
+    <details class="ef-details">
+      <summary>財務安全評估</summary>
+      <div class="ef-details-body">
+        <div class="networth-line"><span class="label">🏠 生活中斷預備金</span><span class="value">NT$ ${efInterruptionFund(ef).toLocaleString()}</span></div>
+        <div class="muted" style="margin:2px 0 10px;">每月必要生活費 NT$${monthly.toLocaleString()} × ${ef.targetMonths} 個月</div>
+        <div class="networth-line"><span class="label">🚑 突發事件預備金</span><span class="value">NT$ ${(ef.unexpectedFund||0).toLocaleString()}</span></div>
+        <div class="networth-line networth-total"><span class="label">完整目標</span><span class="value">NT$ ${efTotalTarget(ef).toLocaleString()}</span></div>
+        <button class="btn-ghost" id="btnRedoEfWizard" style="width:100%; margin-top:14px;">重新評估</button>
+      </div>
+    </details>
+    <details class="ef-details">
+      <summary>歷史紀錄</summary>
+      <div class="ef-details-body">
+        <button class="btn-ghost" id="btnEfHistory" style="width:100%;">查看完整紀錄</button>
+      </div>
+    </details>
+    <div class="card" style="background:var(--light-accent); text-align:center; margin-top:14px;">
       <div style="line-height:1.8;">緊急預備金不是一筆數字，而是你的財務安全墊，也是專屬於你的底氣，生活小夥伴會陪著你一起達成的！✨</div>
     </div>
-    <button class="btn-ghost" id="btnRedoEfWizard" style="width:100%; margin-top:4px;">重新規劃</button>
   `;
-  document.getElementById("btnRedoEfWizard").addEventListener("click", openEmergencyWizard);
 
-  if(remain>0){
-    const updateCompletionResult = (months)=>{
-      const resBox = document.getElementById("efCompletionResult");
-      if(!months || months<=0){ resBox.textContent = ""; return; }
-      const perMonth = Math.round(remain/months);
-      resBox.textContent = `🌱 如果希望在 ${months} 個月內完成，平均每月準備 NT$${perMonth.toLocaleString()}，就能慢慢把安全墊補起來。`;
-    };
-    document.querySelectorAll(".ef-completion-btn").forEach(b=>{
-      b.addEventListener("click", ()=>{
-        ef.completionMonths = Number(b.dataset.v);
-        document.getElementById("efCompletionCustom").value = "";
-        save();
-        document.querySelectorAll(".ef-completion-btn").forEach(x=>{ x.style.background=""; x.style.color=""; });
-        b.style.background="var(--accent)"; b.style.color="#fff";
-        updateCompletionResult(ef.completionMonths);
-      });
-    });
-    document.getElementById("efCompletionCustom").addEventListener("input", (e)=>{
-      const v = parseInt(e.target.value);
-      if(v>0){ ef.completionMonths = v; save(); updateCompletionResult(v); }
-    });
-    updateCompletionResult(ef.completionMonths);
+  box.innerHTML = html;
+
+  document.getElementById("btnEfDeposit").addEventListener("click", openEfDepositForm);
+  document.getElementById("btnEfWithdraw").addEventListener("click", openEfWithdrawForm);
+  document.querySelectorAll(".ef-stage-edit").forEach(el=>{
+    el.addEventListener("click", ()=>openEfStageEditor(el.dataset.key));
+  });
+  document.getElementById("btnEfPlan").addEventListener("click", openEfPlanForm);
+  document.getElementById("btnEfSim").addEventListener("click", openEfScenarioSimulator);
+  document.getElementById("btnRedoEfWizard").addEventListener("click", openEmergencyWizard);
+  document.getElementById("btnEfHistory").addEventListener("click", openEfHistory);
+}
+
+/* ---- 存入預備金：建立一筆記帳支出（分類＝緊急預備金）＋對照索引，與記帳頁面共用同一筆資料 ---- */
+function openEfDepositForm(){
+  openSheet(`
+    <div class="sheet-head"><h3>＋ 存入預備金</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>金額</label><input id="efd_amount" type="number" placeholder="0"></div>
+    <div class="field"><label>日期</label><input id="efd_date" type="date" value="${todayStr()}"></div>
+    <div class="field"><label>備註（可選）</label><input id="efd_note" placeholder=""></div>
+    <button class="btn-main" id="efd_submit" style="width:100%;">存入</button>
+  `);
+  document.getElementById("efd_submit").addEventListener("click", ()=>{
+    const amount = parseFloat(document.getElementById("efd_amount").value);
+    if(!amount || amount<=0){ toast("請輸入金額"); return; }
+    const date = document.getElementById("efd_date").value || todayStr();
+    const note = document.getElementById("efd_note").value.trim();
+    const newTx = {id:uid(), date, amount, type:"expense", category:EF_LEDGER_CATEGORY, name:"存入緊急預備金", note, paymentMethod:"other", creditCardPaymentType:null};
+    DB.transactions.push(newTx);
+    DB.emergencyFundDeposits.push({id:uid(), txId:newTx.id, createdAt:todayStr()});
+    save(); closeSheet(); renderEmergencyFundPanel(); renderNetWorth();
+    toast(`🛟 已存入 NT$${amount.toLocaleString()}，底氣又多了一點`);
+  });
+}
+
+/* ---- 使用預備金：單純內部紀錄，不是消費支出，不進記帳總支出，避免重複計算 ---- */
+function openEfWithdrawForm(){
+  const balance = efCurrentBalance(DB.emergencyFund);
+  openSheet(`
+    <div class="sheet-head"><h3>－ 使用預備金</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:12px;">目前餘額 NT$${balance.toLocaleString()}</div>
+    <div class="field"><label>金額</label><input id="efw_amount" type="number" placeholder="0"></div>
+    <div class="field"><label>日期</label><input id="efw_date" type="date" value="${todayStr()}"></div>
+    <div class="field"><label>用途</label><input id="efw_purpose" placeholder="例如：臨時醫療費用"></div>
+    <div class="field"><label>備註（可選）</label><input id="efw_note" placeholder=""></div>
+    <div class="muted" style="margin-bottom:10px; line-height:1.6;">這裡只記錄從預備金中拿出的金額；如果這筆錢花在實際消費上，記得另外到記帳頁面記錄那筆支出，才不會被算兩次喔。</div>
+    <button class="btn-main" id="efw_submit" style="width:100%;">確認使用</button>
+  `);
+  document.getElementById("efw_submit").addEventListener("click", ()=>{
+    const amount = parseFloat(document.getElementById("efw_amount").value);
+    if(!amount || amount<=0){ toast("請輸入金額"); return; }
+    if(amount>balance){ toast("金額超過目前餘額了，請確認一下"); return; }
+    const date = document.getElementById("efw_date").value || todayStr();
+    const purpose = document.getElementById("efw_purpose").value.trim();
+    const note = document.getElementById("efw_note").value.trim();
+    DB.emergencyFundWithdrawals.push({id:uid(), amount, date, purpose, note, createdAt:todayStr()});
+    save(); closeSheet(); renderEmergencyFundPanel(); renderNetWorth();
+    toast("🛟 這筆預備金正在發揮它原本的作用。");
+  });
+}
+function openEfWithdrawEditForm(id){
+  const w = (DB.emergencyFundWithdrawals||[]).find(x=>x.id===id);
+  if(!w) return;
+  openSheet(`
+    <div class="sheet-head"><h3>編輯使用紀錄</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="field"><label>金額</label><input id="efw_amount" type="number" value="${w.amount}"></div>
+    <div class="field"><label>日期</label><input id="efw_date" type="date" value="${w.date}"></div>
+    <div class="field"><label>用途</label><input id="efw_purpose" value="${escapeHtml(w.purpose||"")}"></div>
+    <div class="field"><label>備註（可選）</label><input id="efw_note" value="${escapeHtml(w.note||"")}"></div>
+    <button class="btn-main" id="efw_submit" style="width:100%;">儲存</button>
+  `);
+  document.getElementById("efw_submit").addEventListener("click", ()=>{
+    const amount = parseFloat(document.getElementById("efw_amount").value);
+    if(!amount || amount<=0){ toast("請輸入金額"); return; }
+    w.amount = amount;
+    w.date = document.getElementById("efw_date").value || w.date;
+    w.purpose = document.getElementById("efw_purpose").value.trim();
+    w.note = document.getElementById("efw_note").value.trim();
+    save(); closeSheet(); renderEmergencyFundPanel(); renderNetWorth();
+    toast("已更新這筆使用紀錄");
+  });
+}
+
+/* ---- 階段式儲蓄目標：編輯／恢復系統建議，完全不影響已累積的存款 ---- */
+function openEfStageEditor(stageKey){
+  const ef = DB.emergencyFund;
+  const def = efStageDefs().find(d=>d.key===stageKey);
+  const suggestion = efStageSuggestion(ef, stageKey);
+  const curOverride = (ef.stageOverrides||{})[stageKey];
+  const monthly = efMonthlyTotal(ef);
+  openSheet(`
+    <div class="sheet-head"><h3>${def.emoji} ${def.label}</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:12px; line-height:1.7;">系統建議金額：NT$${suggestion.toLocaleString()}</div>
+    <div class="field"><label>目標金額</label><input id="efs_amount" type="number" placeholder="0" value="${curOverride!=null?curOverride:""}"></div>
+    <div id="efs_hint" class="muted" style="margin-bottom:10px; line-height:1.6;"></div>
+    <button class="btn-main" id="efs_save" style="width:100%; margin-bottom:8px;">儲存</button>
+    ${curOverride!=null ? `<button class="btn-ghost" id="efs_reset" style="width:100%;">恢復系統建議</button>` : ""}
+    <div class="muted" style="margin-top:14px; text-align:center;">目標可以調整，累積的底氣不會因此消失。</div>
+  `);
+  const amtInput = document.getElementById("efs_amount");
+  const hint = document.getElementById("efs_hint");
+  function updateHint(){
+    const v = parseFloat(amtInput.value);
+    if(v>0 && v<suggestion && monthly>0){
+      hint.textContent = `這大約相當於 ${(v/monthly).toFixed(1)} 個月的必要生活費。`;
+    }else{ hint.textContent = ""; }
   }
+  amtInput.addEventListener("input", updateHint);
+  updateHint();
+  document.getElementById("efs_save").addEventListener("click", ()=>{
+    const v = parseFloat(amtInput.value);
+    ef.stageOverrides[stageKey] = (v>0) ? v : null;
+    save(); closeSheet(); renderEmergencyFundPanel();
+    toast("已更新這個階段的目標");
+  });
+  const resetBtn = document.getElementById("efs_reset");
+  if(resetBtn) resetBtn.addEventListener("click", ()=>{
+    ef.stageOverrides[stageKey] = null;
+    save(); closeSheet(); renderEmergencyFundPanel();
+    toast("已恢復系統建議金額");
+  });
+}
+
+/* ---- 兩種儲蓄規劃模式：切換、編輯都不影響任何存入／使用紀錄 ---- */
+function openEfPlanForm(){
+  const ef = DB.emergencyFund;
+  let mode = ef.planMode || "monthly";
+  openSheet(`
+    <div class="sheet-head"><h3>儲蓄規劃</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="seg" id="efp_mode" style="margin-bottom:14px;">
+      <button type="button" data-v="monthly" class="${mode!=="deadline"?"active":""}">我每個月可以存多少？</button>
+      <button type="button" data-v="deadline" class="${mode==="deadline"?"active":""}">我希望多久完成？</button>
+    </div>
+    <div id="efp_body"></div>
+    <button class="btn-main" id="efp_save" style="width:100%; margin-top:10px;">儲存</button>
+  `);
+  const body = document.getElementById("efp_body");
+  function renderBody(){
+    if(mode==="monthly"){
+      body.innerHTML = `<div class="field"><label>每月預計可以存多少？</label><input id="efp_monthly" type="number" placeholder="0" value="${ef.monthlyAmount||""}"></div>`;
+    }else{
+      const presets = EF_COMPLETION_PRESETS.map(m=>`<button type="button" class="btn-ghost efp-deadline-btn" data-v="${m}" style="flex:1; ${ef.completionMonths===m?'background:var(--accent); color:var(--on-accent);':''}">${m}個月</button>`).join("");
+      body.innerHTML = `<div class="field"><label>希望多久完成最終目標？</label><div class="seg">${presets}</div><input id="efp_deadline_custom" type="number" placeholder="或自訂月數" style="margin-top:8px;" value="${EF_COMPLETION_PRESETS.includes(ef.completionMonths)?"":(ef.completionMonths||"")}"></div>`;
+      body.dataset.chosen = ef.completionMonths || "";
+      document.querySelectorAll(".efp-deadline-btn").forEach(b=>{
+        b.addEventListener("click", ()=>{
+          body.dataset.chosen = b.dataset.v;
+          document.getElementById("efp_deadline_custom").value = "";
+          document.querySelectorAll(".efp-deadline-btn").forEach(x=>{ x.style.background=""; x.style.color=""; });
+          b.style.background="var(--accent)"; b.style.color="#fff";
+        });
+      });
+      document.getElementById("efp_deadline_custom").addEventListener("input", (e)=>{
+        const v = parseInt(e.target.value);
+        if(v>0) body.dataset.chosen = v;
+      });
+    }
+  }
+  renderBody();
+  document.querySelectorAll("#efp_mode button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      document.querySelectorAll("#efp_mode button").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active"); mode = b.dataset.v; renderBody();
+    });
+  });
+  document.getElementById("efp_save").addEventListener("click", ()=>{
+    ef.planMode = mode;
+    if(mode==="monthly"){
+      ef.monthlyAmount = parseFloat(document.getElementById("efp_monthly").value)||0;
+    }else{
+      const v = parseInt(body.dataset.chosen, 10);
+      if(v>0) ef.completionMonths = v;
+    }
+    save(); closeSheet(); renderEmergencyFundPanel();
+    toast("已更新儲蓄規劃");
+  });
+}
+
+/* ---- 儲蓄情境模擬：純試算，只有使用者按下「套用」才會更新正式規劃 ---- */
+function openEfScenarioSimulator(){
+  const ef = DB.emergencyFund;
+  const stages = efStages(ef);
+  const nextStage = stages.find(s=>!s.done);
+  const finalStage = stages[stages.length-1];
+  const presets = [3000,5000,8000,10000];
+  openSheet(`
+    <div class="sheet-head"><h3>🧮 儲蓄情境模擬</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div class="muted" style="margin-bottom:12px; line-height:1.6;">比較看看，如果每個月存不同金額，大概什麼時候可以達成目標。</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+      ${presets.map(v=>`<button type="button" class="btn-ghost efsim-btn" data-v="${v}" style="flex:1 1 40%;">NT$${v.toLocaleString()}</button>`).join("")}
+    </div>
+    <div class="field"><input id="efsim_custom" type="number" placeholder="或自訂每月金額"></div>
+    <div id="efsim_result" class="card" style="background:var(--light-accent);"><div class="empty-state">選一個每月金額看看結果</div></div>
+    <button class="btn-main" id="efsim_apply" style="width:100%; margin-top:14px;" disabled>套用這個每月金額</button>
+  `);
+  let chosen = 0;
+  const resultBox = document.getElementById("efsim_result");
+  const applyBtn = document.getElementById("efsim_apply");
+  function update(){
+    if(chosen<=0){ resultBox.innerHTML = `<div class="empty-state">選一個每月金額看看結果</div>`; applyBtn.disabled = true; return; }
+    applyBtn.disabled = false;
+    let html = "";
+    if(nextStage){
+      const m = efMonthsToReach(nextStage.remain, chosen);
+      html += `<div class="networth-line"><span class="label">${nextStage.emoji} 下一階段</span><span class="value">${m==null?"—":(m===0?"已達成":m+" 個月後")}</span></div>`;
+    }
+    const mFinal = efMonthsToReach(finalStage.remain, chosen);
+    html += `<div class="networth-line"><span class="label">🏡 最終目標</span><span class="value">${mFinal==null?"—":(mFinal===0?"已達成":mFinal+" 個月後")}</span></div>`;
+    if(ef.planMode==="monthly" && ef.monthlyAmount>0){
+      const mFinalCur = efMonthsToReach(finalStage.remain, ef.monthlyAmount);
+      if(mFinal!=null && mFinalCur!=null && mFinal!==mFinalCur){
+        const diff = mFinalCur - mFinal;
+        html += `<div class="muted" style="margin-top:8px;">比目前的計畫${diff>0?"快":"慢"} ${Math.abs(diff)} 個月</div>`;
+      }
+    }
+    resultBox.innerHTML = html;
+  }
+  document.querySelectorAll(".efsim-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      chosen = Number(b.dataset.v);
+      document.getElementById("efsim_custom").value = "";
+      document.querySelectorAll(".efsim-btn").forEach(x=>{ x.style.background=""; x.style.color=""; });
+      b.style.background="var(--accent)"; b.style.color="#fff";
+      update();
+    });
+  });
+  document.getElementById("efsim_custom").addEventListener("input", (e)=>{
+    const v = parseFloat(e.target.value);
+    if(v>0){ chosen=v; update(); }
+  });
+  applyBtn.addEventListener("click", ()=>{
+    ef.planMode = "monthly"; ef.monthlyAmount = chosen;
+    save(); closeSheet(); renderEmergencyFundPanel();
+    toast("已套用到正式儲蓄計畫");
+  });
+}
+
+/* ---- 歷史紀錄：存入（連到記帳交易，編輯／刪除直接共用記帳既有流程）＋使用（獨立資料） ---- */
+function openEfHistory(){
+  const deposits = efDepositRecords().map(d=>({type:"deposit", id:d.id, txId:d.tx.id, amount:d.tx.amount, date:d.tx.date, note:d.tx.note}));
+  const withdrawals = (DB.emergencyFundWithdrawals||[]).map(w=>({type:"withdraw", id:w.id, amount:w.amount, date:w.date, purpose:w.purpose, note:w.note}));
+  const all = [...deposits, ...withdrawals].sort((a,b)=> b.date===a.date ? 0 : (b.date>a.date?1:-1));
+  const rowsHTML = all.length ? all.map(r=>`
+    <div class="item-row">
+      <div style="font-size:18px;">${r.type==="deposit"?"🛟":"🪙"}</div>
+      <div class="ef-hist-edit" data-id="${r.id}" data-kind="${r.type}" data-txid="${r.txId||''}" style="flex:1; min-width:0; cursor:pointer;">
+        <div class="item-title">${r.type==="deposit"?"存入":"使用"}${r.purpose?("・"+escapeHtml(r.purpose)):""}</div>
+        <div class="item-sub">${r.date}${r.note?(" · "+escapeHtml(r.note)):""}</div>
+      </div>
+      <div class="item-right" style="color:${r.type==='deposit'?'var(--sage)':'var(--dark)'}; font-weight:700;">${r.type==='deposit'?'+':'-'}${r.amount.toLocaleString()}</div>
+      <button class="del-btn ef-hist-del" data-id="${r.id}" data-kind="${r.type}" data-txid="${r.txId||''}">✕</button>
+    </div>
+  `).join("") : `<div class="empty-state">還沒有任何存入或使用紀錄</div>`;
+  openSheet(`
+    <div class="sheet-head"><h3>存入／使用紀錄</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+    <div id="efHistList">${rowsHTML}</div>
+  `);
+  document.querySelectorAll(".ef-hist-edit").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      if(el.dataset.kind==="deposit") openTxForm(el.dataset.txid);
+      else openEfWithdrawEditForm(el.dataset.id);
+    });
+  });
+  document.querySelectorAll(".ef-hist-del").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      if(b.dataset.kind==="deposit"){
+        deleteWithUndo("transactions", b.dataset.txid, "這筆存入紀錄", ()=>{ renderAll(); openEfHistory(); });
+      }else{
+        deleteWithUndo("emergencyFundWithdrawals", b.dataset.id, "這筆使用紀錄", ()=>{ renderEmergencyFundPanel(); renderNetWorth(); openEfHistory(); });
+      }
+    });
+  });
 }
 
 function renderNetWorth(){
@@ -6325,7 +6796,7 @@ function renderNetWorth(){
   document.getElementById("assetSummaryLine").textContent = DB.assets.length ? `共 ${DB.assets.length} 筆・NT$ ${totalAssets.toLocaleString()}` : "還沒有建立資產，先從銀行存款開始吧";
   document.getElementById("debtSummaryLine").textContent = DB.debts.length ? `共 ${DB.debts.length} 筆・剩餘 NT$ ${totalDebts.toLocaleString()}` : "目前沒有負債 🎉";
   const ef = DB.emergencyFund;
-  const efMonths = ef.targetMonths ? (efMonthlyTotal(ef)>0 ? (ef.currentFund||0)/efMonthlyTotal(ef) : 0) : null;
+  const efMonths = ef.targetMonths ? (efMonthlyTotal(ef)>0 ? efCurrentBalance(ef)/efMonthlyTotal(ef) : 0) : null;
   document.getElementById("emergencySummaryLine").textContent = ef.targetMonths ? `目前可支撐 ${efMonths.toFixed(1)} 個月` : "尚未規劃";
 }
 
@@ -6572,6 +7043,10 @@ function exportBackup(){
     active:!!h.active, inactivePeriodsJSON:JSON.stringify(h.inactivePeriods||[]), stampsJSON:JSON.stringify(h.stamps||{})
   })));
   addSheet("日記", DB.journal.map(e=>({id:e.id, date:e.date, time:e.time||"", mood:e.mood||"", text:e.text||""})));
+  // 緊急預備金「存入」只存對照索引（txId），金額／日期／備註都在「記帳」分頁裡，
+  // 匯入時重新比對 txId 就能自動接回對應的交易，不需要另外存一次重複的金額欄位。
+  addSheet("緊急預備金存入", (DB.emergencyFundDeposits||[]).map(d=>({id:d.id, txId:d.txId, createdAt:d.createdAt||""})));
+  addSheet("緊急預備金使用", (DB.emergencyFundWithdrawals||[]).map(w=>({id:w.id, amount:w.amount, date:w.date, purpose:w.purpose||"", note:w.note||"", createdAt:w.createdAt||""})));
   addSheet("設定", [
     {key:"theme", value:DB.theme||"pink"},
     {key:"appName", value:DB.appName||""},
@@ -6648,6 +7123,12 @@ function importBackupFromWorkbook(wb){
   const journal = sheetRows(wb, "日記").map(r=>({
     id:r.id||uid(), date:String(r.date||""), time:r.time||"", mood:r.mood||null, text:r.text||""
   }));
+  const emergencyFundDeposits = sheetRows(wb, "緊急預備金存入").map(r=>({
+    id:r.id||uid(), txId:String(r.txId||""), createdAt:r.createdAt||""
+  }));
+  const emergencyFundWithdrawals = sheetRows(wb, "緊急預備金使用").map(r=>({
+    id:r.id||uid(), amount:Number(r.amount)||0, date:String(r.date||""), purpose:r.purpose||"", note:r.note||"", createdAt:r.createdAt||""
+  }));
 
   DB = withDefaults({
     theme: settings.theme || "pink",
@@ -6665,8 +7146,10 @@ function importBackupFromWorkbook(wb){
       expenses:{ housing:0, food:0, utilities:0, transport:0, phone:0, insurance:0, debt:0, medical:0, family:0, other:0 },
       customExpenses:[], incomeStability:"", hasDependents:false, riskFactors:[],
       unexpectedFund:0, currentFund:0, targetMonths:null, completionMonths:null, updatedAt:"",
-      includedDebtIds:null, manualDebtPayments:[]
+      includedDebtIds:null, manualDebtPayments:[],
+      stageOverrides:{stage1:null,stage2:null,stage3:null,final:null}, planMode:"monthly", monthlyAmount:0
     }),
+    emergencyFundDeposits, emergencyFundWithdrawals,
     seenDiscoveryNotices: safeJSONParse(settings.seenDiscoveryNoticesJSON, []),
     gardenAcknowledgedMilestone: parseInt(settings.gardenAcknowledgedMilestone, 10) || 0,
     financeCycleStartDay: parseInt(settings.financeCycleStartDay, 10) || 1,
