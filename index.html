@@ -7124,16 +7124,26 @@ function extractChatDate(text){
   }
   return null;
 }
+// 數字後面緊接著的是時間／計數單位（5小時、2顆蛋、50分…）就不是金額，不能見到數字就當錢；
+// 有明確貨幣符號／單位（元／塊／圓／NT$／$）的最優先採用，其餘沒有任何單位字樣的數字才當候選金額。
+const CHAT_NON_CURRENCY_UNITS = /^(小時|分鐘|分|顆|個|件|隻|杯|次|天|週|星期|月|年|歲|公斤|公克|公分|公尺|度|題|頁|本|張|包|罐|瓶|片|盒|組|人|位|樓|層)/;
 function extractChatAmount(text){
-  const m = text.match(/\d+(?:,\d{3})*(?:\.\d+)?/);
-  if(!m) return null;
-  const n = parseFloat(m[0].replace(/,/g,""));
+  const re = /\d+(?:,\d{3})*(?:\.\d+)?/g;
+  let m, candidate = null;
+  while((m = re.exec(text))){
+    const after = text.slice(m.index + m[0].length);
+    if(/^\s*(元|塊|圓|NT\$?|\$)/i.test(after)){ candidate = m[0]; break; }
+    if(CHAT_NON_CURRENCY_UNITS.test(after)) continue;
+    if(candidate==null) candidate = m[0];
+  }
+  if(candidate==null) return null;
+  const n = parseFloat(candidate.replace(/,/g,""));
   return (isNaN(n) || n<=0) ? null : n;
 }
 function stripChatAmount(text){
   return text.replace(/\d+(?:,\d{3})*(?:\.\d+)?/,"").replace(/元|塊|圓|NT\$?|\$/gi,"");
 }
-const CHAT_FILLER_WORDS = ["購買","買了","買","花了","花費","花","支出","消費","付了","付","繳了","繳","存入","存進","存了","存","放入","拿出","提領","使用","領出","動用","提出","的","了"];
+const CHAT_FILLER_WORDS = ["幫我記一下","幫我記","記一下","記帳","購買","買了","買","花了","花費","花","支出","消費","付了","付","繳了","繳","存入","存進","存了","存","放入","拿出","提領","使用","領出","動用","提出","的","了"];
 function cleanChatItemName(text){
   let t = text;
   CHAT_FILLER_WORDS.forEach(w=>{ t = t.split(w).join(""); });
@@ -7193,21 +7203,30 @@ function inferChatExpenseCategory(text){
 const CHAT_DEBT_BUCKET_CATS = ["信貸","學貸","房貸","車貸","分期付款","親友借款","其他債務／固定責任"];
 // 解析單一段文字（一則訊息可能用「、」拆成多筆，各自可能有自己的日期）。
 // dateCtx.current 會在呼叫端依序往下傳遞，讓沒有自己指定日期的段落沿用前一段（或今天）。
-// 判斷「缺金額的那段文字」本身是否真的像是在講一筆帳（而不是普通聊天）：只要命中既有的
-// 支出／收入分類名稱、自訂分類、或既有關鍵字對照表，就算有記帳意圖；完全沒有金額、
-// 也對不到任何既有分類關鍵字的句子（例如「你好」「最近開銷好大」），不會被當成記帳，
-// 避免把一般聊天誤問成「OO是多少錢呢？」。只白名單既有的分類／關鍵字資料，
-// 不針對特定幾句話寫死例外。
+// 判斷「缺金額的那段文字」是不是一句簡短的記帳指令（例如「早餐」「買飲料」「幫我記早餐」），
+// 而不是只是「提到」分類名稱的一般聊天（例如「早餐很好吃」「最近餐費好高」「我今天吃了早餐」）。
+// 用「扣掉記帳請求詞／動作詞之後，剩下的文字要完全等於分類關鍵字本身」當判斷依據，
+// 而不是只要「文字裡面出現過」分類關鍵字就算數，避免把單純提到分類名稱、或夾雜其他
+// 評論內容的一般聊天也誤判成記帳。只白名單既有的分類／關鍵字資料，不針對特定幾句話寫死例外。
 function chatTextLooksLikeBookkeeping(text){
-  if(EXPENSE_CATS.some(c=>text.includes(c))) return true;
-  if((DB.customExpenseCategories||[]).some(c=>c.label && text.includes(c.label))) return true;
-  if((DB.customCategories.expense||[]).some(c=>!EXPENSE_CATS.includes(c) && text.includes(c))) return true;
-  if(CHAT_EXPENSE_KEYWORDS.some(row=>row.keywords.some(k=>text.includes(k)))) return true;
-  if(INCOME_CATS.some(c=>text.includes(c))) return true;
-  if(CHAT_INCOME_KEYWORDS.some(row=>row.keywords.some(k=>text.includes(k)))) return true;
-  if((DB.customCategories.income||[]).some(c=>!INCOME_CATS.includes(c) && text.includes(c))) return true;
-  return false;
+  if(!text) return false;
+  const candidates = [];
+  EXPENSE_CATS.forEach(c=>candidates.push(c));
+  (DB.customExpenseCategories||[]).forEach(c=>{ if(c.label) candidates.push(c.label); });
+  (DB.customCategories.expense||[]).forEach(c=>{ if(!EXPENSE_CATS.includes(c)) candidates.push(c); });
+  CHAT_EXPENSE_KEYWORDS.forEach(row=>row.keywords.forEach(k=>candidates.push(k)));
+  INCOME_CATS.forEach(c=>candidates.push(c));
+  CHAT_INCOME_KEYWORDS.forEach(row=>row.keywords.forEach(k=>candidates.push(k)));
+  (DB.customCategories.income||[]).forEach(c=>{ if(!INCOME_CATS.includes(c)) candidates.push(c); });
+  // 扣掉記帳請求詞／動作詞／日期之後，剩下的文字要「完全等於」某個分類關鍵字才算數——
+  // 不用開頭／結尾模糊比對，因為「我今天吃了早餐」這種句子扣掉「今天」「了」之後也會
+  // 變成「我吃早餐」，結尾剛好是「早餐」，模糊比對會誤判成記帳指令。
+  return candidates.some(k=>k && text===k);
 }
+// 明確表示「還沒發生」的訊息（未來計畫／願望／假設）：有這些詞、又沒有「買了／花了」這種
+// 已完成的動作詞時，一律不當成記帳，避免把還沒發生的交易也記進正式帳本。
+const CHAT_FUTURE_INTENT_MARKERS = /明天|後天|大後天|下週|下禮拜|下星期|下個月|以後|將要|打算|計畫|想要|想買|想花|如果|假設|希望|準備要/;
+const CHAT_COMPLETED_ACTION_MARKERS = /買了|花了|付了|繳了|花費了|消費了|存了|存入了|領了|提領了/;
 function parseChatSegment(raw, dateCtx){
   let text = raw.trim();
   if(!text) return null;
@@ -7215,6 +7234,12 @@ function parseChatSegment(raw, dateCtx){
   let date = dateCtx.current;
   if(dm){ date = dm.dateStr; dateCtx.current = date; text = text.replace(dm.matchedText, "").trim(); }
   if(!text) return null;
+
+  // 還沒發生的交易（未來計畫／願望／假設）一律不記帳，優先於其他所有判斷；但「買了」「花了」
+  // 這種已完成的動作詞可以推翻這個判斷（例如「我買了一件500元的衣服」仍然正常記帳）。
+  if(CHAT_FUTURE_INTENT_MARKERS.test(text) && !CHAT_COMPLETED_ACTION_MARKERS.test(text)){
+    return {kind:"chit_chat"};
+  }
 
   const amount = extractChatAmount(text);
   const isIncome = CHAT_INCOME_TRIGGER_WORDS.some(k=>text.includes(k));
@@ -7232,7 +7257,10 @@ function parseChatSegment(raw, dateCtx){
     return {kind:"debt_guide", date, amount, category:debtCatHit, name:nameGuess};
   }
 
-  const nameRaw = cleanChatItemName(stripChatAmount(text));
+  // 金額沒被 extractChatAmount 接受時（例如「5小時」「50分」的數字被判定不是金額），不要
+  // 連帶把這些數字從文字裡拿掉，不然「早餐50分」會被誤清成「早餐」，反而看起來像是在問
+  // 早餐的金額。只有金額真的成立時，才把那段金額文字從名稱裡拿掉。
+  const nameRaw = cleanChatItemName(amount!=null ? stripChatAmount(text) : text);
 
   if(isCreditCardPay){
     if(amount==null) return {kind:"incomplete_amount", date, isIncome:false, draftNameRaw: nameRaw || "信用卡還款", forceCreditCard:true};
@@ -7336,9 +7364,12 @@ function pushChatCreditCardAsk(p){
 function pushChatEfWithdrawGuide(){
   pushChatMessage({ role:"bot", text:"使用緊急預備金需要先記錄用途，也要檢查餘額夠不夠，請到『緊急預備金』頁面用「－使用預備金」記錄這筆，會比較準確喔。" });
 }
-// 一般聊天（非記帳意圖）：固定簡短回覆，不建立任何交易草稿、不問金額。
+// 一般聊天（非記帳意圖）：從固定的幾句簡短招呼裡隨機挑一句回覆，不建立任何交易草稿、
+// 不問金額，也不會每次都顯示同一句。
+const CHAT_SMALL_TALK_REPLIES = ["嗨嗨～ 👋", "你好呀～ ✨", "哈囉哈囉～", "嘿嘿～ 🤍"];
 function pushChatSmallTalkReply(){
-  pushChatMessage({ role:"bot", text:"嗨嗨～我是妳的記帳小幫手 ✨" });
+  const text = CHAT_SMALL_TALK_REPLIES[Math.floor(Math.random()*CHAT_SMALL_TALK_REPLIES.length)];
+  pushChatMessage({ role:"bot", text });
 }
 
 /* ---- 處理上一句「還缺一項」的回覆（同一時間只會記住最新的一筆待補問題） ----
