@@ -7193,6 +7193,21 @@ function inferChatExpenseCategory(text){
 const CHAT_DEBT_BUCKET_CATS = ["信貸","學貸","房貸","車貸","分期付款","親友借款","其他債務／固定責任"];
 // 解析單一段文字（一則訊息可能用「、」拆成多筆，各自可能有自己的日期）。
 // dateCtx.current 會在呼叫端依序往下傳遞，讓沒有自己指定日期的段落沿用前一段（或今天）。
+// 判斷「缺金額的那段文字」本身是否真的像是在講一筆帳（而不是普通聊天）：只要命中既有的
+// 支出／收入分類名稱、自訂分類、或既有關鍵字對照表，就算有記帳意圖；完全沒有金額、
+// 也對不到任何既有分類關鍵字的句子（例如「你好」「最近開銷好大」），不會被當成記帳，
+// 避免把一般聊天誤問成「OO是多少錢呢？」。只白名單既有的分類／關鍵字資料，
+// 不針對特定幾句話寫死例外。
+function chatTextLooksLikeBookkeeping(text){
+  if(EXPENSE_CATS.some(c=>text.includes(c))) return true;
+  if((DB.customExpenseCategories||[]).some(c=>c.label && text.includes(c.label))) return true;
+  if((DB.customCategories.expense||[]).some(c=>!EXPENSE_CATS.includes(c) && text.includes(c))) return true;
+  if(CHAT_EXPENSE_KEYWORDS.some(row=>row.keywords.some(k=>text.includes(k)))) return true;
+  if(INCOME_CATS.some(c=>text.includes(c))) return true;
+  if(CHAT_INCOME_KEYWORDS.some(row=>row.keywords.some(k=>text.includes(k)))) return true;
+  if((DB.customCategories.income||[]).some(c=>!INCOME_CATS.includes(c) && text.includes(c))) return true;
+  return false;
+}
 function parseChatSegment(raw, dateCtx){
   let text = raw.trim();
   if(!text) return null;
@@ -7231,6 +7246,9 @@ function parseChatSegment(raw, dateCtx){
 
   if(amount==null){
     if(!nameRaw) return null;
+    // 沒有金額、也完全對不到任何既有分類關鍵字 → 視為一般聊天，不要問「OO是多少錢呢？」、
+    // 也不要建立待補金額的交易草稿。
+    if(!chatTextLooksLikeBookkeeping(nameRaw)) return {kind:"chit_chat"};
     return {kind:"incomplete_amount", date, isIncome, draftNameRaw:nameRaw};
   }
   if(!nameRaw){
@@ -7317,6 +7335,10 @@ function pushChatCreditCardAsk(p){
 }
 function pushChatEfWithdrawGuide(){
   pushChatMessage({ role:"bot", text:"使用緊急預備金需要先記錄用途，也要檢查餘額夠不夠，請到『緊急預備金』頁面用「－使用預備金」記錄這筆，會比較準確喔。" });
+}
+// 一般聊天（非記帳意圖）：固定簡短回覆，不建立任何交易草稿、不問金額。
+function pushChatSmallTalkReply(){
+  pushChatMessage({ role:"bot", text:"嗨嗨～我是妳的記帳小幫手 ✨" });
 }
 
 /* ---- 處理上一句「還缺一項」的回覆（同一時間只會記住最新的一筆待補問題） ----
@@ -7441,6 +7463,7 @@ function sendChatMessage(){
     const segments = raw.split(/[、\n；;]+/).map(s=>s.trim()).filter(Boolean);
     const dateCtx = { current: todayStr() };
     const completeDrafts = [];
+    let smallTalkReplied = false;
     segments.forEach(seg=>{
       const parsed = parseChatSegment(seg, dateCtx);
       if(!parsed) return;
@@ -7450,6 +7473,10 @@ function sendChatMessage(){
       else if(parsed.kind==="creditcard_ask") pushChatCreditCardAsk(parsed);
       else if(parsed.kind==="incomplete_amount") pushChatAskAmount(parsed);
       else if(parsed.kind==="incomplete_name") pushChatAskName(parsed);
+      else if(parsed.kind==="chit_chat"){
+        // 同一則訊息裡有好幾段都不是記帳意圖時，只回一次「嗨嗨～」，不重複洗版。
+        if(!smallTalkReplied){ pushChatSmallTalkReply(); smallTalkReplied = true; }
+      }
     });
     if(completeDrafts.length) saveCompleteChatDrafts(completeDrafts);
   }
