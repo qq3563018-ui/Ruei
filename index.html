@@ -964,6 +964,15 @@ emoji-picker{
         <div class="nav-card-arrow">›</div>
       </div>
     </div>
+    <div class="card nav-card" id="goChatLedgerCard">
+      <div class="nav-card-row">
+        <div>
+          <div class="card-title" style="margin-bottom:2px;">💬 聊天記帳</div>
+          <div class="muted">像聊天一樣說說花了多少錢，小夥伴幫你記下來。</div>
+        </div>
+        <div class="nav-card-arrow">›</div>
+      </div>
+    </div>
   </div>
 
   <div id="ledgerSubPanel" style="display:none;">
@@ -1013,6 +1022,20 @@ emoji-picker{
     </div>
     <div id="budgetCycleBanner"></div>
     <div id="budgetContent"></div>
+  </div>
+  <div id="chatLedgerSubPanel" style="display:none;">
+    <button class="back-btn" id="btnBackFromChatLedger">‹ 返回記帳</button>
+    <div class="card" style="padding:0; overflow:hidden; display:flex; flex-direction:column; height:min(600px, calc(100vh - 230px)); min-height:420px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); flex-shrink:0;">
+        <div class="card-title" style="margin:0;">💬 聊天記帳</div>
+        <button class="icon-btn" id="btnChatSoundToggle" title="提示音開關">🔊</button>
+      </div>
+      <div id="chatMsgList" style="flex:1 1 auto; overflow-y:auto; padding:14px;"></div>
+      <div style="display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--line); flex-shrink:0;">
+        <input id="chatInput" placeholder="跟小夥伴說說你花了多少錢…" style="flex:1 1 auto; min-width:0; padding:11px 14px; border-radius:20px; border:1px solid var(--line); font-size:14px; background:var(--bg); color:var(--dark);">
+        <button class="btn-main" id="chatSendBtn" style="width:auto; flex-shrink:0; padding:11px 20px; border-radius:20px;">送出</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1150,7 +1173,11 @@ function withDefaults(obj){
     // 對照索引（txId），不重複存金額／日期／備註，避免兩邊資料不同步或被重複計算；
     // 「使用」則不是一般消費支出，單獨存在這裡，不會進記帳總支出。兩者都是全新欄位，
     // 不會影響任何既有資料，也不會把舊的「緊急預備金」類別記帳紀錄自動轉換成存入紀錄。
-    emergencyFundDeposits:[], emergencyFundWithdrawals:[]
+    emergencyFundDeposits:[], emergencyFundWithdrawals:[],
+    // 聊天式記帳：訊息本身只是「聊天紀錄」，跟記帳的真實資料（DB.transactions）分開存放、
+    // 分開保存期限（聊天紀錄只留 365 天，交易本身永久保留不受影響）。pendingAsk 記的是
+    // 目前還缺一項資訊、等待使用者下一句回覆補齊的那一筆（同一時間只會有一筆待補）。
+    chatLedger:{ messages:[], soundOn:true, pendingAsk:null }
   }, obj);
   // 上面的 Object.assign 只會合併頂層欄位，陣列內部每一筆資料的欄位相容性要在這裡另外補齊，
   // 確保舊備份／舊資料在沒有 completed／habits 相關欄位時，也能用合理的預設值正常運作，不需要手動 migration。
@@ -1177,6 +1204,8 @@ function withDefaults(obj){
   }
   if(!Array.isArray(merged.emergencyFundDeposits)) merged.emergencyFundDeposits = [];
   if(!Array.isArray(merged.emergencyFundWithdrawals)) merged.emergencyFundWithdrawals = [];
+  merged.chatLedger = Object.assign({ messages:[], soundOn:true, pendingAsk:null }, merged.chatLedger||{});
+  if(!Array.isArray(merged.chatLedger.messages)) merged.chatLedger.messages = [];
   return merged;
 }
 let DB = loadDB();
@@ -4368,21 +4397,24 @@ function openTxForm(editId){
       editing.paymentMethod = paymentMethod; editing.creditCardPaymentType = creditCardPaymentType;
       save(); closeSheet(); renderAll(); toast("已更新這筆記帳");
     }else{
-      const newTx = {id:uid(), date, amount, type, category, name, note, paymentMethod, creditCardPaymentType};
-      DB.transactions.push(newTx);
-      // 記帳頁面新增一筆分類＝緊急預備金的支出，就是「從記帳頁面存入預備金」的那個入口：
-      // 直接登記成存入對照索引，跟緊急預備金頁面的「＋存入」共用同一筆交易資料，不重複
-      // 建立也不重複計算。只有「新增」會這樣做，單純「編輯」把分類改成緊急預備金不會，
-      // 避免把舊資料在不經意的情況下悄悄轉換成存入紀錄。
-      let efMsg = "";
-      if(type==="expense" && category===EF_LEDGER_CATEGORY){
-        DB.emergencyFundDeposits.push({id:uid(), txId:newTx.id, createdAt:todayStr()});
-        efMsg = "，已同步存入緊急預備金";
-      }
+      const newTx = createTransactionRecord({date, amount, type, category, name, note, paymentMethod, creditCardPaymentType});
+      let efMsg = (type==="expense" && category===EF_LEDGER_CATEGORY) ? "，已同步存入緊急預備金" : "";
       save(); closeSheet(); renderAll();
       toast("已記錄一筆"+(type==="income"?"收入":"支出")+efMsg);
     }
   });
+}
+// 新增一筆記帳的唯一入口：一般表單、聊天式記帳都共用這裡，確保「新增一筆分類＝緊急預備金
+// 的支出」時，一律同步登記存入對照索引，不會因為新增管道不同而漏掉或重複這個同步。
+// 只有「新增」會這樣做，單純「編輯」把分類改成緊急預備金不會，避免把舊資料在不經意的
+// 情況下悄悄轉換成存入紀錄（跟原本 openTxForm 的行為完全一致）。
+function createTransactionRecord({date, amount, type, category, name, note, paymentMethod, creditCardPaymentType}){
+  const newTx = {id:uid(), date, amount, type, category, name, note:note||"", paymentMethod:paymentMethod||null, creditCardPaymentType:creditCardPaymentType||null};
+  DB.transactions.push(newTx);
+  if(type==="expense" && category===EF_LEDGER_CATEGORY){
+    DB.emergencyFundDeposits.push({id:uid(), txId:newTx.id, createdAt:todayStr()});
+  }
+  return newTx;
 }
 
 /* ============ 固定收支（重複記帳規則） ============
@@ -5169,17 +5201,21 @@ function showLedgerSub(name){
   document.getElementById("ledgerHubPanel").style.display = name==="hub" ? "block" : "none";
   document.getElementById("ledgerSubPanel").style.display = name==="ledger" ? "block" : "none";
   document.getElementById("budgetSubPanel").style.display = name==="budget" ? "block" : "none";
+  document.getElementById("chatLedgerSubPanel").style.display = name==="chat" ? "block" : "none";
   const fab = document.getElementById("mainFab");
   const onLedgerTab = views.find(v=>document.getElementById("view-"+v).classList.contains("active"))==="ledger";
   if(onLedgerTab) fab.style.display = name==="ledger" ? "flex" : "none";
   if(name==="hub") renderFinanceCycleSummaryLabel();
   if(name==="budget") renderBudgetTab();
+  if(name==="chat"){ renderChatSoundBtn(); renderChatMessages(); }
 }
 document.getElementById("goLedgerCard").addEventListener("click", ()=>showLedgerSub("ledger"));
 document.getElementById("goBudgetCard").addEventListener("click", ()=>showLedgerSub("budget"));
+document.getElementById("goChatLedgerCard").addEventListener("click", ()=>showLedgerSub("chat"));
 document.getElementById("btnFinanceCycleSettings").addEventListener("click", ()=>openFinanceCycleSettings());
 document.getElementById("btnBackFromLedger").addEventListener("click", ()=>showLedgerSub("hub"));
 document.getElementById("btnBackFromBudget").addEventListener("click", ()=>showLedgerSub("hub"));
+document.getElementById("btnBackFromChatLedger").addEventListener("click", ()=>showLedgerSub("hub"));
 document.getElementById("budgetPrev").addEventListener("click", ()=>{
   ledgerMonth--; if(ledgerMonth<0){ ledgerMonth=11; ledgerYear--; } renderLedger();
 });
@@ -6572,9 +6608,7 @@ function openEfDepositForm(){
     if(!amount || amount<=0){ toast("請輸入金額"); return; }
     const date = document.getElementById("efd_date").value || todayStr();
     const note = document.getElementById("efd_note").value.trim();
-    const newTx = {id:uid(), date, amount, type:"expense", category:EF_LEDGER_CATEGORY, name:"存入緊急預備金", note, paymentMethod:"other", creditCardPaymentType:null};
-    DB.transactions.push(newTx);
-    DB.emergencyFundDeposits.push({id:uid(), txId:newTx.id, createdAt:todayStr()});
+    createTransactionRecord({date, amount, type:"expense", category:EF_LEDGER_CATEGORY, name:"存入緊急預備金", note, paymentMethod:"other", creditCardPaymentType:null});
     save(); closeSheet(); renderEmergencyFundPanel(); renderNetWorth();
     toast(`🛟 已存入 NT$${amount.toLocaleString()}，底氣又多了一點`);
   });
@@ -7053,6 +7087,463 @@ function openDebtForm(editId){
 }
 document.getElementById("btnAddDebt").addEventListener("click", ()=>openDebtForm(null));
 
+/* ============ 聊天式懶人記帳 ============
+   設計原則（準確優先／懶人優先／介面極簡）：
+   - 完全不呼叫任何 AI API，純本機規則式判斷（日期／金額／分類關鍵字），不增加付費服務。
+   - 建立交易一律呼叫共用的 createTransactionRecord()，跟一般表單、緊急預備金存入走同一條
+     路，不會有第二套「怎麼新增一筆記帳」的邏輯，確保所有統計、預算、緊急預備金連動永遠一致。
+   - 分類只會對應到既有的 EXPENSE_CATS／DB.customExpenseCategories／DB.customCategories.expense，
+     絕不會自己發明新的預設分類；辨識不出來就落在既有的「其他」，不會卡住使用者。
+   - 信用卡還款／負債繳款／緊急預備金使用，都是既有流程有「無法由文字安全判斷」的關鍵資訊
+     （信用卡還款的 already_recorded／new_debt、負債還款的期數與固定金額、緊急預備金使用的
+     用途與餘額檢查），所以一律「問清楚」或「引導去原本的頁面」，不會自己猜、不會自創新的
+     財務邏輯，避免算錢算錯。
+   - 聊天紀錄本身（訊息文字、已讀未讀的待補狀態）跟記帳的真實資料（DB.transactions）是
+     兩份完全獨立的資料：聊天紀錄只保留 365 天、交易永久保留；刪除/復原聊天紀錄只會
+     操作 DB.transactions／DB.emergencyFundDeposits 本身，不會另外存一份金額。 */
+
+// 相對日期／明確日期（M/D、M月D日）統一用裝置本地日期判斷，避免跨時區算錯一天。
+function relativeDateStr(daysAgo){
+  const d = new Date(); d.setDate(d.getDate()-daysAgo); return fmtDate(d);
+}
+function extractChatDate(text){
+  const rel = [["大前天",3],["前天",2],["昨天",1],["今天",0]];
+  for(const [word,days] of rel){
+    if(text.includes(word)) return {dateStr: relativeDateStr(days), matchedText:word};
+  }
+  const m = text.match(/(\d{1,2})[\/月](\d{1,2})日?/);
+  if(m){
+    const month = parseInt(m[1],10), day = parseInt(m[2],10);
+    const now = new Date();
+    let year = now.getFullYear();
+    let d = new Date(year, month-1, day);
+    if(d.getTime() > now.getTime()){ year -= 1; d = new Date(year, month-1, day); }
+    if(d.getMonth()===month-1 && d.getDate()===day){
+      return {dateStr: fmtDate(d), matchedText:m[0]};
+    }
+  }
+  return null;
+}
+function extractChatAmount(text){
+  const m = text.match(/\d+(?:,\d{3})*(?:\.\d+)?/);
+  if(!m) return null;
+  const n = parseFloat(m[0].replace(/,/g,""));
+  return (isNaN(n) || n<=0) ? null : n;
+}
+function stripChatAmount(text){
+  return text.replace(/\d+(?:,\d{3})*(?:\.\d+)?/,"").replace(/元|塊|圓|NT\$?|\$/gi,"");
+}
+const CHAT_FILLER_WORDS = ["購買","買了","買","花了","花費","花","支出","消費","付了","付","繳了","繳","存入","存進","存了","存","放入","拿出","提領","使用","領出","動用","提出","的","了"];
+function cleanChatItemName(text){
+  let t = text;
+  CHAT_FILLER_WORDS.forEach(w=>{ t = t.split(w).join(""); });
+  return t.replace(/[,，。！～~、\s]+/g,"").trim();
+}
+function inferChatPaymentMethod(text){
+  if(/信用卡|刷卡/.test(text)) return "credit";
+  if(/轉帳|匯款|金融卡|借記卡/.test(text)) return "card";
+  if(/悠遊卡|一卡通|line\s*pay|linepay|街口|行動支付|電子支付|icash/i.test(text)) return "other";
+  return "cash";
+}
+const CHAT_INCOME_TRIGGER_WORDS = ["收入","薪水","薪資","工資","月薪","獎金","紅包","分紅","退款","退費","退稅","利息","股息","配息","股利","入帳"];
+const CHAT_INCOME_KEYWORDS = [
+  {category:"薪資", keywords:["薪水","薪資","工資","月薪"]},
+  {category:"獎金", keywords:["獎金","紅包","分紅"]},
+  {category:"兼職", keywords:["兼職","外包","接案","打工"]},
+  {category:"投資", keywords:["投資","股息","利息","配息","股利"]},
+];
+function inferChatIncomeCategory(text){
+  for(const c of INCOME_CATS){ if(text.includes(c)) return c; }
+  for(const row of CHAT_INCOME_KEYWORDS){ if(row.keywords.some(k=>text.includes(k))) return row.category; }
+  return "其他";
+}
+// 支出分類推測第 4 層（關鍵字 → 既有分類）：只對應到既有 EXPENSE_CATS 裡本來就有的名字，
+// 絕不會自己發明新的分類（例如「購買日常用品」不會變成一個新的「生活用品」分類，
+// 而是對應回既有的「購物」）。
+const CHAT_EXPENSE_KEYWORDS = [
+  {category:"餐費", keywords:["早餐","午餐","晚餐","夜宵","宵夜","飲料","咖啡","奶茶","吃飯","便當","下午茶","零食","水果","早午餐","外送"]},
+  {category:"交通", keywords:["計程車","公車","捷運","高鐵","火車","加油","停車","油錢","車票","uber","悠遊卡","一卡通"]},
+  {category:"手機／網路", keywords:["手機費","網路費","電信費","wifi","月租費"]},
+  {category:"水電／瓦斯", keywords:["水費","電費","瓦斯費","水電費"]},
+  {category:"保險", keywords:["保費","保險費","保險"]},
+  {category:"醫療／藥品", keywords:["看醫生","藥局","診所","醫院","掛號費","牙醫","買藥"]},
+  {category:"孝親／家庭支出", keywords:["孝親","給媽媽","給爸爸","家用"]},
+  {category:"美容／保養", keywords:["美容","美髮","剪髮","按摩","美甲","spa"]},
+  {category:"娛樂", keywords:["電影","遊戲","ktv","唱歌","遊樂園","展覽"]},
+  {category:"聚餐／約會", keywords:["聚餐","約會"]},
+  {category:"興趣", keywords:["興趣","樂器","攝影"]},
+  {category:"訂閱／會員", keywords:["訂閱","會員費","netflix","spotify"]},
+  {category:"旅行／玩樂", keywords:["旅行","旅遊","機票","飯店","訂房","出遊"]},
+  {category:"學習", keywords:["學費","補習","課程","上課","講座"]},
+  {category:"購物", keywords:["購物","買東西","東西","衣服","鞋子","包包","化妝品","保養品","日常用品","生活用品","用品","衛生紙","文具"]},
+];
+// 支出分類推測（嚴格五層優先序）：
+// 1. 文字裡直接出現既有預設分類名稱（EXPENSE_CATS）
+// 2. 文字裡直接出現使用者自訂的預算細項名稱（DB.customExpenseCategories）
+// 3. 文字裡直接出現記帳自己既有的自訂分類（DB.customCategories.expense）
+// 4. 關鍵字對照既有分類（CHAT_EXPENSE_KEYWORDS）
+// 5. 以上都對不到，落在既有的「其他」，不會自己發明新分類
+function inferChatExpenseCategory(text){
+  for(const c of EXPENSE_CATS){ if(text.includes(c)) return c; }
+  for(const c of (DB.customExpenseCategories||[])){ if(c.label && text.includes(c.label)) return c.id; }
+  for(const c of (DB.customCategories.expense||[])){ if(!EXPENSE_CATS.includes(c) && text.includes(c)) return c; }
+  for(const row of CHAT_EXPENSE_KEYWORDS){ if(row.keywords.some(k=>text.includes(k))) return row.category; }
+  return "其他";
+}
+const CHAT_DEBT_BUCKET_CATS = ["信貸","學貸","房貸","車貸","分期付款","親友借款","其他債務／固定責任"];
+// 解析單一段文字（一則訊息可能用「、」拆成多筆，各自可能有自己的日期）。
+// dateCtx.current 會在呼叫端依序往下傳遞，讓沒有自己指定日期的段落沿用前一段（或今天）。
+function parseChatSegment(raw, dateCtx){
+  let text = raw.trim();
+  if(!text) return null;
+  const dm = extractChatDate(text);
+  let date = dateCtx.current;
+  if(dm){ date = dm.dateStr; dateCtx.current = date; text = text.replace(dm.matchedText, "").trim(); }
+  if(!text) return null;
+
+  const amount = extractChatAmount(text);
+  const isIncome = CHAT_INCOME_TRIGGER_WORDS.some(k=>text.includes(k));
+  const mentionsEf = /緊急預備金|預備金/.test(text);
+  const isEfWithdraw = mentionsEf && /提領|使用|領出|拿出|動用|提出/.test(text);
+  const isEfDeposit = mentionsEf && !isEfWithdraw;
+  const debtCatHit = CHAT_DEBT_BUCKET_CATS.find(k=>text.includes(k));
+  const isDebtPay = !!debtCatHit && /繳|還|付|償還|清償/.test(text) && !text.includes("信用卡");
+  const isCreditCardPay = !isDebtPay && (/信用卡|卡費|刷卡費/.test(text) || text.includes(CREDIT_CARD_PAYMENT_CATEGORY));
+
+  if(isEfWithdraw){ return {kind:"ef_withdraw_guide", date}; }
+
+  if(isDebtPay){
+    const nameGuess = cleanChatItemName(stripChatAmount(text)) || debtCatHit;
+    return {kind:"debt_guide", date, amount, category:debtCatHit, name:nameGuess};
+  }
+
+  const nameRaw = cleanChatItemName(stripChatAmount(text));
+
+  if(isCreditCardPay){
+    if(amount==null) return {kind:"incomplete_amount", date, isIncome:false, draftNameRaw: nameRaw || "信用卡還款", forceCreditCard:true};
+    return {kind:"creditcard_ask", date, amount, name: nameRaw || "信用卡還款"};
+  }
+
+  if(isEfDeposit){
+    if(amount==null) return {kind:"incomplete_amount", date, isIncome:false, draftNameRaw:"存入緊急預備金", forceCategory:EF_LEDGER_CATEGORY};
+    return {kind:"complete", type:"expense", amount, name:"存入緊急預備金", date, category:EF_LEDGER_CATEGORY, note:"", paymentMethod:inferChatPaymentMethod(text)};
+  }
+
+  if(amount==null){
+    if(!nameRaw) return null;
+    return {kind:"incomplete_amount", date, isIncome, draftNameRaw:nameRaw};
+  }
+  if(!nameRaw){
+    return {kind:"incomplete_name", date, isIncome, amount};
+  }
+  const category = isIncome ? inferChatIncomeCategory(nameRaw) : inferChatExpenseCategory(nameRaw);
+  if(!isIncome && category===CREDIT_CARD_PAYMENT_CATEGORY){
+    return {kind:"creditcard_ask", date, amount, name: nameRaw};
+  }
+  return {kind:"complete", type:isIncome?"income":"expense", amount, name:nameRaw, date, category, paymentMethod: isIncome?null:inferChatPaymentMethod(text)};
+}
+
+/* ---- 聊天訊息存取 ---- */
+function pushChatMessage(partial){
+  const msg = Object.assign({ id:uid(), createdAt:new Date().toISOString() }, partial);
+  DB.chatLedger.messages.push(msg);
+  return msg;
+}
+// 聊天紀錄只保留 365 天（跟交易本身的永久保存完全分開），開機時跑一次即可，
+// 不影響任何一筆真實的記帳交易。
+function purgeOldChatMessages(){
+  const cutoff = Date.now() - 365*24*60*60*1000;
+  const before = DB.chatLedger.messages.length;
+  DB.chatLedger.messages = DB.chatLedger.messages.filter(m=>{
+    const t = Date.parse(m.createdAt);
+    return isNaN(t) ? true : t >= cutoff;
+  });
+  if(DB.chatLedger.messages.length !== before) save();
+}
+
+/* ---- 把已經確定完整的草稿存成真正的記帳交易，並回覆「記好啦」摘要 ---- */
+function saveCompleteChatDrafts(drafts){
+  const lines = []; const txIds = []; let total = 0;
+  drafts.forEach(d=>{
+    const tx = createTransactionRecord({
+      date:d.date, amount:d.amount, type:d.type, category:d.category, name:d.name,
+      note:d.note||"", paymentMethod:d.paymentMethod||"cash", creditCardPaymentType:d.creditCardPaymentType||null
+    });
+    txIds.push(tx.id);
+    const catLabel = expenseCategoryLabel(d.category);
+    lines.push({ txId:tx.id, text:`${d.type==="income"?"💵":"🧾"} ${d.name} $${d.amount.toLocaleString()}（${catLabel}）` });
+    total += d.amount;
+  });
+  // 項目本身只透過下面的 items（可點擊查看／編輯）顯示一次，text 只放開頭一句、footer 放
+  // 結尾一句，項目清單夾在中間，避免同一筆記帳在泡泡裡被印兩次（一次純文字、一次可點擊連結）。
+  const footer = `共 ${drafts.length} 筆，合計 $${total.toLocaleString()}。`;
+  pushChatMessage({ role:"bot", text:"記好啦～ ✨", items:lines, footer, undoTxIds:txIds, undone:false });
+  save();
+}
+function pushChatAskAmount(p){
+  const name = cleanChatItemName(p.draftNameRaw||"");
+  if(!name) return;
+  DB.chatLedger.pendingAsk = { field:"amount", draft:{
+    type: p.isIncome?"income":"expense", name, date:p.date,
+    category: p.forceCategory || (p.forceCreditCard ? CREDIT_CARD_PAYMENT_CATEGORY : (p.isIncome?inferChatIncomeCategory(name):inferChatExpenseCategory(name))),
+    paymentMethod: p.forceCreditCard ? "credit" : (p.isIncome?null:"cash")
+  }};
+  pushChatMessage({ role:"bot", text:`「${name}」是多少錢呢？` });
+}
+function pushChatAskName(p){
+  DB.chatLedger.pendingAsk = { field:"name", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null } };
+  pushChatMessage({ role:"bot", text:`這筆 $${p.amount.toLocaleString()} 是用在什麼地方呢？` });
+}
+function pushChatDebtGuide(p){
+  const label = expenseCategoryLabel(p.category);
+  pushChatMessage({
+    role:"bot",
+    text:`「${label}」的還款會跟『我的負債』頁面的進度連動，為了避免金額或期數算錯，建議到『我的負債』用「✓ 完成本期還款」記錄這筆，會比較準確喔。`,
+    quickReply:{ kind:"debtConfirm", resolved:false, draft:{ type:"expense", amount:p.amount||0, name:p.name||label, date:p.date, category:p.category, paymentMethod:"cash" } }
+  });
+}
+function pushChatCreditCardAsk(p){
+  pushChatMessage({
+    role:"bot",
+    text:`「${p.name}」$${p.amount.toLocaleString()} 這筆信用卡還款，主要是？`,
+    quickReply:{ kind:"creditcard", resolved:false, draft:{ type:"expense", amount:p.amount, name:p.name, date:p.date, category:CREDIT_CARD_PAYMENT_CATEGORY, paymentMethod:"credit" } }
+  });
+}
+function pushChatEfWithdrawGuide(){
+  pushChatMessage({ role:"bot", text:"使用緊急預備金需要先記錄用途，也要檢查餘額夠不夠，請到『緊急預備金』頁面用「－使用預備金」記錄這筆，會比較準確喔。" });
+}
+
+/* ---- 處理上一句「還缺一項」的回覆（同一時間只會記住最新的一筆待補問題） ----
+   只有「整句話整個就是在回答那一項缺的資訊」才算數，避免把下一句其實是全新、
+   自己就有完整資訊（甚至是信用卡還款／負債還款等特殊交易）的訊息，誤吃成這一題的答案。 */
+function tryResolveChatPendingAsk(rawText){
+  const pending = DB.chatLedger.pendingAsk;
+  if(!pending) return false;
+  if(/[、\n；;]/.test(rawText)){ DB.chatLedger.pendingAsk = null; return false; }
+  const trimmed = rawText.trim();
+  if(pending.field==="amount"){
+    // 整句必須「就只是」一個金額（可以帶元／塊／圓／貨幣符號），不能還夾雜其他文字，
+    // 否則代表這其實是另一句完整的新訊息（例如「繳信用卡3000」），不是在回答金額。
+    const bareAmountMatch = trimmed.match(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i);
+    if(!bareAmountMatch) return false;
+    const amt = extractChatAmount(trimmed);
+    if(amt==null) return false;
+    const draft = pending.draft; draft.amount = amt;
+    DB.chatLedger.pendingAsk = null;
+    // 信用卡還款這筆缺的是金額，補齊金額之後仍然要先問清楚 already_recorded／new_debt，
+    // 不能因為走的是「補問金額」這條路就跳過信用卡防重複的必問問題。
+    if(draft.category===CREDIT_CARD_PAYMENT_CATEGORY){
+      pushChatCreditCardAsk({date:draft.date, amount:draft.amount, name:draft.name});
+    }else{
+      saveCompleteChatDrafts([draft]);
+    }
+    return true;
+  }
+  if(pending.field==="name"){
+    // 如果這句話自己就帶了金額，或命中信用卡／負債／緊急預備金等特殊關鍵字，代表這其實是
+    // 另一筆全新、自己資訊齊全（或該走特殊流程）的訊息，不是在回答「這是做什麼用的」。
+    if(extractChatAmount(trimmed)!=null) return false;
+    if(/緊急預備金|預備金|信用卡|卡費|刷卡費/.test(trimmed) || CHAT_DEBT_BUCKET_CATS.some(k=>trimmed.includes(k))) return false;
+    const name = cleanChatItemName(trimmed) || trimmed.replace(/[。！,，]/g,"").trim();
+    if(!name) return false;
+    const draft = pending.draft; draft.name = name;
+    draft.category = draft.type==="income" ? inferChatIncomeCategory(name) : inferChatExpenseCategory(name);
+    DB.chatLedger.pendingAsk = null;
+    saveCompleteChatDrafts([draft]);
+    return true;
+  }
+  return false;
+}
+
+/* ---- 快速回覆按鈕（信用卡還款類型／負債引導後仍要記一般支出）---- */
+function resolveChatQuickReply(msg, choice){
+  if(!msg.quickReply || msg.quickReply.resolved) return;
+  const draft = msg.quickReply.draft;
+  if(msg.quickReply.kind==="creditcard"){
+    if(choice==="cancel"){
+      msg.quickReply.resolved = true; msg.quickReply.resultText = "好，先不記這筆了";
+      save(); renderChatMessages(); return;
+    }
+    draft.creditCardPaymentType = choice;
+    msg.quickReply.resolved = true;
+    msg.quickReply.resultText = choice==="already_recorded" ? "繳之前已記錄的刷卡消費" : "償還之前的信用卡欠款";
+    saveCompleteChatDrafts([draft]);
+    renderChatMessages();
+  }else if(msg.quickReply.kind==="debtConfirm"){
+    if(choice==="log_anyway"){
+      msg.quickReply.resolved = true; msg.quickReply.resultText = "改記一般支出";
+      saveCompleteChatDrafts([draft]);
+    }else{
+      msg.quickReply.resolved = true; msg.quickReply.resultText = "好，先不自動記這筆";
+      save();
+    }
+    renderChatMessages();
+  }
+}
+
+/* ---- 復原本次記帳：先檢查目前還存不存在，只動這次新增的這幾筆，批次用同一套 15 秒復原 ---- */
+function undoChatBatch(msg){
+  const ids = msg.undoTxIds || [];
+  const existingTxs = ids.map(id=>DB.transactions.find(t=>t.id===id)).filter(Boolean);
+  if(!existingTxs.length){ msg.undone = true; save(); renderChatMessages(); toast("這些紀錄已經不在了"); return; }
+  confirmDelete(`這次記的 ${existingTxs.length} 筆帳`, ()=>{
+    const removedTxs = []; const removedDeposits = [];
+    existingTxs.forEach(tx=>{
+      const idx = DB.transactions.findIndex(t=>t.id===tx.id);
+      if(idx>-1) removedTxs.push(DB.transactions.splice(idx,1)[0]);
+      const depIdx = DB.emergencyFundDeposits.findIndex(d=>d.txId===tx.id);
+      if(depIdx>-1) removedDeposits.push(DB.emergencyFundDeposits.splice(depIdx,1)[0]);
+    });
+    msg.undone = true;
+    save(); renderAll(); renderChatMessages();
+    showUndoToast(`已復原 ${removedTxs.length} 筆記帳`, ()=>{
+      removedTxs.forEach(tx=>DB.transactions.push(tx));
+      removedDeposits.forEach(d=>DB.emergencyFundDeposits.push(d));
+      msg.undone = false;
+      save(); renderAll(); renderChatMessages();
+      toast("已復原");
+    });
+  });
+}
+
+/* ---- 送出訊息 ---- */
+function sendChatMessage(){
+  const input = document.getElementById("chatInput");
+  const raw = (input.value||"").trim();
+  if(!raw) return;
+  input.value = "";
+  pushChatMessage({ role:"user", text:raw });
+  playChatSendSound();
+
+  if(!tryResolveChatPendingAsk(raw)){
+    const segments = raw.split(/[、\n；;]+/).map(s=>s.trim()).filter(Boolean);
+    const dateCtx = { current: todayStr() };
+    const completeDrafts = [];
+    segments.forEach(seg=>{
+      const parsed = parseChatSegment(seg, dateCtx);
+      if(!parsed) return;
+      if(parsed.kind==="complete") completeDrafts.push(parsed);
+      else if(parsed.kind==="ef_withdraw_guide") pushChatEfWithdrawGuide();
+      else if(parsed.kind==="debt_guide") pushChatDebtGuide(parsed);
+      else if(parsed.kind==="creditcard_ask") pushChatCreditCardAsk(parsed);
+      else if(parsed.kind==="incomplete_amount") pushChatAskAmount(parsed);
+      else if(parsed.kind==="incomplete_name") pushChatAskName(parsed);
+    });
+    if(completeDrafts.length) saveCompleteChatDrafts(completeDrafts);
+  }
+  save();
+  renderChatMessages();
+}
+
+/* ---- 原創、非 LINE 既有音效的送出提示音：Web Audio API 產生的兩個音階，預設開啟，
+   失敗（不支援／被瀏覽器阻擋）一律吞掉，絕對不會影響記帳本身 ---- */
+let _chatAudioCtx = null;
+function playChatSendSound(){
+  if(!DB.chatLedger.soundOn) return;
+  try{
+    if(!_chatAudioCtx) _chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _chatAudioCtx;
+    if(ctx.state === "suspended") ctx.resume();
+    const now = ctx.currentTime;
+    [[880, 0, 0.07], [1320, 0.07, 0.09]].forEach(([freq, offset, dur])=>{
+      const start = now + offset;
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.type = "sine"; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start+dur);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(start); osc.stop(start+dur+0.02);
+    });
+  }catch(e){ /* 音效播放失敗不影響記帳功能 */ }
+}
+function renderChatSoundBtn(){
+  const btn = document.getElementById("btnChatSoundToggle");
+  if(btn) btn.textContent = DB.chatLedger.soundOn ? "🔊" : "🔇";
+}
+document.getElementById("btnChatSoundToggle").addEventListener("click", ()=>{
+  DB.chatLedger.soundOn = !DB.chatLedger.soundOn;
+  save(); renderChatSoundBtn();
+  toast(DB.chatLedger.soundOn ? "已開啟提示音" : "已關閉提示音");
+});
+
+/* ---- 畫面 ---- */
+function renderChatBubble(msg){
+  if(msg.role==="user"){
+    return `<div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+      <div class="user-msg" style="max-width:78%; margin-bottom:0;">${escapeHtml(msg.text)}</div>
+    </div>`;
+  }
+  let itemsHtml = "";
+  if(msg.items && msg.items.length){
+    itemsHtml = `<div style="margin-top:6px;">` + msg.items.map(it=>{
+      const stillExists = DB.transactions.some(t=>t.id===it.txId);
+      return stillExists
+        ? `<div class="chat-item-link" data-txid="${it.txId}" style="cursor:pointer; text-decoration:underline; margin:2px 0;">${escapeHtml(it.text)}</div>`
+        : `<div style="color:var(--gray); text-decoration:line-through; margin:2px 0;">${escapeHtml(it.text)}（已刪除）</div>`;
+    }).join("") + `</div>`;
+  }
+  let qrHtml = "";
+  if(msg.quickReply && !msg.quickReply.resolved){
+    if(msg.quickReply.kind==="creditcard"){
+      qrHtml = `<div class="seg" style="margin-top:8px;">
+        <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="already_recorded">繳之前刷卡的消費</button>
+        <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="new_debt">償還信用卡欠款</button>
+      </div>`;
+    }else if(msg.quickReply.kind==="debtConfirm"){
+      qrHtml = `<div class="seg" style="margin-top:8px;">
+        <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="log_anyway">仍要記一般支出</button>
+        <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="cancel">先不記</button>
+      </div>`;
+    }
+  }else if(msg.quickReply && msg.quickReply.resolved && msg.quickReply.resultText){
+    qrHtml = `<div class="muted" style="margin-top:6px;">已選擇：${escapeHtml(msg.quickReply.resultText)}</div>`;
+  }
+  let undoHtml = "";
+  if(msg.undoTxIds && msg.undoTxIds.length){
+    undoHtml = msg.undone
+      ? `<div class="muted" style="margin-top:6px;">已復原這次記帳</div>`
+      : `<button class="small-link chat-undo-btn" data-msgid="${msg.id}" style="margin-top:6px;">復原本次記帳</button>`;
+  }
+  const footerHtml = msg.footer ? `<div style="margin-top:6px;">${escapeHtml(msg.footer)}</div>` : "";
+  return `<div style="display:flex; justify-content:flex-start; margin-bottom:8px;">
+    <div class="ai-msg" style="max-width:82%; margin-bottom:0;">${escapeHtml(msg.text).replace(/\n/g,"<br>")}${itemsHtml}${footerHtml}${qrHtml}${undoHtml}</div>
+  </div>`;
+}
+function wireChatMessageEvents(){
+  document.querySelectorAll(".chat-item-link").forEach(el=>{
+    el.addEventListener("click", ()=>openTxForm(el.dataset.txid));
+  });
+  document.querySelectorAll(".chat-qr-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      const msg = DB.chatLedger.messages.find(m=>m.id===b.dataset.msgid);
+      if(msg) resolveChatQuickReply(msg, b.dataset.choice);
+    });
+  });
+  document.querySelectorAll(".chat-undo-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      const msg = DB.chatLedger.messages.find(m=>m.id===b.dataset.msgid);
+      if(msg) undoChatBatch(msg);
+    });
+  });
+}
+function renderChatMessages(){
+  const list = document.getElementById("chatMsgList");
+  if(!list) return;
+  if(!DB.chatLedger.messages.length){
+    list.innerHTML = `<div class="empty-state">跟小夥伴說說今天花了什麼，像「午餐120」這樣就可以囉 🌱</div>`;
+  }else{
+    list.innerHTML = DB.chatLedger.messages.map(renderChatBubble).join("");
+  }
+  wireChatMessageEvents();
+  list.scrollTop = list.scrollHeight;
+}
+document.getElementById("chatSendBtn").addEventListener("click", sendChatMessage);
+document.getElementById("chatInput").addEventListener("keydown", (e)=>{
+  if(e.key==="Enter"){ e.preventDefault(); sendChatMessage(); }
+});
+purgeOldChatMessages();
+
 /* ============ 匯出／匯入備份（Excel） ============
    每個陣列型的資料各自一張工作表；巢狀資料（負債的每期還款、目標的目標事項）
    沒辦法自然攤平成表格欄位，所以整包用 JSON 文字存在同一格裡，匯入時再還原，
@@ -7092,6 +7583,13 @@ function exportBackup(){
   // 匯入時重新比對 txId 就能自動接回對應的交易，不需要另外存一次重複的金額欄位。
   addSheet("緊急預備金存入", (DB.emergencyFundDeposits||[]).map(d=>({id:d.id, txId:d.txId, createdAt:d.createdAt||""})));
   addSheet("緊急預備金使用", (DB.emergencyFundWithdrawals||[]).map(w=>({id:w.id, amount:w.amount, date:w.date, purpose:w.purpose||"", note:w.note||"", createdAt:w.createdAt||""})));
+  // 聊天記帳的訊息本身（含每筆連到的交易 id、復原狀態、快速回覆狀態），跟「記帳」分頁
+  // 的真實交易資料完全分開存放；還原時用 itemsJSON 裡的 txId 回頭比對「記帳」分頁即可。
+  addSheet("聊天記帳", (DB.chatLedger.messages||[]).map(m=>({
+    id:m.id, role:m.role, text:m.text||"", createdAt:m.createdAt||"",
+    itemsJSON:JSON.stringify(m.items||[]), undoTxIdsJSON:JSON.stringify(m.undoTxIds||[]),
+    undone:!!m.undone, quickReplyJSON:JSON.stringify(m.quickReply||null)
+  })));
   addSheet("設定", [
     {key:"theme", value:DB.theme||"pink"},
     {key:"appName", value:DB.appName||""},
@@ -7108,6 +7606,7 @@ function exportBackup(){
     {key:"gardenAcknowledgedMilestone", value:DB.gardenAcknowledgedMilestone||0},
     {key:"financeCycleStartDay", value:DB.financeCycleStartDay||1},
     {key:"financeCycleOverridesJSON", value:JSON.stringify(DB.financeCycleOverrides||{})},
+    {key:"chatSoundOn", value: DB.chatLedger.soundOn===false ? "FALSE" : "TRUE"},
   ]);
   XLSX.writeFile(wb, `生活小夥伴備份_${todayStr()}.xlsx`);
   toast("備份已下載");
@@ -7174,6 +7673,13 @@ function importBackupFromWorkbook(wb){
   const emergencyFundWithdrawals = sheetRows(wb, "緊急預備金使用").map(r=>({
     id:r.id||uid(), amount:Number(r.amount)||0, date:String(r.date||""), purpose:r.purpose||"", note:r.note||"", createdAt:r.createdAt||""
   }));
+  // 舊備份沒有「聊天記帳」分頁時，sheetRows 會安全回傳空陣列，還原成「還沒有任何聊天紀錄」，
+  // 不影響舊備份其他資料的還原。
+  const chatMessages = sheetRows(wb, "聊天記帳").map(r=>({
+    id:r.id||uid(), role:r.role||"bot", text:String(r.text||""), createdAt:r.createdAt||new Date().toISOString(),
+    items: safeJSONParse(r.itemsJSON, []), undoTxIds: safeJSONParse(r.undoTxIdsJSON, []),
+    undone: r.undone===true || r.undone==="TRUE", quickReply: safeJSONParse(r.quickReplyJSON, null)
+  }));
 
   DB = withDefaults({
     theme: settings.theme || "pink",
@@ -7199,11 +7705,14 @@ function importBackupFromWorkbook(wb){
     gardenAcknowledgedMilestone: parseInt(settings.gardenAcknowledgedMilestone, 10) || 0,
     financeCycleStartDay: parseInt(settings.financeCycleStartDay, 10) || 1,
     financeCycleOverrides: safeJSONParse(settings.financeCycleOverridesJSON, {}),
+    chatLedger: { messages: chatMessages, soundOn: settings.chatSoundOn!=="FALSE", pendingAsk: null },
   });
   migrateLegacyExpenseCategories(); // 匯入舊備份時，同樣把舊記帳分類（餐飲／居住／醫療）併回共用的 canonical 名稱
+  purgeOldChatMessages();
   save();
   document.body.setAttribute("data-theme", DB.theme);
   renderThemeRow(); renderAll();
+  if(ledgerSubView==="chat"){ renderChatSoundBtn(); renderChatMessages(); }
   toast("備份已匯入");
 }
 document.getElementById("importFile").addEventListener("change", (e)=>{
