@@ -26,11 +26,18 @@
  *   直接呼叫網頁裡真正的 sendChatMessage()，不是另外寫一份簡化版
  *   的解析邏輯，確保測試測的就是正式程式碼本身。
  *
- * 測試案例分成四組，呼應這次需求的四個類別：
+ * 測試案例分成五組：
  *   A. normal       - 50 句應該直接記帳的句子
  *   B. chitChat      - 30 句一般聊天，不該記帳
  *   C. tricky        - 20 句容易誤判的邊界案例
  *   D. multiContext  - 20 句多筆／日期／待補上下文案例
+ *   E. confirmFlow   - 「不確定交易的確認機制」與多輪補充資訊流程，
+ *                       對應需求裡的 A～K 情境（C 缺分類／D 轉折句先
+ *                       確認金額／E 回答「對」保留上下文／F 回答「不是，
+ *                       是150元」更正金額／G 回答「最後沒買」不建立交易／
+ *                       H 回答「取消」清除待確認狀態／I 一般聊天不觸發
+ *                       確認／J 多筆交易中只有部分需要確認／K 確認完成
+ *                       後正式交易與財務串聯正確更新）
  */
 
 const path = require('path');
@@ -195,6 +202,51 @@ const TESTS = {
     { id:'D19', steps:['今天沒有買早餐、午餐120'], expect:{ txAdded:1, lastTx:{ amount:120, category:'餐費' } } },
     { id:'D20', steps:['10/10買咖啡65'], expect:{ txAdded:1, lastTx:{ amount:65, category:'餐費' } } },
   ],
+
+  // ===== E. 不確定交易的確認機制／多輪補充資訊流程 =====
+  confirmFlow: [
+    // A（對照組）：資訊完整直接記帳，不該觸發任何確認。
+    { id:'E_A1', steps:['午餐120'], expect:{ txAdded:1, lastTx:{ amount:120, category:'餐費' }, pendingAskAfter:false } },
+    // B（對照組）：純粹缺金額，照舊只問金額，不是確認式問句。
+    { id:'E_B1', steps:['早餐'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'amount', lastBotReplyIncludes:'多少錢' } },
+    // C：資訊完整只缺分類時，只問分類，不重複確認日期／金額／收支類型。
+    { id:'E_C1', steps:['昨天花了300元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', lastBotReplyIncludes:'分類' } },
+    { id:'E_C2', steps:['昨天花了300元','購物'], expect:{ txAdded:1, lastTx:{ amount:300, category:'購物', dateOffsetDays:-1 }, pendingAskAfter:false } },
+    // D：轉折句猜出來的金額，先確認金額本身（不是直接問分類，也不是直接記帳）。
+    { id:'E_D1', steps:['我昨天差點花500元，結果只花了100元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'confirmAmount', lastBotReplyIncludes:'100' } },
+    // E：回答「對」後，保留金額／日期，只在分類仍不明時才繼續問分類。
+    { id:'E_E1', steps:['我昨天差點花500元，結果只花了100元','對'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', lastBotReplyIncludes:'分類' } },
+    { id:'E_E2', steps:['我昨天差點花500元，結果只花了100元','對','購物'], expect:{ txAdded:1, lastTx:{ amount:100, category:'購物', dateOffsetDays:-1 }, pendingAskAfter:false } },
+    // F：回答「不是，是150元」後，更正待確認金額，不會同時留下 100 跟 150 兩筆。
+    { id:'E_F1', steps:['我昨天差點花500元，結果只花了100元','不是，是150元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', lastBotReplyIncludes:'150' } },
+    { id:'E_F2', steps:['我昨天差點花500元，結果只花了100元','不是，是150元','飲料'], expect:{ txAdded:1, lastTx:{ amount:150, category:'餐費', dateOffsetDays:-1 }, pendingAskAfter:false } },
+    // G：回答「最後沒買／根本沒買」後，不建立任何交易。
+    { id:'E_G1', steps:['我昨天差點花500元，結果只花了100元','不是，我最後根本沒買'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // H：輸入「取消」或「算了」後，正確清除待確認狀態（之後可以正常開始新的一筆）。
+    { id:'E_H1', steps:['我昨天差點花500元，結果只花了100元','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_H2', steps:['我昨天差點花500元，結果只花了100元','算了'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_H3', steps:['我昨天差點花500元，結果只花了100元','算了','早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:false } },
+    // I：一般聊天完全不會進入確認機制（不是只檢查「沒記帳」，是連 pendingAsk 都不該出現）。
+    { id:'E_I1', steps:['你好'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_I2', steps:['早餐很好吃'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_I3', steps:['今天想買飲料'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_I4', steps:['最近餐費好高'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // J：一次輸入多筆，其中一筆需要確認時，已經完整的那一筆照樣直接記帳，不會被卡住，
+    // 也不會因為後面在等確認，就重複處理前面已經完成的那一筆。
+    { id:'E_J1', steps:['早餐50、我昨天差點花500元結果只花了100元'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:true, pendingAskField:'confirmAmount' } },
+    { id:'E_J2', steps:['早餐50、我昨天差點花500元結果只花了100元','對','購物'], expect:{ txAdded:2, lastTx:{ amount:100, category:'購物' }, pendingAskAfter:false } },
+    // 待確認期間輸入另一筆全新、資訊齊全的記帳指令，不會被誤吃成上一筆的回答，
+    // 新的那一筆照樣正確記帳（原本待確認的狀態維持不變，不會被悄悄清掉或誤判）。
+    { id:'E_J3', steps:['我昨天差點花500元，結果只花了100元','早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:true, pendingAskField:'confirmAmount' } },
+    // 沒有待確認交易時，「對」「算了」這類簡短回答不會被誤解讀成記帳。
+    { id:'E_X1', steps:['對'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_X2', steps:['算了'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // K：轉折句如果連分類都能確定（例如句子裡本來就提到「衣服」），代表規則判斷已經有
+    // 足夠把握，直接記帳即可，不需要多一層確認——呼應「不得為了完成記帳增加不必要的
+    // 確認步驟」。這筆完成後記帳歷史／收支統計／預算／復盤的即時串聯，由既有的
+    // saveCompleteChatDrafts() → renderAll() 機制保證（見下面 main() 的額外 DOM 檢查）。
+    { id:'E_K1', steps:['昨天原本想買500元的衣服，但最後花了300元買衣服'], expect:{ txAdded:1, lastTx:{ amount:300, category:'購物', dateOffsetDays:-1 }, pendingAskAfter:false } },
+  ],
 };
 
 async function runGroup(page, groupName, cases) {
@@ -255,6 +307,20 @@ async function runGroup(page, groupName, cases) {
           problems.push(`pendingAsk 預期${c.expect.pendingAskAfter ? '存在' : '不存在'}，實際${has ? '存在' : '不存在'}`);
         }
       }
+      if (c.expect.pendingAskField != null) {
+        const field = pendingAsk ? pendingAsk.field : null;
+        if (field !== c.expect.pendingAskField) {
+          problems.push(`pendingAsk.field 預期 ${c.expect.pendingAskField}，實際 ${field}`);
+        }
+      }
+      if (c.expect.lastBotReplyIncludes != null) {
+        const bots = await page.evaluate(() => DB.chatLedger.messages.filter(m => m.role === 'bot'));
+        const lastBot = bots[bots.length - 1];
+        const text = lastBot ? lastBot.text : '';
+        if (!text.includes(c.expect.lastBotReplyIncludes)) {
+          problems.push(`最後一句小夥伴回覆預期包含「${c.expect.lastBotReplyIncludes}」，實際「${text}」`);
+        }
+      }
     }
 
     results.push({ id: c.id, group: groupName, steps: c.steps, pass: problems.length === 0, problems, added, lastTx, pendingAsk });
@@ -278,6 +344,42 @@ async function main() {
     const r = await runGroup(page, groupName, cases);
     allResults.push(...r);
   }
+
+  // K：確認流程完成後，正式記帳歷史／當月收支／分類統計／預算頁必須立即反映最新資料，
+  // 跟既有「聊天記帳 -> renderAll()」的即時同步機制一致。這裡額外直接讀「畫面上實際
+  // 顯示的 DOM」而不是只查 DB.transactions，因為這個即時同步問題之前就是因為只驗證
+  // DB 資料、沒有驗證實際畫面而被忽略過一次。
+  const syncResult = { id: 'E_K2_dom_sync', group: 'confirmFlow', pass: true, problems: [] };
+  try {
+    await page.evaluate(() => {
+      DB.transactions = [];
+      DB.chatLedger = { messages: [], soundOn: true, pendingAsk: null };
+      const mk = cycleKeyForDate(todayStr());
+      const calcItems = { necessary: [{ id: '餐費', name: '餐費', amount: 9000 }], debt: [], savings: [], free: [] };
+      const allocations = computeAllocationsFromCalcItems(calcItems, null, null);
+      createBudget(mk, { available: 30000, allocations, calcItems });
+      save();
+    });
+    await page.click('.nav-item[data-view="ledger"]');
+    await page.click('#goChatLedgerCard');
+    await page.evaluate(() => { document.getElementById('chatInput').value = '我昨天差點花500元，結果只花了100元'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '對'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '飲料'; sendChatMessage(); });
+    await page.click('#btnBackFromChatLedger');
+    await page.click('#goLedgerCard');
+    const ledgerExpense = await page.textContent('#ledgerExpense');
+    const ledgerListText = await page.innerText('#ledgerList');
+    if (ledgerExpense.trim() !== '100') syncResult.problems.push(`#ledgerExpense 預期 100，實際 ${ledgerExpense}`);
+    if (!ledgerListText.includes('飲料')) syncResult.problems.push('記帳歷史清單沒有顯示「飲料」這筆交易');
+    await page.click('#btnBackFromLedger');
+    await page.click('#goBudgetCard');
+    const budgetText = await page.innerText('#budgetContent');
+    if (!budgetText.includes('100')) syncResult.problems.push('預算頁的實際總支出沒有反映這筆 100 元');
+  } catch (e) {
+    syncResult.problems.push('DOM 同步檢查執行失敗：' + e.message);
+  }
+  syncResult.pass = syncResult.problems.length === 0;
+  allResults.push(syncResult);
 
   await browser.close();
 

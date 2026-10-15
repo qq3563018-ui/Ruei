@@ -7262,11 +7262,16 @@ function parseChatSegment(raw, dateCtx){
   // 一句話裡如果有「結果／但／後來／最後」這種轉折詞，改用轉折之後的子句重新判斷（忽略
   // 轉折之前「差點／原本想」的金額）；轉折之後如果是「沒買」「沒花」這種否定，整句都不記帳。
   // 沒有轉折詞的句子，直接在整句上檢查有沒有「沒有買」「沒花」這種否定交易的說法。
+  // viaReversal 記住「這筆金額是從轉折句猜出來的」，因為是用簡單規則猜的（不是真的語意
+  // 理解），猜出金額但猜不出分類時，要先跟使用者確認金額本身，而不是直接當成已確定的資訊
+  // 只問分類；反之如果不是靠轉折句猜的、單純就是缺分類，就不需要多這一道確認。
+  let viaReversal = false;
   const reversal = splitReversalClauses(text);
   if(reversal){
     if(CHAT_NEGATION_MARKERS.test(reversal.after)) return {kind:"chit_chat"};
     text = reversal.after.trim();
     if(!text) return {kind:"chit_chat"};
+    viaReversal = true;
   }else if(CHAT_NEGATION_MARKERS.test(text)){
     return {kind:"chit_chat"};
   }
@@ -7310,6 +7315,9 @@ function parseChatSegment(raw, dateCtx){
     return {kind:"incomplete_amount", date, isIncome, draftNameRaw:nameRaw};
   }
   if(!nameRaw){
+    // 轉折句猜出來的金額，連「用在什麼地方」都看不出來時，代表這個金額本身就是用簡單規則
+    // 猜的、不是很有把握，要先跟使用者確認金額，而不是直接當成已確定的事實只問分類。
+    if(viaReversal) return {kind:"confirm_amount", date, isIncome, amount};
     return {kind:"incomplete_name", date, isIncome, amount};
   }
   const category = isIncome ? inferChatIncomeCategory(nameRaw) : inferChatExpenseCategory(nameRaw);
@@ -7374,7 +7382,15 @@ function pushChatAskAmount(p){
 }
 function pushChatAskName(p){
   DB.chatLedger.pendingAsk = { field:"name", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null } };
-  pushChatMessage({ role:"bot", text:`這筆 $${p.amount.toLocaleString()} 是用在什麼地方呢？` });
+  pushChatMessage({ role:"bot", text:`這筆 $${p.amount.toLocaleString()} 要記在哪個分類呢？` });
+}
+// 轉折句（差點／原本想...結果／但...）猜出來的金額不是很有把握，先跟使用者確認金額本身，
+// 確認或更正之後，如果分類還是不知道，才繼續問分類（沿用 field:"name" 既有流程，不重寫
+// 第二套問法）。
+function pushChatConfirmAmount(p){
+  DB.chatLedger.pendingAsk = { field:"confirmAmount", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null } };
+  const verb = p.isIncome ? "收到" : "花了";
+  pushChatMessage({ role:"bot", text:`想確認一下，最後實際${verb} $${p.amount.toLocaleString()} 嗎？` });
 }
 function pushChatDebtGuide(p){
   const label = expenseCategoryLabel(p.category);
@@ -7402,6 +7418,22 @@ function pushChatSmallTalkReply(){
   pushChatMessage({ role:"bot", text });
 }
 
+// 判斷一句簡短回覆是在「確認」「否定」還是「更正」轉折句猜出來的金額。只認得出幾種
+// 常見的簡短說法，判斷不出來就回傳 unclear（當成不是在回答這一題，交給呼叫端決定要
+// 不要退回去當成全新訊息解析），不會把「早餐50」這種完整的新訊息誤吃成回覆。
+function resolveChatConfirmReply(trimmed){
+  const correctedAmount = extractChatAmount(trimmed);
+  if(/不是|改成|其實是|其实是|應該是|应该是/.test(trimmed) && correctedAmount!=null){
+    return { type:"correct", amount:correctedAmount };
+  }
+  if(/^(對|对|是的|是|沒錯|没错|對啊|对啊|好|嗯|是啊)$/.test(trimmed)){
+    return { type:"confirm" };
+  }
+  if(/取消|算了|不要了|沒買|没买|不用了|不是$/.test(trimmed)){
+    return { type:"reject" };
+  }
+  return { type:"unclear" };
+}
 /* ---- 處理上一句「還缺一項」的回覆（同一時間只會記住最新的一筆待補問題） ----
    只有「整句話整個就是在回答那一項缺的資訊」才算數，避免把下一句其實是全新、
    自己就有完整資訊（甚至是信用卡還款／負債還款等特殊交易）的訊息，誤吃成這一題的答案。 */
@@ -7439,6 +7471,27 @@ function tryResolveChatPendingAsk(rawText){
     draft.category = draft.type==="income" ? inferChatIncomeCategory(name) : inferChatExpenseCategory(name);
     DB.chatLedger.pendingAsk = null;
     saveCompleteChatDrafts([draft]);
+    return true;
+  }
+  if(pending.field==="confirmAmount"){
+    const reply = resolveChatConfirmReply(trimmed);
+    // 看不懂這句話是在回答確認問題，代表這其實可能是另一筆全新的訊息（例如「早餐50」），
+    // 退回去讓呼叫端照一般流程重新解析，待確認狀態保留原樣，不會被誤吃掉。
+    if(reply.type==="unclear") return false;
+    const draft = pending.draft;
+    if(reply.type==="reject"){
+      DB.chatLedger.pendingAsk = null;
+      pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
+      return true;
+    }
+    if(reply.type==="correct") draft.amount = reply.amount;
+    if(draft.category){
+      DB.chatLedger.pendingAsk = null;
+      saveCompleteChatDrafts([draft]);
+    }else{
+      DB.chatLedger.pendingAsk = { field:"name", draft };
+      pushChatMessage({ role:"bot", text:`這筆 $${draft.amount.toLocaleString()} 要記在哪個分類呢？` });
+    }
     return true;
   }
   return false;
@@ -7534,6 +7587,7 @@ function sendChatMessage(){
       else if(parsed.kind==="creditcard_ask") pushChatCreditCardAsk(parsed);
       else if(parsed.kind==="incomplete_amount") pushChatAskAmount(parsed);
       else if(parsed.kind==="incomplete_name") pushChatAskName(parsed);
+      else if(parsed.kind==="confirm_amount") pushChatConfirmAmount(parsed);
       else if(parsed.kind==="chit_chat"){
         // 同一則訊息裡有好幾段都不是記帳意圖時，只回一次「嗨嗨～」，不重複洗版。
         if(!smallTalkReplied){ pushChatSmallTalkReply(); smallTalkReplied = true; }
