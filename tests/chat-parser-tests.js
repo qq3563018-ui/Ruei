@@ -728,6 +728,47 @@ async function main() {
   switchAndDeleteResult.pass = switchAndDeleteResult.problems.length === 0;
   allResults.push(switchAndDeleteResult);
 
+  // L4：整批交易全部被刪光之後（不管是逐筆刪光，還是其中一筆是直接從正式帳本那邊刪的），
+  // 底部整批「刪除」按鈕要跟著消失，不留一個點了也沒用、只會讓人困惑的按鈕；只要還有
+  // 任何一筆仍然存在，整批刪除按鈕要維持原樣可以使用。
+  const hideBatchDeleteResult = { id: 'L4_hide_batch_delete_when_all_gone_dom_sync', group: 'pendingAskRobustness', pass: true, problems: [] };
+  try {
+    await page.evaluate(() => { DB.transactions = []; DB.chatLedger = { messages: [], soundOn: true, pendingAsk: null }; save(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '早餐50、午餐120'; sendChatMessage(); });
+    const ids2 = await page.evaluate(() => DB.transactions.map(t => ({ id: t.id, name: t.name })));
+    const breakfastId2 = ids2.find(t => t.name === '早餐').id;
+    const lunchId2 = ids2.find(t => t.name === '午餐').id;
+
+    // 只刪一筆：整批刪除按鈕應維持顯示。
+    await page.locator(`.chat-item-delete-btn[data-txid="${breakfastId2}"]`).click();
+    await page.click('#btnConfirmChatUndo');
+    let batchBtnCount = await page.locator('.chat-undo-btn').count();
+    if (batchBtnCount !== 1) hideBatchDeleteResult.problems.push(`還有一筆存在時，整批刪除按鈕預期顯示，實際數量 ${batchBtnCount}`);
+
+    // 從正式帳本（不透過聊天卡片）直接刪掉最後一筆，模擬需求裡的「正式帳本端刪除」。
+    await page.evaluate((id) => { DB.transactions = DB.transactions.filter(t => t.id !== id); save(); renderAll(); }, lunchId2);
+    await page.click('#btnBackFromChatLedger').catch(() => {});
+    await page.click('#goChatLedgerCard').catch(() => {});
+    const chatCardAllGone = await page.locator('#chatMsgList').innerText();
+    const deletedCount = (chatCardAllGone.match(/已刪除/g) || []).length;
+    batchBtnCount = await page.locator('.chat-undo-btn').count();
+    if (deletedCount !== 2) hideBatchDeleteResult.problems.push(`預期兩筆都顯示「已刪除」，實際 ${deletedCount}（畫面：${chatCardAllGone}）`);
+    if (batchBtnCount !== 0) hideBatchDeleteResult.problems.push(`全部刪光後整批刪除按鈕預期隱藏，實際數量 ${batchBtnCount}`);
+
+    // 操作已經沒有東西可刪的整批刪除／單筆刪除，不得影響任何正式交易。
+    await page.evaluate((id) => { deleteSingleChatTx(id); }, breakfastId2);
+    await page.evaluate(() => {
+      const msg = DB.chatLedger.messages.find(m => m.undoTxIds && m.undoTxIds.length);
+      if (msg) undoChatBatch(msg);
+    });
+    const txAfterNoOp = await page.evaluate(() => DB.transactions.length);
+    if (txAfterNoOp !== 0) hideBatchDeleteResult.problems.push(`對已刪光的批次重複操作，預期仍是 0 筆交易，實際 ${txAfterNoOp}`);
+  } catch (e) {
+    hideBatchDeleteResult.problems.push('整批刪除按鈕隱藏 DOM 同步檢查執行失敗：' + e.message);
+  }
+  hideBatchDeleteResult.pass = hideBatchDeleteResult.problems.length === 0;
+  allResults.push(hideBatchDeleteResult);
+
   await browser.close();
 
   const total = allResults.length;

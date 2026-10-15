@@ -8271,9 +8271,18 @@ function renderChatBubble(msg){
   }
   let undoHtml = "";
   if(msg.undoTxIds && msg.undoTxIds.length){
-    undoHtml = msg.undone
-      ? `<div class="muted" style="margin-top:6px;">已復原這次記帳</div>`
-      : `<button class="small-link chat-undo-btn" data-msgid="${msg.id}" style="margin-top:6px;">刪除</button>`;
+    // 這批裡面只要還有任何一筆仍在正式帳本裡（不管是還沒刪、還是透過逐筆刪除剩下的），
+    // 整批「刪除」就還有意義，照原本的樣子顯示；如果整批都已經不在了（逐筆刪光，或是
+    // 使用者直接在正式帳本那邊刪掉），就沒有東西可以整批刪，直接不顯示這個按鈕——每一筆
+    // 項目自己已經各自標示「（已刪除）」，不需要再多一顆按不動的按鈕。這裡跟每一筆項目
+    // 一樣，都是即時查 DB.transactions，所以無論是透過聊天卡片逐筆刪除、還是直接在正式
+    // 帳本那邊刪除，重新整理或切換回聊天分頁時都會是正確的狀態。
+    const anyStillExist = msg.undoTxIds.some(id=>DB.transactions.some(t=>t.id===id));
+    if(msg.undone){
+      undoHtml = `<div class="muted" style="margin-top:6px;">已復原這次記帳</div>`;
+    }else if(anyStillExist){
+      undoHtml = `<button class="small-link chat-undo-btn" data-msgid="${msg.id}" style="margin-top:6px;">刪除</button>`;
+    }
   }
   const footerHtml = liveFooterText!=null ? `<div style="margin-top:6px;">${escapeHtml(liveFooterText)}</div>` : (msg.footer ? `<div style="margin-top:6px;">${escapeHtml(msg.footer)}</div>` : "");
   return `<div style="display:flex; justify-content:flex-start; margin-bottom:8px;">
