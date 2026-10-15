@@ -7155,6 +7155,15 @@ function inferChatPaymentMethod(text){
   if(/悠遊卡|一卡通|line\s*pay|linepay|街口|行動支付|電子支付|icash/i.test(text)) return "other";
   return "cash";
 }
+// 用來判斷「這句話扣掉付款方式詞之後，是不是完全沒有講任何實際消費內容」（例如
+// 「刷卡500元」「現金500元」），跟 inferChatPaymentMethod 用的是同一組付款方式詞彙，
+// 只是這裡是用來「拿掉」而不是「判斷是哪一種」。
+const CHAT_PAYMENT_METHOD_WORDS = ["信用卡","刷卡","轉帳","匯款","金融卡","借記卡","悠遊卡","一卡通","linepay","line pay","街口","行動支付","電子支付","icash","現金"];
+function stripChatPaymentMethodWords(text){
+  let t = text;
+  CHAT_PAYMENT_METHOD_WORDS.forEach(w=>{ t = t.split(w).join(""); });
+  return t.trim();
+}
 const CHAT_INCOME_TRIGGER_WORDS = ["收入","薪水","薪資","工資","月薪","獎金","紅包","分紅","退款","退費","退稅","利息","股息","配息","股利","入帳"];
 const CHAT_INCOME_KEYWORDS = [
   {category:"薪資", keywords:["薪水","薪資","工資","月薪"]},
@@ -7283,7 +7292,18 @@ function parseChatSegment(raw, dateCtx){
   const isEfDeposit = mentionsEf && !isEfWithdraw;
   const debtCatHit = CHAT_DEBT_BUCKET_CATS.find(k=>text.includes(k));
   const isDebtPay = !!debtCatHit && /繳|還|付|償還|清償/.test(text) && !text.includes("信用卡");
-  const isCreditCardPay = !isDebtPay && (/信用卡|卡費|刷卡費/.test(text) || text.includes(CREDIT_CARD_PAYMENT_CATEGORY));
+  // 「信用卡」單純出現在句子裡，不代表使用者在繳信用卡帳單——也可能只是在說「用信用卡
+  // 這種方式付錢買東西」（例如「信用卡買飲料50」「刷卡500元」只是刷卡消費，不是在繳
+  // 卡費），那其實是一般消費，不是信用卡還款。「卡費」本身是帳單金額的名詞（跟水費／
+  // 電費一樣），不會拿來描述一般消費，所以單獨出現就視為還款；但「信用卡」同時也常被
+  // 當成一般消費的付款方式用詞，只有句子裡同時有「繳／還／償還／清償／帳單」這種還款
+  // 動作詞，或整句就是分類名稱本身（「信用卡還款500」），才算是真的在繳信用卡帳單，
+  // 才走既有的信用卡還款防重複計算流程。
+  const isCreditCardPay = !isDebtPay && (
+    text.includes(CREDIT_CARD_PAYMENT_CATEGORY) ||
+    /卡費/.test(text) ||
+    (/信用卡/.test(text) && /繳|還款|還|償還|清償|帳單/.test(text))
+  );
 
   if(isEfWithdraw){ return {kind:"ef_withdraw_guide", date}; }
 
@@ -7314,11 +7334,19 @@ function parseChatSegment(raw, dateCtx){
     if(!chatTextLooksLikeBookkeeping(nameRaw)) return {kind:"chit_chat"};
     return {kind:"incomplete_amount", date, isIncome, draftNameRaw:nameRaw};
   }
-  if(!nameRaw){
+  // 「刷卡500元」「信用卡500元」「現金500元」「轉帳500元」這種只講了金額跟付款方式、
+  // 完全沒有講實際消費內容的句子：nameRaw 扣掉付款方式詞之後如果什麼都不剩，代表真的只是
+  // 缺分類，不能把付款方式詞本身誤判成項目名稱去查分類關鍵字（那樣查不到會落在「其他」，
+  // 直接把一筆分類錯誤的交易記下去）。這裡要像完全沒有名稱時一樣去問分類，但已經從文字
+  // 裡看出來的付款方式要保留給之後的草稿用，不能被問分類時又預設回現金、也不能重新詢問
+  // 付款方式本身。
+  const paymentOnlyNoItem = !!nameRaw && !stripChatPaymentMethodWords(nameRaw);
+  if(!nameRaw || paymentOnlyNoItem){
+    const paymentMethod = paymentOnlyNoItem ? inferChatPaymentMethod(text) : undefined;
     // 轉折句猜出來的金額，連「用在什麼地方」都看不出來時，代表這個金額本身就是用簡單規則
     // 猜的、不是很有把握，要先跟使用者確認金額，而不是直接當成已確定的事實只問分類。
-    if(viaReversal) return {kind:"confirm_amount", date, isIncome, amount};
-    return {kind:"incomplete_name", date, isIncome, amount};
+    if(viaReversal) return {kind:"confirm_amount", date, isIncome, amount, paymentMethod};
+    return {kind:"incomplete_name", date, isIncome, amount, paymentMethod};
   }
   const category = isIncome ? inferChatIncomeCategory(nameRaw) : inferChatExpenseCategory(nameRaw);
   if(!isIncome && category===CREDIT_CARD_PAYMENT_CATEGORY){
@@ -7381,14 +7409,17 @@ function pushChatAskAmount(p){
   pushChatMessage({ role:"bot", text:`「${name}」是多少錢呢？` });
 }
 function pushChatAskName(p){
-  DB.chatLedger.pendingAsk = { field:"name", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null } };
+  // p.paymentMethod 只有在文字裡已經明確看出付款方式（例如「刷卡500元」缺分類時）才會有值，
+  // 這裡要保留起來，不能問分類時又把它丟掉、重新預設回現金；沒有明確提到付款方式時，
+  // 維持原本「支出預設現金、收入不適用付款方式」的既有行為。
+  DB.chatLedger.pendingAsk = { field:"name", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null, paymentMethod: p.isIncome?null:(p.paymentMethod||"cash") } };
   pushChatMessage({ role:"bot", text:`這筆 $${p.amount.toLocaleString()} 要記在哪個分類呢？` });
 }
 // 轉折句（差點／原本想...結果／但...）猜出來的金額不是很有把握，先跟使用者確認金額本身，
 // 確認或更正之後，如果分類還是不知道，才繼續問分類（沿用 field:"name" 既有流程，不重寫
 // 第二套問法）。
 function pushChatConfirmAmount(p){
-  DB.chatLedger.pendingAsk = { field:"confirmAmount", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null } };
+  DB.chatLedger.pendingAsk = { field:"confirmAmount", draft:{ type:p.isIncome?"income":"expense", amount:p.amount, date:p.date, category:null, paymentMethod: p.isIncome?null:(p.paymentMethod||"cash") } };
   const verb = p.isIncome ? "收到" : "花了";
   pushChatMessage({ role:"bot", text:`想確認一下，最後實際${verb} $${p.amount.toLocaleString()} 嗎？` });
 }

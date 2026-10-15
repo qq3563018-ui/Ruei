@@ -352,6 +352,36 @@ const TESTS = {
     { id:'G_08', steps:['我昨天差點花500元，結果只花了100元','信用卡','取消'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'confirmAmount', pendingAskDraft:{ amount:100, dateOffsetDays:-1 }, lastBotReplyIncludes:'想確認' } },
     { id:'G_08b', steps:['我昨天差點花500元，結果只花了100元','信用卡','取消','對','飲料'], expect:{ txAdded:1, lastTx:{ amount:100, category:'餐費' }, pendingAskAfter:false } },
   ],
+
+  // ===== H. 付款方式辨識、刷卡消費與信用卡還款的意圖區分、缺分類時的待補流程 =====
+  paymentMethod: [
+    // 1. 沒有指定付款方式時，繼續使用原本預設的「現金」。
+    { id:'H_01', steps:['早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費', paymentMethod:'cash' }, pendingAskAfter:false } },
+    { id:'H_01b', steps:['買衣服500'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'cash' }, pendingAskAfter:false } },
+    // 2. 「刷卡」「信用卡」描述付款方式時，是一般刷卡消費，不是信用卡還款——不得只因為
+    // 文字包含「信用卡」就判定為還款。
+    { id:'H_02', steps:['刷卡買衣服500'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit' }, pendingAskAfter:false } },
+    { id:'H_02b', steps:['信用卡買飲料50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費', paymentMethod:'credit' }, pendingAskAfter:false } },
+    { id:'H_02c', steps:['刷卡吃晚餐400'], expect:{ txAdded:1, lastTx:{ amount:400, category:'餐費', paymentMethod:'credit' }, pendingAskAfter:false } },
+    // 3. 只有金額跟付款方式、沒有消費內容時，要問分類，不能把付款方式詞誤判成項目名稱
+    // 去查分類（那樣查不到會落在「其他」，直接記錯一筆）；也不能重新詢問金額或付款方式。
+    { id:'H_03', steps:['刷卡500元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'credit' }, lastBotReplyIncludes:'分類' } },
+    { id:'H_03b', steps:['刷卡500元','購物'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit' }, pendingAskAfter:false } },
+    { id:'H_03c', steps:['刷卡500元','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'H_04', steps:['現金500元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'cash' }, lastBotReplyIncludes:'分類' } },
+    { id:'H_04b', steps:['現金500元','購物'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'cash' }, pendingAskAfter:false } },
+    { id:'H_05', steps:['轉帳500元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'card' }, lastBotReplyIncludes:'分類' } },
+    { id:'H_05b', steps:['轉帳500元','購物'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'card' }, pendingAskAfter:false } },
+    // 待補分類期間，五欄位更正機制仍正常運作（更正日期，付款方式／金額不受影響）。
+    { id:'H_06', steps:['刷卡500元','不是，是前天'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'credit', dateOffsetDays:-2 } } },
+    // 4. 只有明確表示在繳信用卡帳單時，才進入信用卡還款流程，不得被當成一般刷卡消費。
+    { id:'H_07', steps:['繳信用卡費500'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'主要是' } },
+    { id:'H_08', steps:['信用卡還款500'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'主要是' } },
+    { id:'H_08b', steps:['還信用卡帳單500'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'主要是' } },
+    // 5. 既有懶人記帳體驗不受影響：昨天日期、多筆交易仍正確辨識。
+    { id:'H_09', steps:['昨天刷卡買衣服500'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit', dateOffsetDays:-1 }, pendingAskAfter:false } },
+    { id:'H_10', steps:['早餐50、午餐120、飲料35'], expect:{ txAdded:3, lastTx:{ amount:35, category:'餐費', paymentMethod:'cash' }, pendingAskAfter:false } },
+  ],
 };
 
 async function runGroup(page, groupName, cases) {
@@ -376,7 +406,7 @@ async function runGroup(page, groupName, cases) {
     }
     const after = await page.evaluate(() => DB.transactions.length);
     const txs = await page.evaluate(() => DB.transactions.map(t => ({
-      amount: t.amount, category: t.category, type: t.type, name: t.name, date: t.date
+      amount: t.amount, category: t.category, type: t.type, name: t.name, date: t.date, paymentMethod: t.paymentMethod
     })));
     const pendingAsk = await page.evaluate(() => DB.chatLedger.pendingAsk);
     const today = await page.evaluate(() => todayStr());
@@ -397,6 +427,7 @@ async function runGroup(page, groupName, cases) {
           if (e.amount != null && lastTx.amount !== e.amount) problems.push(`amount 預期 ${e.amount}，實際 ${lastTx.amount}`);
           if (e.category != null && lastTx.category !== e.category) problems.push(`category 預期 ${e.category}，實際 ${lastTx.category}`);
           if (e.type != null && lastTx.type !== e.type) problems.push(`type 預期 ${e.type}，實際 ${lastTx.type}`);
+          if (e.paymentMethod != null && lastTx.paymentMethod !== e.paymentMethod) problems.push(`paymentMethod 預期 ${e.paymentMethod}，實際 ${lastTx.paymentMethod}`);
           if (e.nameIncludes != null && !String(lastTx.name).includes(e.nameIncludes)) problems.push(`name 預期包含「${e.nameIncludes}」，實際「${lastTx.name}」`);
           if (e.dateOffsetDays != null) {
             const expectedDate = await page.evaluate((off) => {
