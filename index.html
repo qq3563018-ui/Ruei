@@ -7126,7 +7126,7 @@ function extractChatDate(text){
 }
 // 數字後面緊接著的是時間／計數單位（5小時、2顆蛋、50分…）就不是金額，不能見到數字就當錢；
 // 有明確貨幣符號／單位（元／塊／圓／NT$／$）的最優先採用，其餘沒有任何單位字樣的數字才當候選金額。
-const CHAT_NON_CURRENCY_UNITS = /^(小時|分鐘|分|顆|個|件|隻|杯|次|天|週|星期|月|年|歲|公斤|公克|公分|公尺|度|題|頁|本|張|包|罐|瓶|片|盒|組|人|位|樓|層)/;
+const CHAT_NON_CURRENCY_UNITS = /^(小時|分鐘|分|顆|個|件|隻|杯|次|天|週|星期|月|年|歲|公斤|公克|公分|公尺|步|公里|度|題|頁|本|張|包|罐|瓶|片|盒|組|人|位|樓|層)/;
 function extractChatAmount(text){
   const re = /\d+(?:,\d{3})*(?:\.\d+)?/g;
   let m, candidate = null;
@@ -7143,7 +7143,7 @@ function extractChatAmount(text){
 function stripChatAmount(text){
   return text.replace(/\d+(?:,\d{3})*(?:\.\d+)?/,"").replace(/元|塊|圓|NT\$?|\$/gi,"");
 }
-const CHAT_FILLER_WORDS = ["幫我記一下","幫我記","記一下","記帳","購買","買了","買","花了","花費","花","支出","消費","付了","付","繳了","繳","存入","存進","存了","存","放入","拿出","提領","使用","領出","動用","提出","的","了"];
+const CHAT_FILLER_WORDS = ["幫我記一下","幫我記","記一下","記帳","購買","買了","買","花了","花費","花","支出","消費","付了","付","繳了","繳","存入","存進","存了","存","放入","拿出","提領","使用","領出","動用","提出","最後","後來","原本","結果","差點","一度","真的","竟然","居然","只","就","也","的","了"];
 function cleanChatItemName(text){
   let t = text;
   CHAT_FILLER_WORDS.forEach(w=>{ t = t.split(w).join(""); });
@@ -7176,7 +7176,7 @@ const CHAT_EXPENSE_KEYWORDS = [
   {category:"手機／網路", keywords:["手機費","網路費","電信費","wifi","月租費"]},
   {category:"水電／瓦斯", keywords:["水費","電費","瓦斯費","水電費"]},
   {category:"保險", keywords:["保費","保險費","保險"]},
-  {category:"醫療／藥品", keywords:["看醫生","藥局","診所","醫院","掛號費","牙醫","買藥"]},
+  {category:"醫療／藥品", keywords:["看醫生","藥局","診所","醫院","掛號費","牙醫","藥"]},
   {category:"孝親／家庭支出", keywords:["孝親","給媽媽","給爸爸","家用"]},
   {category:"美容／保養", keywords:["美容","美髮","剪髮","按摩","美甲","spa"]},
   {category:"娛樂", keywords:["電影","遊戲","ktv","唱歌","遊樂園","展覽"]},
@@ -7225,8 +7225,24 @@ function chatTextLooksLikeBookkeeping(text){
 }
 // 明確表示「還沒發生」的訊息（未來計畫／願望／假設）：有這些詞、又沒有「買了／花了」這種
 // 已完成的動作詞時，一律不當成記帳，避免把還沒發生的交易也記進正式帳本。
-const CHAT_FUTURE_INTENT_MARKERS = /明天|後天|大後天|下週|下禮拜|下星期|下個月|以後|將要|打算|計畫|想要|想買|想花|如果|假設|希望|準備要/;
+// 「如果／假設」這種純假設語句，無論句子裡有沒有「花了」「買了」這種完成式動作詞，
+// 一律不記帳（「假設我花了300元」還是在假設，不是真的花了）——這一層沒有任何東西能推翻。
+const CHAT_HYPOTHETICAL_MARKERS = /如果|假設|假如|倘若/;
+// 「明天」「想買」「打算」這類未來計畫／願望，預設不記帳；但如果句子裡同時有「買了」「花了」
+// 這種已完成的動作詞，代表交易其實已經發生（例如「我買了一件500元的衣服」），這一層可以被推翻。
+const CHAT_FUTURE_INTENT_MARKERS = /明天|後天|大後天|下週|下禮拜|下星期|下個月|以後|將要|打算|計畫|想要|想買|想花|希望|準備要/;
 const CHAT_COMPLETED_ACTION_MARKERS = /買了|花了|付了|繳了|花費了|消費了|存了|存入了|領了|提領了/;
+// 「沒有買」「沒花」這種直接否定交易動作的說法，一律不記帳。
+const CHAT_NEGATION_MARKERS = /沒有(買|花|付|繳|消費|支出)|沒(買|花|付|繳|消費|支出)|没有(买|花|付|缴|消费|支出)/;
+// 「我昨天差點花500元，結果只花了100元」這種一句話裡同時出現「差點／原本想」的金額跟
+// 「結果／但／後來／最後」之後真正發生的金額，只能用「結果」之後的子句重新判斷，
+// 不可以把前面那個沒有真的發生的金額也記進去。
+const CHAT_REVERSAL_CONNECTORS = /結果|但是|但|後來|最後/;
+function splitReversalClauses(text){
+  const m = text.match(CHAT_REVERSAL_CONNECTORS);
+  if(!m) return null;
+  return { before: text.slice(0, m.index), after: text.slice(m.index + m[0].length) };
+}
 function parseChatSegment(raw, dateCtx){
   let text = raw.trim();
   if(!text) return null;
@@ -7235,9 +7251,23 @@ function parseChatSegment(raw, dateCtx){
   if(dm){ date = dm.dateStr; dateCtx.current = date; text = text.replace(dm.matchedText, "").trim(); }
   if(!text) return null;
 
-  // 還沒發生的交易（未來計畫／願望／假設）一律不記帳，優先於其他所有判斷；但「買了」「花了」
-  // 這種已完成的動作詞可以推翻這個判斷（例如「我買了一件500元的衣服」仍然正常記帳）。
+  // 純假設語句一律不記帳，優先於其他所有判斷，沒有任何動作詞可以推翻。
+  if(CHAT_HYPOTHETICAL_MARKERS.test(text)) return {kind:"chit_chat"};
+  // 還沒發生的未來計畫／願望不記帳；但「買了」「花了」這種已完成的動作詞可以推翻這個判斷
+  // （例如「我買了一件500元的衣服」仍然正常記帳）。
   if(CHAT_FUTURE_INTENT_MARKERS.test(text) && !CHAT_COMPLETED_ACTION_MARKERS.test(text)){
+    return {kind:"chit_chat"};
+  }
+
+  // 一句話裡如果有「結果／但／後來／最後」這種轉折詞，改用轉折之後的子句重新判斷（忽略
+  // 轉折之前「差點／原本想」的金額）；轉折之後如果是「沒買」「沒花」這種否定，整句都不記帳。
+  // 沒有轉折詞的句子，直接在整句上檢查有沒有「沒有買」「沒花」這種否定交易的說法。
+  const reversal = splitReversalClauses(text);
+  if(reversal){
+    if(CHAT_NEGATION_MARKERS.test(reversal.after)) return {kind:"chit_chat"};
+    text = reversal.after.trim();
+    if(!text) return {kind:"chit_chat"};
+  }else if(CHAT_NEGATION_MARKERS.test(text)){
     return {kind:"chit_chat"};
   }
 
