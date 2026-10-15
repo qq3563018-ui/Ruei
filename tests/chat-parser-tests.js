@@ -53,6 +53,11 @@
  *                       沒有明確還款動作詞的句子：可能是刷卡消費，也可能
  *                       是繳信用卡帳單，上下文無法排除時先問清楚，不能
  *                       自己猜、也不能直接建立正式交易
+ *   J. cardFeeNoAmount - 單獨輸入「刷卡費」（沒有金額）時，明顯具有記帳
+ *                       意圖但資訊不足，一樣要先問消費還是還款、再接著
+ *                       問金額，不能當成一般聊天放掉；但整句還夾雜其他
+ *                       內容（「好貴」「我想了解」等）時仍是一般聊天，
+ *                       不強迫進入待補流程
  */
 
 const path = require('path');
@@ -412,6 +417,30 @@ const TESTS = {
     { id:'I_08', steps:['信用卡帳單500'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardPayOrSpend', pendingAskDraft:{ amount:500 }, lastBotReplyIncludes:'刷卡消費' } },
     // 7. 沒有指定付款方式時仍維持預設現金，不受這次修改影響。
     { id:'I_09', steps:['早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費', paymentMethod:'cash' }, pendingAskAfter:false } },
+  ],
+
+  // ===== J. 「刷卡費」缺少金額時：明顯具有記帳意圖但資訊不足，應詢問缺少的資訊，
+  // 不是直接當成一般聊天；但整句還夾雜其他內容（「好貴」「我想了解」等）時仍是聊天 =====
+  cardFeeNoAmount: [
+    // 1. 單獨輸入「刷卡費」：先問消費還是還款，不含金額文字，金額留待之後補問。
+    { id:'J_01', steps:['刷卡費'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardPayOrSpend', pendingAskDraft:{ amount:null }, lastBotReplyIncludes:'刷卡消費' } },
+    // 2. 回答「刷卡消費」：金額還不知道，先問金額，問到金額後才接著問分類；分類完成後
+    // 正式建立交易，付款方式維持信用卡。
+    { id:'J_02', steps:['刷卡費','刷卡消費'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardSpendAmount', lastBotReplyIncludes:'這筆花了多少錢呢？' } },
+    { id:'J_02b', steps:['刷卡費','刷卡消費','500'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'credit' }, lastBotReplyIncludes:'分類' } },
+    { id:'J_02c', steps:['刷卡費','刷卡消費','500','購物'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit' }, pendingAskAfter:false } },
+    // 3. 回答「繳帳單」：沿用既有信用卡還款流程，金額未知時補問金額，不自己假設金額。
+    { id:'J_03', steps:['刷卡費','繳帳單'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'amount', pendingAskDraft:{ category:'信用卡還款', paymentMethod:'credit' }, lastBotReplyIncludes:'是多少錢呢' } },
+    { id:'J_03b', steps:['刷卡費','繳帳單','500'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'主要是' } },
+    // 4. 回答「取消」：這是整筆草稿的第一個問題，取消即整筆取消，待補狀態清除。
+    { id:'J_04', steps:['刷卡費','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // 5. 一般聊天或夾雜其他內容的句子不得被誤判成記帳意圖，也不建立待補狀態。
+    { id:'J_05', steps:['刷卡費好貴'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'J_06', steps:['我今天忘記帶信用卡'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'J_07', steps:['信用卡真的很方便'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'J_08', steps:['我想了解信用卡'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // 6. 既有缺金額待補流程（跟本次修改的分支不同，確認沒有互相干擾）維持正常。
+    { id:'J_09', steps:['早餐'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'amount', lastBotReplyIncludes:'多少錢' } },
   ],
 };
 

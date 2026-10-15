@@ -7309,6 +7309,11 @@ function parseChatSegment(raw, dateCtx){
   const isCreditCardAmbiguous = !isDebtPay && !isCreditCardPay && (
     /卡費/.test(text) || (mentionsCreditCard && /帳單/.test(text))
   );
+  // 「刷卡費」「卡費」「信用卡帳單」單獨出現、完全沒有夾雜其他內容時，才算是明確、簡短
+  // 的記帳意圖（即使還沒講金額，也該詢問，不能當成一般聊天）。「刷卡費好貴」「我想了解
+  // 信用卡」這種整句還有別的內容的句子，不在這個白名單內，維持原本一般聊天的判斷——
+  // 不是看到「卡費」兩個字就觸發，是要整句（扣掉贅詞之後）剛好就是這幾種講法本身。
+  const CHAT_CARD_FEE_BARE_PHRASES = ["刷卡費","卡費","信用卡帳單"];
 
   if(isEfWithdraw){ return {kind:"ef_withdraw_guide", date}; }
 
@@ -7327,10 +7332,12 @@ function parseChatSegment(raw, dateCtx){
     return {kind:"creditcard_ask", date, amount, name: nameRaw || "信用卡還款"};
   }
 
-  // 真正有歧義時才詢問：金額不確定就先不問（這種雙重不確定的情況很少見，維持既有保守
-  // 作法——沒有金額就先當成一般聊天，不建立待補交易，避免問法混雜在一起）；金額確定時，
-  // 才問清楚這筆是刷卡消費還是繳信用卡帳單。
-  if(isCreditCardAmbiguous && amount!=null){
+  // 真正有歧義時才詢問：金額已知時（例如「刷卡費500」）直接問；金額未知時，只有整句
+  // 扣掉贅詞之後「就只是」卡費／信用卡帳單這幾種講法本身（例如單獨輸入「刷卡費」）才算
+  // 明確的記帳意圖，一樣先問清楚是消費還是還款，之後再接著問金額——不能因為還不知道
+  // 金額，就連這個本來就夠明確的記帳意圖都當成一般聊天放掉。
+  const isBareCardFeePhrase = CHAT_CARD_FEE_BARE_PHRASES.includes(nameRaw);
+  if(isCreditCardAmbiguous && (amount!=null || isBareCardFeePhrase)){
     return {kind:"creditcard_or_spend_ask", date, amount, name: nameRaw || "刷卡費"};
   }
 
@@ -7456,7 +7463,12 @@ function pushChatCreditCardAsk(p){
 // 不建立正式交易，也不是另外做一套待補系統。
 function pushChatCreditCardOrSpendAsk(p){
   DB.chatLedger.pendingAsk = { field:"cardPayOrSpend", draft:{ date:p.date, amount:p.amount, name:p.name } };
-  pushChatMessage({ role:"bot", text:`這筆${p.amount.toLocaleString()}元是刷卡消費，還是繳信用卡帳單呢？` });
+  // 單獨輸入「刷卡費」這種還沒講金額的情況，問法裡就不提金額，之後答案裡的流程會
+  // 再接著問金額，不會在這裡就先假設或省略金額這一步。
+  const text = p.amount!=null
+    ? `這筆${p.amount.toLocaleString()}元是刷卡消費，還是繳信用卡帳單呢？`
+    : "這筆是刷卡消費，還是繳信用卡帳單呢？";
+  pushChatMessage({ role:"bot", text });
 }
 function pushChatEfWithdrawGuide(){
   pushChatMessage({ role:"bot", text:"使用緊急預備金需要先記錄用途，也要檢查餘額夠不夠，請到『緊急預備金』頁面用「－使用預備金」記錄這筆，會比較準確喔。" });
@@ -7723,6 +7735,14 @@ function tryResolveChatPendingAsk(rawText){
       return true;
     }
     if(/消費|消费/.test(trimmed)){
+      if(draft.amount==null){
+        // 單獨輸入「刷卡費」時連金額都還不知道：先問金額，問到金額後才接著問分類
+        // （field:"cardSpendAmount" 拿到金額後會交給既有的 finalizeChatDraftOrAskCategory
+        // 統一收尾，不會在這裡就先跳過分類、也不會自己假設分類）。
+        DB.chatLedger.pendingAsk = { field:"cardSpendAmount", draft:{ type:"expense", date:draft.date, category:null, paymentMethod:"credit" } };
+        pushChatMessage({ role:"bot", text:"這筆花了多少錢呢？" });
+        return true;
+      }
       // 刷卡消費：金額與付款方式（信用卡）已確定，分類還不知道，沿用既有「問分類」流程
       // （pushChatAskName 會自己設定新的 pendingAsk，取代這一題）。
       pushChatAskName({ isIncome:false, amount:draft.amount, date:draft.date, paymentMethod:"credit" });
@@ -7733,12 +7753,32 @@ function tryResolveChatPendingAsk(rawText){
       // pushChatCreditCardAsk 本身不會動 pendingAsk，這題問完就結束了，要自己清掉，
       // 不然這個已經回答過的 cardPayOrSpend 問題會殘留、誤被當成還在等待回答。
       DB.chatLedger.pendingAsk = null;
-      pushChatCreditCardAsk({ date:draft.date, amount:draft.amount, name:draft.name||CREDIT_CARD_PAYMENT_CATEGORY });
+      if(draft.amount==null){
+        // 金額也還不知道：沿用既有信用卡還款「缺金額先問金額」的既有機制
+        // （pushChatAskAmount + forceCreditCard，跟使用者直接輸入「繳信用卡費」沒講金額
+        // 時走的是同一條路），不自己假設金額，也不建立第二套問法。
+        pushChatAskAmount({ isIncome:false, draftNameRaw: draft.name || "信用卡還款", forceCreditCard:true });
+      }else{
+        pushChatCreditCardAsk({ date:draft.date, amount:draft.amount, name:draft.name||CREDIT_CARD_PAYMENT_CATEGORY });
+      }
       return true;
     }
     // 看不懂在回答消費還是還款，可能是另一則全新的訊息，退回去讓呼叫端照一般流程重新
     // 解析，這題的待確認狀態保留原樣。
     return false;
+  }
+  if(pending.field==="cardSpendAmount"){
+    // 「刷卡費」→「刷卡消費」之後缺的金額：跟既有 field:"amount" 用同一種「整句必須就
+    // 只是一個金額」的嚴格比對，拿到金額後分類還是不知道，交給既有的
+    // finalizeChatDraftOrAskCategory 統一收尾（會接著問分類，信用卡還款／負債特殊規則
+    // 也都走同一個函式，不會被跳過或繞過）。
+    const bareAmountMatch = trimmed.match(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i);
+    if(!bareAmountMatch) return false;
+    const amt = extractChatAmount(trimmed);
+    if(amt==null) return false;
+    const draft = pending.draft; draft.amount = amt;
+    finalizeChatDraftOrAskCategory(draft);
+    return true;
   }
   if(pending.field==="disambiguate"){
     // 使用者正在回答「妳是想修改付款方式，還是分類呢？」這種歧義澄清問題。
