@@ -222,6 +222,21 @@ const TESTS = {
     { id:'E_F2', steps:['我昨天差點花500元，結果只花了100元','不是，是150元','飲料'], expect:{ txAdded:1, lastTx:{ amount:150, category:'餐費', dateOffsetDays:-1 }, pendingAskAfter:false } },
     // G：回答「最後沒買／根本沒買」後，不建立任何交易。
     { id:'E_G1', steps:['我昨天差點花500元，結果只花了100元','不是，我最後根本沒買'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'E_G2', steps:['我昨天差點花500元，結果只花了100元','沒有買'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // 單獨回答「不是」：不等於取消，也不能自己亂猜，應該追問「是哪裡不對」，並保留原本
+    // 待確認的草稿（金額、日期都還在），不會清掉也不會記帳。
+    { id:'E_N1', steps:['我昨天差點花500元，結果只花了100元','不是'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'confirmAmount', lastBotReplyIncludes:'哪裡不對' } },
+    // 「不是」之後接著補充「是150元」：延續同一筆待確認草稿，正確更正金額、保留日期，
+    // 不會把 100 跟 150 都記進去。
+    { id:'E_N2', steps:['我昨天差點花500元，結果只花了100元','不是','是150元'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', lastBotReplyIncludes:'150' } },
+    { id:'E_N3', steps:['我昨天差點花500元，結果只花了100元','不是','是150元','購物'], expect:{ txAdded:1, lastTx:{ amount:150, category:'購物', dateOffsetDays:-1 }, pendingAskAfter:false } },
+    // 「不是昨天，是前天」：只修正日期，金額（100）維持不變，分類仍缺就繼續問分類。
+    { id:'E_N4', steps:['我昨天差點花500元，結果只花了100元','不是昨天，是前天'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', lastBotReplyIncludes:'100' } },
+    { id:'E_N5', steps:['我昨天差點花500元，結果只花了100元','不是昨天，是前天','飲料'], expect:{ txAdded:1, lastTx:{ amount:100, category:'餐費', dateOffsetDays:-2 }, pendingAskAfter:false } },
+    // 「不是支出，是收入」：更正收支類型，分類重新檢查（原本就是 null，改完還是要問）。
+    { id:'E_N6', steps:['我昨天差點花500元，結果只花了100元','不是支出，是收入','薪資'], expect:{ txAdded:1, lastTx:{ amount:100, category:'薪資', type:'income' }, pendingAskAfter:false } },
+    // 沒有待確認交易時，單獨輸入「不是」不得建立交易，也不得莫名其妙啟動確認流程。
+    { id:'E_N7', steps:['不是'], expect:{ txAdded:0, pendingAskAfter:false } },
     // H：輸入「取消」或「算了」後，正確清除待確認狀態（之後可以正常開始新的一筆）。
     { id:'E_H1', steps:['我昨天差點花500元，結果只花了100元','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
     { id:'E_H2', steps:['我昨天差點花500元，結果只花了100元','算了'], expect:{ txAdded:0, pendingAskAfter:false } },

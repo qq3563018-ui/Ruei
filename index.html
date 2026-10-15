@@ -7418,19 +7418,68 @@ function pushChatSmallTalkReply(){
   pushChatMessage({ role:"bot", text });
 }
 
-// 判斷一句簡短回覆是在「確認」「否定」還是「更正」轉折句猜出來的金額。只認得出幾種
-// 常見的簡短說法，判斷不出來就回傳 unclear（當成不是在回答這一題，交給呼叫端決定要
-// 不要退回去當成全新訊息解析），不會把「早餐50」這種完整的新訊息誤吃成回覆。
+// 「不是A，是B」這種更正句，B（真正的更正內容）一定出現在A之後，所以同時找「相對日期詞」
+// 跟「明確日期」在整句裡最後出現的位置，取最後那一個，才不會把「不是前天，是昨天」反過來
+// 誤判成前天（這兩個方向都要對，不能只挑陣列裡第一個比對到的詞）。
+function findLastDateMention(text){
+  let best = null;
+  [["大前天",3],["前天",2],["昨天",1],["今天",0]].forEach(([word,days])=>{
+    const idx = text.lastIndexOf(word);
+    if(idx>=0 && (!best || idx>best.index)) best = { index:idx, dateStr: relativeDateStr(days) };
+  });
+  const m = text.match(/(\d{1,2})[\/月](\d{1,2})日?/);
+  if(m){
+    const idx = text.lastIndexOf(m[0]);
+    const month = parseInt(m[1],10), day = parseInt(m[2],10);
+    const now = new Date(); let year = now.getFullYear();
+    let d = new Date(year, month-1, day);
+    if(d.getTime() > now.getTime()){ year -= 1; d = new Date(year, month-1, day); }
+    if(d.getMonth()===month-1 && d.getDate()===day && (!best || idx>best.index)){
+      best = { index:idx, dateStr: fmtDate(d) };
+    }
+  }
+  return best ? best.dateStr : null;
+}
+// 判斷一句簡短回覆是在「確認」「否定」「更正某個欄位」還是「單純說不對但沒講哪裡不對」。
+// 「不是」本身不等於取消——只有明確表示交易沒發生（沒買／取消／算了）才會取消；單純的
+// 「不是」「不對」要追問是哪裡不對，保留待確認狀態等使用者補充，不能自己亂猜是哪個欄位
+// 錯了。判斷不出來就回傳 unclear（當成不是在回答這一題，交給呼叫端決定要不要退回去當成
+// 全新訊息解析），不會把「早餐50」這種完整的新訊息誤吃成回覆。
 function resolveChatConfirmReply(trimmed){
-  const correctedAmount = extractChatAmount(trimmed);
-  if(/不是|改成|其實是|其实是|應該是|应该是/.test(trimmed) && correctedAmount!=null){
-    return { type:"correct", amount:correctedAmount };
+  const hasCorrectionTrigger = /不是|改成|其實是|其实是|應該是|应该是/.test(trimmed);
+  if(hasCorrectionTrigger){
+    // 日期更正（例如「不是昨天，是前天」）。
+    const dateCorrection = findLastDateMention(trimmed);
+    if(dateCorrection) return { type:"correct_date", date:dateCorrection };
+    // 收支類型更正（例如「不是支出，是收入」），一樣取最後提到的那個。
+    const typeMatches = [...trimmed.matchAll(/收入|支出/g)];
+    if(typeMatches.length){
+      const last = typeMatches[typeMatches.length-1][0];
+      return { type:"correct_type", newType: last==="收入" ? "income" : "expense" };
+    }
+    // 金額更正（例如「不是，是150元」「改成150」）。
+    const amt = extractChatAmount(trimmed);
+    if(amt!=null) return { type:"correct_amount", amount:amt };
+  }
+  // 追問「是哪裡不對呢」之後，使用者常常直接回一個不帶「不是」的新金額（例如「是150元」
+  // 或單純「150」），把開頭可有可無的「是／應該是」拿掉之後，如果剩下的就只是一個金額，
+  // 一樣當成金額更正，不用使用者每次都重講一次「不是」。
+  const bareValue = trimmed.replace(/^(是的|是|應該是|应该是|其實是|其实是)/,"").trim();
+  if(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i.test(bareValue)){
+    const amt = extractChatAmount(bareValue);
+    if(amt!=null) return { type:"correct_amount", amount:amt };
   }
   if(/^(對|对|是的|是|沒錯|没错|對啊|对啊|好|嗯|是啊)$/.test(trimmed)){
     return { type:"confirm" };
   }
-  if(/取消|算了|不要了|沒買|没买|不用了|不是$/.test(trimmed)){
+  // 明確表示交易沒發生，才算取消；bare「不是」不包含在這裡。沿用既有的 CHAT_NEGATION_MARKERS
+  // （涵蓋「沒買」「沒有買」等「沒（有）+動作詞」的各種寫法），不用另外再維護一份否定詞清單。
+  if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
     return { type:"reject" };
+  }
+  // 單純的「不是」「不對」，沒有講任何補充內容——不能自己猜是哪裡錯，要追問清楚。
+  if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
+    return { type:"needs_detail" };
   }
   return { type:"unclear" };
 }
@@ -7484,7 +7533,19 @@ function tryResolveChatPendingAsk(rawText){
       pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
       return true;
     }
-    if(reply.type==="correct") draft.amount = reply.amount;
+    if(reply.type==="needs_detail"){
+      // 單純回「不是」沒有講哪裡不對——不猜、不取消，保留原本待確認的草稿，
+      // 追問一次，等使用者補充正確的金額或內容。
+      pushChatMessage({ role:"bot", text:"是哪裡不對呢？可以告訴我正確的金額或內容～" });
+      return true;
+    }
+    if(reply.type==="correct_amount") draft.amount = reply.amount;
+    if(reply.type==="correct_date") draft.date = reply.date;
+    if(reply.type==="correct_type"){
+      // 收支類型換了，原本（如果有）針對支出或收入猜的分類不一定還適用，重新檢查。
+      draft.type = reply.newType;
+      draft.category = null;
+    }
     if(draft.category){
       DB.chatLedger.pendingAsk = null;
       saveCompleteChatDrafts([draft]);
