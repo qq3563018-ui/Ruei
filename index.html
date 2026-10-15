@@ -7292,17 +7292,22 @@ function parseChatSegment(raw, dateCtx){
   const isEfDeposit = mentionsEf && !isEfWithdraw;
   const debtCatHit = CHAT_DEBT_BUCKET_CATS.find(k=>text.includes(k));
   const isDebtPay = !!debtCatHit && /繳|還|付|償還|清償/.test(text) && !text.includes("信用卡");
-  // 「信用卡」單純出現在句子裡，不代表使用者在繳信用卡帳單——也可能只是在說「用信用卡
-  // 這種方式付錢買東西」（例如「信用卡買飲料50」「刷卡500元」只是刷卡消費，不是在繳
-  // 卡費），那其實是一般消費，不是信用卡還款。「卡費」本身是帳單金額的名詞（跟水費／
-  // 電費一樣），不會拿來描述一般消費，所以單獨出現就視為還款；但「信用卡」同時也常被
-  // 當成一般消費的付款方式用詞，只有句子裡同時有「繳／還／償還／清償／帳單」這種還款
-  // 動作詞，或整句就是分類名稱本身（「信用卡還款500」），才算是真的在繳信用卡帳單，
-  // 才走既有的信用卡還款防重複計算流程。
+  // 「信用卡」「刷卡」單純出現在句子裡，不代表使用者在繳信用卡帳單——也可能只是在說
+  // 「用信用卡這種方式付錢買東西」，那其實是一般消費，不是信用卡還款。只有句子裡同時
+  // 有「繳／還／還款／償還／清償」這種明確的還款動作詞，或整句就是分類名稱本身（「信用
+  // 卡還款500」），才算是真的已經在繳信用卡帳單，才走既有的信用卡還款防重複計算流程。
+  const creditCardRepayVerb = /繳|還款|還|償還|清償/;
+  const mentionsCreditCard = /信用卡|刷卡/.test(text);
   const isCreditCardPay = !isDebtPay && (
     text.includes(CREDIT_CARD_PAYMENT_CATEGORY) ||
-    /卡費/.test(text) ||
-    (/信用卡/.test(text) && /繳|還款|還|償還|清償|帳單/.test(text))
+    (mentionsCreditCard && creditCardRepayVerb.test(text))
+  );
+  // 「卡費」「信用卡帳單」只是在講帳單／費用這件事本身（跟「水費」「電費」是名詞一樣），
+  // 並不代表使用者已經繳了——也可能只是在描述一筆刷卡消費（例如「刷卡費500」可能是
+  // 「刷卡費了500元買東西」的口語講法）。沒有明確的還款動作詞時，無法從上下文排除是
+  // 刷卡消費還是繳信用卡帳單，必須先問清楚，不能自己猜、也不能直接建立正式交易。
+  const isCreditCardAmbiguous = !isDebtPay && !isCreditCardPay && (
+    /卡費/.test(text) || (mentionsCreditCard && /帳單/.test(text))
   );
 
   if(isEfWithdraw){ return {kind:"ef_withdraw_guide", date}; }
@@ -7320,6 +7325,13 @@ function parseChatSegment(raw, dateCtx){
   if(isCreditCardPay){
     if(amount==null) return {kind:"incomplete_amount", date, isIncome:false, draftNameRaw: nameRaw || "信用卡還款", forceCreditCard:true};
     return {kind:"creditcard_ask", date, amount, name: nameRaw || "信用卡還款"};
+  }
+
+  // 真正有歧義時才詢問：金額不確定就先不問（這種雙重不確定的情況很少見，維持既有保守
+  // 作法——沒有金額就先當成一般聊天，不建立待補交易，避免問法混雜在一起）；金額確定時，
+  // 才問清楚這筆是刷卡消費還是繳信用卡帳單。
+  if(isCreditCardAmbiguous && amount!=null){
+    return {kind:"creditcard_or_spend_ask", date, amount, name: nameRaw || "刷卡費"};
   }
 
   if(isEfDeposit){
@@ -7437,6 +7449,14 @@ function pushChatCreditCardAsk(p){
     text:`「${p.name}」$${p.amount.toLocaleString()} 這筆信用卡還款，主要是？`,
     quickReply:{ kind:"creditcard", resolved:false, draft:{ type:"expense", amount:p.amount, name:p.name, date:p.date, category:CREDIT_CARD_PAYMENT_CATEGORY, paymentMethod:"credit" } }
   });
+}
+// 「刷卡費」「信用卡帳單」這種提到帳單本身、但沒有明確還款動作詞的句子：沿用既有的
+// pendingAsk 機制（跟 field:"name"／"confirmAmount"／"disambiguate" 同一套），只是多一個
+// field:"cardPayOrSpend"，先問清楚是刷卡消費還是繳信用卡帳單，金額跟日期先保留在草稿裡，
+// 不建立正式交易，也不是另外做一套待補系統。
+function pushChatCreditCardOrSpendAsk(p){
+  DB.chatLedger.pendingAsk = { field:"cardPayOrSpend", draft:{ date:p.date, amount:p.amount, name:p.name } };
+  pushChatMessage({ role:"bot", text:`這筆${p.amount.toLocaleString()}元是刷卡消費，還是繳信用卡帳單呢？` });
 }
 function pushChatEfWithdrawGuide(){
   pushChatMessage({ role:"bot", text:"使用緊急預備金需要先記錄用途，也要檢查餘額夠不夠，請到『緊急預備金』頁面用「－使用預備金」記錄這筆，會比較準確喔。" });
@@ -7691,6 +7711,35 @@ function tryResolveChatPendingAsk(rawText){
     }
     return true;
   }
+  if(pending.field==="cardPayOrSpend"){
+    // 使用者正在回答「這筆500元是刷卡消費，還是繳信用卡帳單呢？」。取消的是這筆還沒
+    // 確定內容的草稿本身（這題本來就是這筆交易的第一個問題，不是某個已確認問題中途
+    // 冒出來的岔題），所以跟 field:"name"／"confirmAmount" 的取消語意一致：直接整筆
+    // 取消，不建立任何交易。
+    const draft = pending.draft;
+    if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
+      DB.chatLedger.pendingAsk = null;
+      pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
+      return true;
+    }
+    if(/消費|消费/.test(trimmed)){
+      // 刷卡消費：金額與付款方式（信用卡）已確定，分類還不知道，沿用既有「問分類」流程
+      // （pushChatAskName 會自己設定新的 pendingAsk，取代這一題）。
+      pushChatAskName({ isIncome:false, amount:draft.amount, date:draft.date, paymentMethod:"credit" });
+      return true;
+    }
+    if(/帳單|還款|繳/.test(trimmed)){
+      // 繳信用卡帳單：沿用既有的信用卡還款防重複計算流程（already_recorded／new_debt）。
+      // pushChatCreditCardAsk 本身不會動 pendingAsk，這題問完就結束了，要自己清掉，
+      // 不然這個已經回答過的 cardPayOrSpend 問題會殘留、誤被當成還在等待回答。
+      DB.chatLedger.pendingAsk = null;
+      pushChatCreditCardAsk({ date:draft.date, amount:draft.amount, name:draft.name||CREDIT_CARD_PAYMENT_CATEGORY });
+      return true;
+    }
+    // 看不懂在回答消費還是還款，可能是另一則全新的訊息，退回去讓呼叫端照一般流程重新
+    // 解析，這題的待確認狀態保留原樣。
+    return false;
+  }
   if(pending.field==="disambiguate"){
     // 使用者正在回答「妳是想修改付款方式，還是分類呢？」這種歧義澄清問題。
     const draft = pending.draft;
@@ -7873,6 +7922,7 @@ function sendChatMessage(){
       else if(parsed.kind==="ef_withdraw_guide") pushChatEfWithdrawGuide();
       else if(parsed.kind==="debt_guide") pushChatDebtGuide(parsed);
       else if(parsed.kind==="creditcard_ask") pushChatCreditCardAsk(parsed);
+      else if(parsed.kind==="creditcard_or_spend_ask") pushChatCreditCardOrSpendAsk(parsed);
       else if(parsed.kind==="incomplete_amount") pushChatAskAmount(parsed);
       else if(parsed.kind==="incomplete_name") pushChatAskName(parsed);
       else if(parsed.kind==="confirm_amount") pushChatConfirmAmount(parsed);

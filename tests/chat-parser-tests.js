@@ -46,6 +46,13 @@
  *                       「信用卡還款」分類的簡稱）：上下文足夠明確就直接
  *                       處理、使用者明確指定欄位就不多問、真正有歧義才
  *                       詢問，並且詢問用的句子要能正確處理
+ *   H. paymentMethod - 付款方式辨識（沒指定時預設現金）、刷卡消費與信用
+ *                       卡還款的意圖區分、只有金額跟付款方式缺消費內容
+ *                       時改問分類（不誤判成「其他」）
+ *   I. cardFeeAmbiguity - 「刷卡費」「信用卡帳單」這種提到帳單本身、但
+ *                       沒有明確還款動作詞的句子：可能是刷卡消費，也可能
+ *                       是繳信用卡帳單，上下文無法排除時先問清楚，不能
+ *                       自己猜、也不能直接建立正式交易
  */
 
 const path = require('path');
@@ -381,6 +388,30 @@ const TESTS = {
     // 5. 既有懶人記帳體驗不受影響：昨天日期、多筆交易仍正確辨識。
     { id:'H_09', steps:['昨天刷卡買衣服500'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit', dateOffsetDays:-1 }, pendingAskAfter:false } },
     { id:'H_10', steps:['早餐50、午餐120、飲料35'], expect:{ txAdded:3, lastTx:{ amount:35, category:'餐費', paymentMethod:'cash' }, pendingAskAfter:false } },
+  ],
+
+  // ===== I. 「刷卡費」「信用卡帳單」：沒有明確還款動作詞時，可能是刷卡消費也可能是
+  // 繳信用卡帳單，上下文無法排除，要先問清楚，不能自己猜 =====
+  cardFeeAmbiguity: [
+    // 1. 單獨輸入「刷卡費500」：沒有明確的還款動作詞，先問是刷卡消費還是繳信用卡帳單，
+    // 金額保留、不直接建立交易。
+    { id:'I_01', steps:['刷卡費500'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardPayOrSpend', pendingAskDraft:{ amount:500 }, lastBotReplyIncludes:'刷卡消費' } },
+    // 2. 回答「刷卡消費」：確定是支出／信用卡付款，分類還不知道，沿用既有問分類流程。
+    { id:'I_02', steps:['刷卡費500','刷卡消費'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'credit' }, lastBotReplyIncludes:'分類' } },
+    { id:'I_02b', steps:['刷卡費500','刷卡消費','購物'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit' }, pendingAskAfter:false } },
+    // 3. 回答「繳帳單」：進入既有信用卡還款防重複計算流程，不直接記帳。
+    { id:'I_03', steps:['刷卡費500','繳帳單'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'主要是' } },
+    // 4. 回答「取消」：這是整筆草稿的第一個問題，取消即整筆取消，不建立交易。
+    { id:'I_04', steps:['刷卡費500','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // 5. 明確句子仍直接處理，不因為這次新增的判斷而多問。
+    { id:'I_05', steps:['刷卡買衣服500'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit' }, pendingAskAfter:false } },
+    { id:'I_06', steps:['刷卡500'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, category:null, paymentMethod:'credit' } } },
+    { id:'I_07', steps:['繳刷卡費500'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'主要是' } },
+    // 6. 「信用卡帳單500」只是提到帳單本身，不代表已經繳了，不得直接建立還款紀錄，
+    // 同樣要先問清楚是消費還是還款。
+    { id:'I_08', steps:['信用卡帳單500'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardPayOrSpend', pendingAskDraft:{ amount:500 }, lastBotReplyIncludes:'刷卡消費' } },
+    // 7. 沒有指定付款方式時仍維持預設現金，不受這次修改影響。
+    { id:'I_09', steps:['早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費', paymentMethod:'cash' }, pendingAskAfter:false } },
   ],
 };
 
