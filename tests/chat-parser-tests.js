@@ -679,6 +679,55 @@ async function main() {
   editSyncResult.pass = editSyncResult.problems.length === 0;
   allResults.push(editSyncResult);
 
+  // L3：同一時間只能有一組「有效」的切換確認——連續輸入好幾筆候選新交易時，只有最新
+  // 一組還能點，之前的全部失效（resolved+invalidated），點了也不會記帳；點擊最新一組
+  // 才會正確只記那一筆。另外驗證多筆交易卡片的逐筆刪除：刪除其中一筆之後，正式帳本／
+  // 記帳歷史／預算頁都要同步，另外兩筆完全不受影響，且編輯／刪除按鈕不會留在已刪除
+  // 的那一筆上面。
+  const switchAndDeleteResult = { id: 'L3_switch_unique_and_item_delete_dom_sync', group: 'pendingAskRobustness', pass: true, problems: [] };
+  try {
+    await page.evaluate(() => { DB.transactions = []; DB.chatLedger = { messages: [], soundOn: true, pendingAsk: null }; save(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '刷卡費'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '刷卡消費'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '早餐50'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '午餐120'; sendChatMessage(); });
+    const qrStates = await page.evaluate(() => DB.chatLedger.messages.filter(m => m.quickReply && m.quickReply.kind === 'switchNewTx').map(m => ({ id: m.id, resolved: m.quickReply.resolved, invalidated: !!m.quickReply.invalidated })));
+    if (!(qrStates.length === 2 && qrStates[0].resolved === true && qrStates[0].invalidated === true && qrStates[1].resolved === false)) {
+      switchAndDeleteResult.problems.push(`預期第一組切換確認已失效、第二組仍有效，實際 ${JSON.stringify(qrStates)}`);
+    }
+    // 點擊已失效的那一組，不得記帳。
+    await page.evaluate((id) => { const msg = DB.chatLedger.messages.find(m => m.id === id); resolveChatQuickReply(msg, 'use_new'); }, qrStates[0].id);
+    const txAfterStaleClick = await page.evaluate(() => DB.transactions.length);
+    if (txAfterStaleClick !== 0) switchAndDeleteResult.problems.push(`點擊已失效按鈕後預期 0 筆交易，實際 ${txAfterStaleClick}`);
+    // 點擊最新一組，只記最新那一筆。
+    await page.evaluate((id) => { const msg = DB.chatLedger.messages.find(m => m.id === id); resolveChatQuickReply(msg, 'use_new'); }, qrStates[1].id);
+    const txAfterValidClick = await page.evaluate(() => DB.transactions.map(t => t.amount));
+    if (!(txAfterValidClick.length === 1 && txAfterValidClick[0] === 120)) switchAndDeleteResult.problems.push(`點擊最新按鈕後預期只有一筆 120，實際 ${JSON.stringify(txAfterValidClick)}`);
+
+    // 多筆交易卡片逐筆刪除，確認正式帳本與畫面同步，其他交易不受影響。
+    await page.evaluate(() => { DB.transactions = []; DB.chatLedger = { messages: [], soundOn: true, pendingAsk: null }; save(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '早餐50、午餐120、飲料35'; sendChatMessage(); });
+    const ids = await page.evaluate(() => DB.transactions.map(t => ({ id: t.id, name: t.name })));
+    const breakfastId = ids.find(t => t.name === '早餐').id;
+    await page.locator(`.chat-item-delete-btn[data-txid="${breakfastId}"]`).click();
+    await page.click('#btnConfirmChatUndo');
+    const txAfterItemDelete = await page.evaluate(() => DB.transactions.map(t => t.name));
+    if (!(txAfterItemDelete.length === 2 && txAfterItemDelete.includes('午餐') && txAfterItemDelete.includes('飲料') && !txAfterItemDelete.includes('早餐'))) {
+      switchAndDeleteResult.problems.push(`逐筆刪除早餐後預期只剩午餐／飲料，實際 ${JSON.stringify(txAfterItemDelete)}`);
+    }
+    const chatCardAfterItemDelete = await page.locator('#chatMsgList').innerText();
+    if (!chatCardAfterItemDelete.includes('已刪除') || !chatCardAfterItemDelete.includes('午餐') || !chatCardAfterItemDelete.includes('飲料')) {
+      switchAndDeleteResult.problems.push('聊天卡片沒有正確同步顯示早餐已刪除、午餐與飲料仍正常');
+    }
+    const staleEditBtn = await page.locator(`.chat-edit-btn[data-txid="${breakfastId}"]`).count();
+    const staleDeleteBtn = await page.locator(`.chat-item-delete-btn[data-txid="${breakfastId}"]`).count();
+    if (staleEditBtn !== 0 || staleDeleteBtn !== 0) switchAndDeleteResult.problems.push('已刪除交易的編輯／刪除按鈕預期消失，實際仍存在');
+  } catch (e) {
+    switchAndDeleteResult.problems.push('切換確認唯一性／逐筆刪除 DOM 同步檢查執行失敗：' + e.message);
+  }
+  switchAndDeleteResult.pass = switchAndDeleteResult.problems.length === 0;
+  allResults.push(switchAndDeleteResult);
+
   await browser.close();
 
   const total = allResults.length;

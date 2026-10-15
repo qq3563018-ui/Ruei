@@ -8066,6 +8066,30 @@ function undoChatBatch(msg){
     });
   });
 }
+/* ---- 刪除成功卡片裡的其中一筆（不是整批）：沿用既有的刪除確認視窗（count=1 時
+   文案本來就是「確定要刪除本次新增的 1 筆記帳嗎？」，不用另外寫一個對話框），
+   直接用這筆交易自己的 id 操作 DB.transactions，跟其他同一批的交易完全無關；
+   這筆是不是「已刪除」完全看它還在不在 DB.transactions 裡，不需要在訊息上
+   額外記一個刪除狀態，畫面本來就是即時查正式帳本畫出來的，刪掉之後重畫
+   自然就會變成「（已刪除）」，也不會再出現編輯／刪除按鈕。 ---- */
+function deleteSingleChatTx(txId){
+  const tx = DB.transactions.find(t=>t.id===txId);
+  if(!tx){ toast("這筆紀錄已經不在了"); renderChatMessages(); return; }
+  confirmChatBatchDelete(1, ()=>{
+    const idx = DB.transactions.findIndex(t=>t.id===txId);
+    if(idx===-1) return;
+    const removedTx = DB.transactions.splice(idx,1)[0];
+    const depIdx = DB.emergencyFundDeposits.findIndex(d=>d.txId===txId);
+    const removedDep = depIdx>-1 ? DB.emergencyFundDeposits.splice(depIdx,1)[0] : null;
+    save(); renderAll(); renderChatMessages();
+    showUndoToast(`已刪除「${tx.name}」`, ()=>{
+      DB.transactions.push(removedTx);
+      if(removedDep) DB.emergencyFundDeposits.push(removedDep);
+      save(); renderAll(); renderChatMessages();
+      toast("已復原");
+    });
+  });
+}
 
 // 把「解析完成的一段聊天內容」實際處理掉（建立交易或追問缺的資訊），跟 sendChatMessage
 // 主流程裡逐段處理的邏輯是同一套規則，只是這裡一次只處理一段（不是整批訊息），用在
@@ -8093,6 +8117,20 @@ function pushChatSwitchNewTxAsk(oldPending, newSeg, newParsed){
     quickReply:{ kind:"switchNewTx", resolved:false, oldPending, newSeg, newParsed, labelNew:`先記${newSeg}` }
   });
 }
+// 同一時間只能有一組「有效」的切換確認：使用者每送出一則新訊息（不管內容是什麼——
+// 另一筆新交易、取消、直接回答原本的問題、甚至是一般聊天），都代表對話往前推進了，
+// 任何還沒點過的舊切換確認都不該再被當真。這裡直接把舊的標成「已處理」（resolved=true），
+// 沿用既有 resolveChatQuickReply 開頭「resolved 就不執行」的保護，所以舊按鈕即使被點了
+// 也不會記帳；畫面上也會改顯示「已失效」，不是繼續顯示兩組看起來都能點的按鈕。
+function invalidateStaleSwitchNewTxAsks(){
+  DB.chatLedger.messages.forEach(m=>{
+    if(m.quickReply && m.quickReply.kind==="switchNewTx" && !m.quickReply.resolved){
+      m.quickReply.resolved = true;
+      m.quickReply.invalidated = true;
+      m.quickReply.resultText = "這組確認已經過期，請參考最新的訊息。";
+    }
+  });
+}
 /* ---- 送出訊息 ---- */
 function sendChatMessage(){
   const input = document.getElementById("chatInput");
@@ -8101,6 +8139,7 @@ function sendChatMessage(){
   input.value = "";
   pushChatMessage({ role:"user", text:raw });
   playChatSendSound();
+  invalidateStaleSwitchNewTxAsks();
 
   if(!tryResolveChatPendingAsk(raw)){
     // tryResolveChatPendingAsk 認不出這句話是在回答原本那一題之後，pendingAsk 可能還
@@ -8200,6 +8239,7 @@ function renderChatBubble(msg){
       return `<div style="margin:2px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <span class="chat-item-link" data-txid="${tx.id}" style="cursor:pointer; text-decoration:underline;">${liveText}</span>
         <button type="button" class="small-link chat-edit-btn" data-txid="${tx.id}">編輯</button>
+        <button type="button" class="small-link chat-item-delete-btn" data-txid="${tx.id}">刪除</button>
       </div>`;
     }).join("") + `</div>`;
     if(msg.footer) liveFooterText = `共 ${liveCount} 筆，合計 $${liveTotal.toLocaleString()}。`;
@@ -8223,7 +8263,11 @@ function renderChatBubble(msg){
       </div>`;
     }
   }else if(msg.quickReply && msg.quickReply.resolved && msg.quickReply.resultText){
-    qrHtml = `<div class="muted" style="margin-top:6px;">已選擇：${escapeHtml(msg.quickReply.resultText)}</div>`;
+    // 被新訊息判定過期的切換確認，跟使用者自己點了按鈕是兩種不同的狀態，文字上要分開，
+    // 不能都印成「已選擇：」，不然看起來會像使用者自己選了「過期」這個選項。
+    qrHtml = msg.quickReply.invalidated
+      ? `<div class="muted" style="margin-top:6px;">${escapeHtml(msg.quickReply.resultText)}</div>`
+      : `<div class="muted" style="margin-top:6px;">已選擇：${escapeHtml(msg.quickReply.resultText)}</div>`;
   }
   let undoHtml = "";
   if(msg.undoTxIds && msg.undoTxIds.length){
@@ -8242,6 +8286,9 @@ function wireChatMessageEvents(){
   });
   document.querySelectorAll(".chat-edit-btn").forEach(b=>{
     b.addEventListener("click", ()=>openTxForm(b.dataset.txid));
+  });
+  document.querySelectorAll(".chat-item-delete-btn").forEach(b=>{
+    b.addEventListener("click", ()=>deleteSingleChatTx(b.dataset.txid));
   });
   document.querySelectorAll(".chat-qr-btn").forEach(b=>{
     b.addEventListener("click", ()=>{
