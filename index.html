@@ -7440,48 +7440,158 @@ function findLastDateMention(text){
   }
   return best ? best.dateStr : null;
 }
-// 判斷一句簡短回覆是在「確認」「否定」「更正某個欄位」還是「單純說不對但沒講哪裡不對」。
-// 「不是」本身不等於取消——只有明確表示交易沒發生（沒買／取消／算了）才會取消；單純的
-// 「不是」「不對」要追問是哪裡不對，保留待確認狀態等使用者補充，不能自己亂猜是哪個欄位
-// 錯了。判斷不出來就回傳 unclear（當成不是在回答這一題，交給呼叫端決定要不要退回去當成
-// 全新訊息解析），不會把「早餐50」這種完整的新訊息誤吃成回覆。
-function resolveChatConfirmReply(trimmed){
+// 付款方式：故意不含「其他」——「其他」同時也是一個真實存在的支出分類，兩邊都收會
+// 分不清使用者到底是在更正付款方式還是分類，與其亂猜，不如就不支援「其他」這個簡寫，
+// 分類「其他」永遠照舊走分類判斷，付款方式「其他」還是只能從原本的表單操作。
+const CHAT_PAYMENT_METHOD_KEYWORDS = [
+  { value:"cash", keywords:["現金"] },
+  { value:"credit", keywords:["信用卡"] },
+  { value:"card", keywords:["金融卡","轉帳","轉賬"] },
+];
+function findLastPaymentMethodMention(text){
+  let best = null;
+  CHAT_PAYMENT_METHOD_KEYWORDS.forEach(row=>{
+    row.keywords.forEach(k=>{
+      const idx = text.lastIndexOf(k);
+      if(idx>=0 && (!best || idx>best.index)) best = { index:idx, value:row.value };
+    });
+  });
+  return best ? best.value : null;
+}
+// 分類更正：只能對應到既有的分類（預設分類、自訂預算細項、記帳自己的自訂分類），
+// 不會自己發明新分類；自訂分類要回傳穩定的 id（跟 transaction.category 實際存的值一致），
+// 不是使用者輸入的顯示文字本身。
+function findLastCategoryMention(text, type){
+  const candidates = [];
+  if(type==="income"){
+    INCOME_CATS.forEach(c=>candidates.push({label:c, value:c}));
+    (DB.customCategories.income||[]).forEach(c=>{ if(!INCOME_CATS.includes(c)) candidates.push({label:c, value:c}); });
+  }else{
+    EXPENSE_CATS.forEach(c=>candidates.push({label:c, value:c}));
+    (DB.customExpenseCategories||[]).forEach(c=>{ if(c.label) candidates.push({label:c.label, value:c.id}); });
+    (DB.customCategories.expense||[]).forEach(c=>{ if(!EXPENSE_CATS.includes(c)) candidates.push({label:c, value:c}); });
+  }
+  let best = null;
+  candidates.forEach(c=>{
+    const idx = text.lastIndexOf(c.label);
+    if(idx>=0 && (!best || idx>best.index)) best = { index:idx, value:c.value };
+  });
+  return best ? best.value : null;
+}
+function findExactCategoryMatch(text, type){
+  if(!text) return null;
+  if(type==="income"){
+    if(INCOME_CATS.includes(text)) return text;
+    const custom = (DB.customCategories.income||[]).find(c=>c===text && !INCOME_CATS.includes(c));
+    return custom || null;
+  }
+  if(EXPENSE_CATS.includes(text)) return text;
+  const customBudget = (DB.customExpenseCategories||[]).find(c=>c.label===text);
+  if(customBudget) return customBudget.id;
+  const customLedger = (DB.customCategories.expense||[]).find(c=>c===text && !EXPENSE_CATS.includes(c));
+  return customLedger || null;
+}
+// 判斷一句簡短回覆，是不是在更正「待確認／待補」草稿裡的某一個欄位（金額／日期／收支
+// 類型／分類／付款方式）。同時支援兩種講法：
+//   1. 帶「不是／改成／其實是」等更正詞的完整句子（例如「不是昨天，是前天」），在整句
+//      裡找最後提到的那個值；
+//   2. 追問「是哪裡不對呢」之後，直接回一個精簡值（例如單純「前天」「購物」「150」），
+//      不用每次都重講一次「不是」。
+// 判斷順序特意是「日期 → 收支類型 → 分類 → 付款方式 → 金額」。日期詞跟收支類型幾乎不會
+// 跟任何分類名稱撞在一起，先判斷掉可以避免「使用者在回答分類時說了『前天』，結果被誤判
+// 成分類」這種問題。分類排在付款方式前面，是因為「信用卡還款」這個分類本身就包含「信用卡」
+// 這個付款方式關鍵字——如果先比對付款方式，「不是，是信用卡還款」會被誤判成「付款方式
+// 改成信用卡」，而不是「分類改成信用卡還款」；分類名稱通常比付款方式關鍵字更長、更明確，
+// 先比對分類才不會被短的付款方式關鍵字搶先攔截。分類放在金額前面，因為分類名稱不會是
+// 純數字，兩者不會互相誤判。只有在偵測不到任何欄位訊號時才回傳 null，交給呼叫端決定要
+// 怎麼處理（例如沿用原本「整句當成分類名稱」的既有邏輯）。
+function detectChatFieldCorrection(trimmed, draftType){
   const hasCorrectionTrigger = /不是|改成|其實是|其实是|應該是|应该是/.test(trimmed);
+  const bare = trimmed.replace(/^(是的|是|應該是|应该是|其實是|其实是)/,"").trim();
+
   if(hasCorrectionTrigger){
-    // 日期更正（例如「不是昨天，是前天」）。
-    const dateCorrection = findLastDateMention(trimmed);
-    if(dateCorrection) return { type:"correct_date", date:dateCorrection };
-    // 收支類型更正（例如「不是支出，是收入」），一樣取最後提到的那個。
+    const d = findLastDateMention(trimmed);
+    if(d) return { field:"date", value:d };
+  }
+  if(/^(大前天|前天|昨天|今天)$/.test(bare)){
+    const map = { "大前天":3, "前天":2, "昨天":1, "今天":0 };
+    return { field:"date", value: relativeDateStr(map[bare]) };
+  }
+  const explicitDateOnly = bare.match(/^(\d{1,2})[\/月](\d{1,2})日?$/);
+  if(explicitDateOnly){
+    const month = parseInt(explicitDateOnly[1],10), day = parseInt(explicitDateOnly[2],10);
+    const now = new Date(); let year = now.getFullYear();
+    let d = new Date(year, month-1, day);
+    if(d.getTime() > now.getTime()){ year -= 1; d = new Date(year, month-1, day); }
+    if(d.getMonth()===month-1 && d.getDate()===day) return { field:"date", value: fmtDate(d) };
+  }
+
+  if(hasCorrectionTrigger){
     const typeMatches = [...trimmed.matchAll(/收入|支出/g)];
     if(typeMatches.length){
       const last = typeMatches[typeMatches.length-1][0];
-      return { type:"correct_type", newType: last==="收入" ? "income" : "expense" };
+      return { field:"type", value: last==="收入" ? "income" : "expense" };
     }
-    // 金額更正（例如「不是，是150元」「改成150」）。
+  }
+  if(bare==="收入") return { field:"type", value:"income" };
+  if(bare==="支出") return { field:"type", value:"expense" };
+
+  if(hasCorrectionTrigger){
+    const cat = findLastCategoryMention(trimmed, draftType);
+    if(cat) return { field:"category", value:cat };
+  }
+  const exactCat = findExactCategoryMatch(bare, draftType);
+  if(exactCat) return { field:"category", value:exactCat };
+
+  if(hasCorrectionTrigger){
+    const pm = findLastPaymentMethodMention(trimmed);
+    if(pm) return { field:"paymentMethod", value:pm };
+  }
+  const bareP = CHAT_PAYMENT_METHOD_KEYWORDS.find(row=>row.keywords.includes(bare));
+  if(bareP) return { field:"paymentMethod", value:bareP.value };
+
+  if(hasCorrectionTrigger){
     const amt = extractChatAmount(trimmed);
-    if(amt!=null) return { type:"correct_amount", amount:amt };
+    if(amt!=null) return { field:"amount", value:amt };
   }
-  // 追問「是哪裡不對呢」之後，使用者常常直接回一個不帶「不是」的新金額（例如「是150元」
-  // 或單純「150」），把開頭可有可無的「是／應該是」拿掉之後，如果剩下的就只是一個金額，
-  // 一樣當成金額更正，不用使用者每次都重講一次「不是」。
-  const bareValue = trimmed.replace(/^(是的|是|應該是|应该是|其實是|其实是)/,"").trim();
-  if(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i.test(bareValue)){
-    const amt = extractChatAmount(bareValue);
-    if(amt!=null) return { type:"correct_amount", amount:amt };
+  if(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i.test(bare)){
+    const amt = extractChatAmount(bare);
+    if(amt!=null) return { field:"amount", value:amt };
   }
-  if(/^(對|对|是的|是|沒錯|没错|對啊|对啊|好|嗯|是啊)$/.test(trimmed)){
-    return { type:"confirm" };
+
+  return null;
+}
+function applyChatFieldCorrection(draft, correction){
+  if(correction.field==="amount") draft.amount = correction.value;
+  else if(correction.field==="date") draft.date = correction.value;
+  else if(correction.field==="category") draft.category = correction.value;
+  else if(correction.field==="paymentMethod") draft.paymentMethod = correction.value;
+  else if(correction.field==="type"){
+    // 收支類型換了，原本（如果有）針對支出或收入猜的分類不一定還適用，重新檢查。
+    draft.type = correction.value;
+    draft.category = null;
   }
-  // 明確表示交易沒發生，才算取消；bare「不是」不包含在這裡。沿用既有的 CHAT_NEGATION_MARKERS
-  // （涵蓋「沒買」「沒有買」等「沒（有）+動作詞」的各種寫法），不用另外再維護一份否定詞清單。
-  if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
-    return { type:"reject" };
+}
+// 草稿資訊足夠之後的統一收尾：分類還沒確定就繼續問分類；分類已經確定，但剛好更正成
+// 信用卡還款／負債相關分類時，沿用原本既有的特殊交易規則（信用卡要問 already_recorded／
+// new_debt、負債還款要引導去『我的負債』頁面），不會因為是從「更正」這條路徑過來，
+// 就繞過這些既有的防重複計算規則。
+function finalizeChatDraftOrAskCategory(draft){
+  if(!draft.category){
+    DB.chatLedger.pendingAsk = { field:"name", draft };
+    pushChatMessage({ role:"bot", text:`這筆 $${draft.amount.toLocaleString()} 要記在哪個分類呢？` });
+    return;
   }
-  // 單純的「不是」「不對」，沒有講任何補充內容——不能自己猜是哪裡錯，要追問清楚。
-  if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
-    return { type:"needs_detail" };
+  DB.chatLedger.pendingAsk = null;
+  if(draft.type==="expense" && draft.category===CREDIT_CARD_PAYMENT_CATEGORY){
+    pushChatCreditCardAsk({ date:draft.date, amount:draft.amount, name:draft.name||CREDIT_CARD_PAYMENT_CATEGORY });
+    return;
   }
-  return { type:"unclear" };
+  if(draft.type==="expense" && CHAT_DEBT_BUCKET_CATS.includes(draft.category)){
+    pushChatDebtGuide({ date:draft.date, amount:draft.amount, category:draft.category, name:draft.name||draft.category });
+    return;
+  }
+  saveCompleteChatDrafts([draft]);
 }
 /* ---- 處理上一句「還缺一項」的回覆（同一時間只會記住最新的一筆待補問題） ----
    只有「整句話整個就是在回答那一項缺的資訊」才算數，避免把下一句其實是全新、
@@ -7509,50 +7619,49 @@ function tryResolveChatPendingAsk(rawText){
     }
     return true;
   }
-  if(pending.field==="name"){
-    // 如果這句話自己就帶了金額，或命中信用卡／負債／緊急預備金等特殊關鍵字，代表這其實是
-    // 另一筆全新、自己資訊齊全（或該走特殊流程）的訊息，不是在回答「這是做什麼用的」。
-    if(extractChatAmount(trimmed)!=null) return false;
-    if(/緊急預備金|預備金|信用卡|卡費|刷卡費/.test(trimmed) || CHAT_DEBT_BUCKET_CATS.some(k=>trimmed.includes(k))) return false;
-    const name = cleanChatItemName(trimmed) || trimmed.replace(/[。！,，]/g,"").trim();
-    if(!name) return false;
-    const draft = pending.draft; draft.name = name;
-    draft.category = draft.type==="income" ? inferChatIncomeCategory(name) : inferChatExpenseCategory(name);
-    DB.chatLedger.pendingAsk = null;
-    saveCompleteChatDrafts([draft]);
-    return true;
-  }
-  if(pending.field==="confirmAmount"){
-    const reply = resolveChatConfirmReply(trimmed);
-    // 看不懂這句話是在回答確認問題，代表這其實可能是另一筆全新的訊息（例如「早餐50」），
-    // 退回去讓呼叫端照一般流程重新解析，待確認狀態保留原樣，不會被誤吃掉。
-    if(reply.type==="unclear") return false;
+  // field:"name"（追問分類）跟 field:"confirmAmount"（追問「最後實際是不是這個金額」）
+  // 共用同一套「這句話是不是在更正某個欄位」的判斷與否定／取消處理，只有 confirmAmount
+  // 多了「對／是／沒錯」這種單純肯定的語意（name 本身是開放式問題，沒有東西可以「肯定」）。
+  if(pending.field==="name" || pending.field==="confirmAmount"){
     const draft = pending.draft;
-    if(reply.type==="reject"){
+    if(pending.field==="confirmAmount" && /^(對|对|是的|是|沒錯|没错|對啊|对啊|好|嗯|是啊)$/.test(trimmed)){
+      finalizeChatDraftOrAskCategory(draft);
+      return true;
+    }
+    // 明確表示交易沒發生或要結束流程，才算取消；bare「不是」不包含在這裡。沿用既有的
+    // CHAT_NEGATION_MARKERS（涵蓋「沒買」「沒有買」等「沒（有）+動作詞」的各種寫法）。
+    if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
       DB.chatLedger.pendingAsk = null;
       pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
       return true;
     }
-    if(reply.type==="needs_detail"){
-      // 單純回「不是」沒有講哪裡不對——不猜、不取消，保留原本待確認的草稿，
-      // 追問一次，等使用者補充正確的金額或內容。
+    const correction = detectChatFieldCorrection(trimmed, draft.type);
+    if(correction){
+      applyChatFieldCorrection(draft, correction);
+      finalizeChatDraftOrAskCategory(draft);
+      return true;
+    }
+    // 單純的「不是」「不對」，沒有講任何補充內容——不能自己猜是哪裡錯，要追問清楚，
+    // 並完整保留原本待確認／待補的草稿，不清掉也不記帳。
+    if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
       pushChatMessage({ role:"bot", text:"是哪裡不對呢？可以告訴我正確的金額或內容～" });
       return true;
     }
-    if(reply.type==="correct_amount") draft.amount = reply.amount;
-    if(reply.type==="correct_date") draft.date = reply.date;
-    if(reply.type==="correct_type"){
-      // 收支類型換了，原本（如果有）針對支出或收入猜的分類不一定還適用，重新檢查。
-      draft.type = reply.newType;
-      draft.category = null;
+    if(pending.field==="confirmAmount"){
+      // confirmAmount 看不懂這句話在說什麼，代表這其實可能是另一筆全新的訊息
+      // （例如「早餐50」），退回去讓呼叫端照一般流程重新解析，待確認狀態保留原樣。
+      return false;
     }
-    if(draft.category){
-      DB.chatLedger.pendingAsk = null;
-      saveCompleteChatDrafts([draft]);
-    }else{
-      DB.chatLedger.pendingAsk = { field:"name", draft };
-      pushChatMessage({ role:"bot", text:`這筆 $${draft.amount.toLocaleString()} 要記在哪個分類呢？` });
-    }
+    // field:"name" 原本的行為：沒有偵測到特定欄位更正信號，整句當成分類／項目名稱本身
+    // 來推測分類，沿用既有的信用卡／負債／緊急預備金安全檢查，確保不會把特殊交易的
+    // 關鍵字誤吃成分類名稱。
+    if(extractChatAmount(trimmed)!=null) return false;
+    if(/緊急預備金|預備金|信用卡|卡費|刷卡費/.test(trimmed) || CHAT_DEBT_BUCKET_CATS.some(k=>trimmed.includes(k))) return false;
+    const name = cleanChatItemName(trimmed) || trimmed.replace(/[。！,，]/g,"").trim();
+    if(!name) return false;
+    draft.name = name;
+    draft.category = draft.type==="income" ? inferChatIncomeCategory(name) : inferChatExpenseCategory(name);
+    finalizeChatDraftOrAskCategory(draft);
     return true;
   }
   return false;

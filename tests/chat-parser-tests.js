@@ -38,6 +38,9 @@
  *                       H 回答「取消」清除待確認狀態／I 一般聊天不觸發
  *                       確認／J 多筆交易中只有部分需要確認／K 確認完成
  *                       後正式交易與財務串聯正確更新）
+ *   F. fieldCorrection - 待確認／待補狀態下，五種欄位（金額／日期／收支
+ *                       類型／分類／付款方式）的簡短更正，以及「詢問
+ *                       分類時使用者更正了別的欄位」的上下文判斷
  */
 
 const path = require('path');
@@ -262,6 +265,54 @@ const TESTS = {
     // saveCompleteChatDrafts() → renderAll() 機制保證（見下面 main() 的額外 DOM 檢查）。
     { id:'E_K1', steps:['昨天原本想買500元的衣服，但最後花了300元買衣服'], expect:{ txAdded:1, lastTx:{ amount:300, category:'購物', dateOffsetDays:-1 }, pendingAskAfter:false } },
   ],
+
+  // ===== F. 待確認交易的五種欄位簡短更正（金額／日期／收支類型／分類／付款方式） =====
+  fieldCorrection: [
+    // 1. 金額：confirmAmount 流程裡「不是」之後直接回一個裸金額。
+    { id:'F_01', steps:['我昨天差點花500元，結果只花了100元','不是','150'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:150, dateOffsetDays:-1 } } },
+    // 2. 日期：同樣在「不是」之後直接回一個裸日期詞，金額保持不變。
+    { id:'F_02', steps:['我昨天差點花500元，結果只花了100元','不是','前天'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:100, dateOffsetDays:-2 } } },
+    // 3. 收支類型：裸「收入」，分類因為類型換了要重新檢查（還是 null，繼續問分類）。
+    { id:'F_03', steps:['我昨天差點花500元，結果只花了100元','不是','收入'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:100, type:'income', category:null } } },
+    { id:'F_03b', steps:['我昨天差點花500元，結果只花了100元','不是','收入','薪資'], expect:{ txAdded:1, lastTx:{ amount:100, category:'薪資', type:'income' }, pendingAskAfter:false } },
+    // 4. 分類：裸分類名稱直接完成記帳（金額／日期沿用原本確認過的內容）。
+    { id:'F_04', steps:['我昨天差點花500元，結果只花了100元','不是','購物'], expect:{ txAdded:1, lastTx:{ amount:100, category:'購物', dateOffsetDays:-1 }, pendingAskAfter:false } },
+    // 5. 付款方式：裸付款方式詞更正後，金額／日期不受影響，仍需要繼續問分類。
+    { id:'F_05', steps:['我昨天差點花500元，結果只花了100元','不是','現金'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:100, paymentMethod:'cash' } } },
+    { id:'F_05b', steps:['我昨天差點花500元，結果只花了100元','不是','現金','飲料'], expect:{ txAdded:1, lastTx:{ amount:100, category:'餐費' }, pendingAskAfter:false } },
+
+    // 6. 詢問分類時，使用者更正日期：不得誤判成分類本身。
+    { id:'F_06', steps:['昨天花了300元','不是昨天，是前天'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:300, category:null, dateOffsetDays:-2 } } },
+    { id:'F_06b', steps:['昨天花了300元','不是昨天，是前天','購物'], expect:{ txAdded:1, lastTx:{ amount:300, category:'購物', dateOffsetDays:-2 }, pendingAskAfter:false } },
+    // 直接裸日期（不帶「不是」），同樣要在「詢問分類」狀態下被辨識成日期，不是分類。
+    { id:'F_06c', steps:['昨天花了300元','前天'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:300, category:null, dateOffsetDays:-2 } } },
+
+    // 7. 詢問分類時，使用者更正收支類型：裸「收入」不得被當成分類「收入」（本來就沒有
+    // 這個分類，但如果沒做對會落到「其他」而不是正確地轉成收入）。
+    { id:'F_07', steps:['昨天花了300元','收入'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:300, type:'income', category:null } } },
+    { id:'F_07b', steps:['昨天花了300元','收入','獎金'], expect:{ txAdded:1, lastTx:{ amount:300, category:'獎金', type:'income' }, pendingAskAfter:false } },
+
+    // 8. 修改類型後，不相容的分類正確處理（類型從支出換成收入時，原本缺的分類維持缺，
+    // 不會殘留任何支出分類；已經在 F_03／F_07 驗證過 category 正確變回 null）。
+
+    // 9. 更正付款方式／分類後，特殊交易規則仍正確：分類更正成「信用卡還款」要走既有的
+    // already_recorded／new_debt 詢問，不能直接存檔；更正成負債類別要走既有的引導訊息，
+    // 同樣不能直接存檔，避免重複計算。
+    { id:'F_09a', steps:['我昨天差點花500元，結果只花了100元','不是，是信用卡還款'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'信用卡還款' } },
+    { id:'F_09b', steps:['我昨天差點花500元，結果只花了100元','不是，是信貸'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'我的負債' } },
+
+    // 10. 沒有待確認交易時，簡短回答不會誤記帳或啟動確認流程。
+    { id:'F_10a', steps:['前天'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'F_10b', steps:['現金'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'F_10c', steps:['收入'], expect:{ txAdded:0, pendingAskAfter:false } },
+
+    // 11. 多筆交易中只修改指定（唯一待確認）的那一筆，不影響已完成的那一筆、不重複建立。
+    { id:'F_11a', steps:['早餐50、我昨天差點花500元結果只花了100元'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:true, pendingAskField:'confirmAmount' } },
+    { id:'F_11b', steps:['早餐50、我昨天差點花500元結果只花了100元','不是','200','娛樂'], expect:{ txAdded:2, lastTx:{ amount:200, category:'娛樂' }, pendingAskAfter:false } },
+
+    // 14. 已確認的資訊不會被重複詢問：金額更正後，原本已知的日期（昨天）沒有被改掉、
+    // 也沒有再被拿出來問一次（只問了分類，見 F_01 的 pendingAskDraft.dateOffsetDays 斷言）。
+  ],
 };
 
 async function runGroup(page, groupName, cases) {
@@ -326,6 +377,20 @@ async function runGroup(page, groupName, cases) {
         const field = pendingAsk ? pendingAsk.field : null;
         if (field !== c.expect.pendingAskField) {
           problems.push(`pendingAsk.field 預期 ${c.expect.pendingAskField}，實際 ${field}`);
+        }
+      }
+      if (c.expect.pendingAskDraft != null) {
+        const draft = (pendingAsk && pendingAsk.draft) || {};
+        const e = c.expect.pendingAskDraft;
+        for (const k of Object.keys(e)) {
+          if (k === 'dateOffsetDays') {
+            const expectedDate = await page.evaluate((off) => {
+              const d = new Date(); d.setDate(d.getDate() + off); return fmtDate(d);
+            }, e.dateOffsetDays);
+            if (draft.date !== expectedDate) problems.push(`pendingAsk.draft.date 預期 ${expectedDate}，實際 ${draft.date}`);
+            continue;
+          }
+          if (draft[k] !== e[k]) problems.push(`pendingAsk.draft.${k} 預期 ${e[k]}，實際 ${draft[k]}`);
         }
       }
       if (c.expect.lastBotReplyIncludes != null) {
