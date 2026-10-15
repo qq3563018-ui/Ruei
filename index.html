@@ -7576,6 +7576,47 @@ function applyChatFieldCorrection(draft, correction){
 // 信用卡還款／負債相關分類時，沿用原本既有的特殊交易規則（信用卡要問 already_recorded／
 // new_debt、負債還款要引導去『我的負債』頁面），不會因為是從「更正」這條路徑過來，
 // 就繞過這些既有的防重複計算規則。
+// 「信用卡」這個詞同時可能是付款方式、也可能是「信用卡還款」分類的簡稱，兩者意思完全
+// 不同（一個只是記錄怎麼付錢，一個是信用卡防重複計算的特殊分類）。沒有足夠上下文可以
+// 排除其中一種意思時，不能自己選，要詢問使用者；只有在「更正句裡已經有明確的欄位
+// 關鍵字」（例如「付款方式改成信用卡」「分類改成信用卡還款」）才不算歧義，因為那種
+// 句子已經自己講明是哪個欄位，交給 detectChatFieldCorrection 原本的邏輯處理就好。
+// 目前只有「信用卡」這一個詞有這個問題，其餘欄位的用詞彼此不會撞在一起。
+const CHAT_AMBIGUOUS_TERMS = [
+  { term:"信用卡", options:[
+    { field:"paymentMethod", value:"credit", label:"付款方式" },
+    { field:"category", value:CREDIT_CARD_PAYMENT_CATEGORY, label:"分類" }
+  ]}
+];
+// 把「不是，」「改成」「是／應該是／其實是」這種開頭的語氣詞拿掉，只留下使用者
+// 真正主張的內容本身，用來判斷是不是剛好「就只是」一個已知有歧義的詞——如果欄位
+// 關鍵字（例如「付款方式」）出現在開頭，代表使用者已經自己講明是哪個欄位，不會被
+// 這裡拿掉，也就不會被誤判成歧義。
+function extractAssertedCorrectionValue(trimmed){
+  let t = trimmed.replace(/^不是[，,]?/, "").trim();
+  t = t.replace(/^(是的|是|應該是|应该是|其實是|其实是|改成)/, "").trim();
+  return t;
+}
+function matchChatAmbiguousTerm(trimmed){
+  const value = extractAssertedCorrectionValue(trimmed);
+  return CHAT_AMBIGUOUS_TERMS.find(row=>row.term===value) || null;
+}
+function rePushOriginalPendingQuestion(draft, field){
+  if(field==="confirmAmount"){
+    const verb = draft.type==="income" ? "收到" : "花了";
+    pushChatMessage({ role:"bot", text:`想確認一下，最後實際${verb} $${draft.amount.toLocaleString()} 嗎？` });
+  }else{
+    pushChatMessage({ role:"bot", text:`這筆 $${draft.amount.toLocaleString()} 要記在哪個分類呢？` });
+  }
+}
+function pushChatFieldAmbiguityQuestion(draft, ambiguous, returnField){
+  DB.chatLedger.pendingAsk = { field:"disambiguate", draft, options:ambiguous.options, returnField };
+  const labels = ambiguous.options.map(o=>o.label);
+  const text = labels.length===2
+    ? `妳是想修改${labels[0]}，還是${labels[1]}呢？`
+    : `妳是想修改${labels.join('、')}中的哪一項呢？`;
+  pushChatMessage({ role:"bot", text });
+}
 function finalizeChatDraftOrAskCategory(draft){
   if(!draft.category){
     DB.chatLedger.pendingAsk = { field:"name", draft };
@@ -7619,6 +7660,35 @@ function tryResolveChatPendingAsk(rawText){
     }
     return true;
   }
+  if(pending.field==="disambiguate"){
+    // 使用者正在回答「妳是想修改付款方式，還是分類呢？」這種歧義澄清問題。
+    const draft = pending.draft;
+    if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
+      // 取消的是「這次的更正」，不是整筆待確認交易——退回去原本在問的那個問題，
+      // 草稿完全不變，不會留下重複或錯誤的資料。
+      const returnField = pending.returnField;
+      DB.chatLedger.pendingAsk = { field: returnField, draft };
+      rePushOriginalPendingQuestion(draft, returnField);
+      return true;
+    }
+    const picked = pending.options.find(o=>trimmed.includes(o.label));
+    if(picked){
+      applyChatFieldCorrection(draft, { field:picked.field, value:picked.value });
+      finalizeChatDraftOrAskCategory(draft);
+      return true;
+    }
+    // 使用者沒有照選項回答，而是直接給了另一個完整的更正（例如改講別的日期／金額）——
+    // 按照既有更正流程處理，放棄這次還沒解決完的歧義提問。
+    const freshCorrection = detectChatFieldCorrection(trimmed, draft.type);
+    if(freshCorrection){
+      applyChatFieldCorrection(draft, freshCorrection);
+      finalizeChatDraftOrAskCategory(draft);
+      return true;
+    }
+    // 看不懂在回答什麼，可能是另一則全新的訊息，退回去讓呼叫端照一般流程重新解析，
+    // 歧義澄清狀態保留原樣。
+    return false;
+  }
   // field:"name"（追問分類）跟 field:"confirmAmount"（追問「最後實際是不是這個金額」）
   // 共用同一套「這句話是不是在更正某個欄位」的判斷與否定／取消處理，只有 confirmAmount
   // 多了「對／是／沒錯」這種單純肯定的語意（name 本身是開放式問題，沒有東西可以「肯定」）。
@@ -7633,6 +7703,23 @@ function tryResolveChatPendingAsk(rawText){
     if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
       DB.chatLedger.pendingAsk = null;
       pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
+      return true;
+    }
+    // 「信用卡」這種同時可能對應付款方式／分類的詞：如果目前就是在問分類
+    // （field:"name"），上下文已經足夠明確，直接當成分類處理，套用既有的信用卡
+    // 特殊問答規則；其他情況（例如在確認金額時冒出一句「信用卡」）沒有足夠上下文
+    // 可以排除歧義，必須先問清楚是哪個欄位，不能自己選。
+    const ambiguous = matchChatAmbiguousTerm(trimmed);
+    if(ambiguous){
+      if(pending.field==="name"){
+        const catOption = ambiguous.options.find(o=>o.field==="category");
+        if(catOption){
+          applyChatFieldCorrection(draft, catOption);
+          finalizeChatDraftOrAskCategory(draft);
+          return true;
+        }
+      }
+      pushChatFieldAmbiguityQuestion(draft, ambiguous, pending.field);
       return true;
     }
     const correction = detectChatFieldCorrection(trimmed, draft.type);

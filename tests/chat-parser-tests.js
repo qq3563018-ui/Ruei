@@ -41,6 +41,11 @@
  *   F. fieldCorrection - 待確認／待補狀態下，五種欄位（金額／日期／收支
  *                       類型／分類／付款方式）的簡短更正，以及「詢問
  *                       分類時使用者更正了別的欄位」的上下文判斷
+ *   G. ambiguity     - 同一個詞可能對應多個欄位時的歧義判斷（目前唯一
+ *                       的例子：「信用卡」同時可能是付款方式、也可能是
+ *                       「信用卡還款」分類的簡稱）：上下文足夠明確就直接
+ *                       處理、使用者明確指定欄位就不多問、真正有歧義才
+ *                       詢問，並且詢問用的句子要能正確處理
  */
 
 const path = require('path');
@@ -312,6 +317,40 @@ const TESTS = {
 
     // 14. 已確認的資訊不會被重複詢問：金額更正後，原本已知的日期（昨天）沒有被改掉、
     // 也沒有再被拿出來問一次（只問了分類，見 F_01 的 pendingAskDraft.dateOffsetDays 斷言）。
+  ],
+
+  // ===== G. 同一個詞可能對應多個欄位的歧義判斷（目前唯一的例子：「信用卡」同時可能是
+  // 付款方式，也可能是「信用卡還款」分類的簡稱）=====
+  ambiguity: [
+    // 1. 詢問分類時（field:"name"）回答裸「信用卡」：上下文已經足夠明確（就是在問分類），
+    // 直接當成分類處理，套用既有信用卡特殊問答規則，不會誤判成付款方式、也不會多問一次。
+    { id:'G_01', steps:['昨天花了300元','信用卡'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'信用卡還款' } },
+    // 2. 詢問分類時回答完整的「信用卡還款」（既有行為，確認沒有被新的歧義判斷誤觸發成
+    // 「還是付款方式？」的疑問句）。
+    { id:'G_02', steps:['昨天花了300元','信用卡還款'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'信用卡還款' } },
+    // 3. 開放式更正問題（confirmAmount，field:"confirmAmount"）裡回答裸「信用卡」：
+    // 這裡沒有足夠上下文可以排除是付款方式還是分類，必須先問清楚，不能自己猜，
+    // 也絕對不能先存檔。
+    { id:'G_03', steps:['我昨天差點花500元，結果只花了100元','信用卡'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'disambiguate', pendingAskDraft:{ amount:100, dateOffsetDays:-1 }, lastBotReplyIncludes:'還是' } },
+    // 4. 使用者主動明確指定欄位（「付款方式改成信用卡」）：欄位關鍵字已經講明，不算歧義，
+    // 直接套用既有的欄位更正邏輯，不會被拿去問「還是」的澄清問題。
+    { id:'G_04', steps:['我昨天差點花500元，結果只花了100元','付款方式改成信用卡'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:100, paymentMethod:'credit' } } },
+    { id:'G_04b', steps:['我昨天差點花500元，結果只花了100元','付款方式改成信用卡','飲料'], expect:{ txAdded:1, lastTx:{ amount:100, category:'餐費' }, pendingAskAfter:false } },
+    // 5. 使用者主動明確指定欄位（「分類改成信用卡還款」）：同樣不算歧義，直接套用，
+    // 並且正確觸發既有的信用卡特殊問答規則（不是直接存檔）。
+    { id:'G_05', steps:['我昨天差點花500元，結果只花了100元','分類改成信用卡還款'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'信用卡還款' } },
+    // 6. 澄清問題回答「付款方式」：套用已知的「信用卡」到付款方式欄位，金額／日期不變，
+    // 繼續問分類（因為分類還是未知，不是信用卡還款）。
+    { id:'G_06', steps:['我昨天差點花500元，結果只花了100元','信用卡','付款方式'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:100, paymentMethod:'credit', dateOffsetDays:-1 }, lastBotReplyIncludes:'分類' } },
+    { id:'G_06b', steps:['我昨天差點花500元，結果只花了100元','信用卡','付款方式','飲料'], expect:{ txAdded:1, lastTx:{ amount:100, category:'餐費' }, pendingAskAfter:false } },
+    // 7. 澄清問題回答「分類」：套用已知的「信用卡」到分類欄位（信用卡還款），觸發既有的
+    // 信用卡特殊問答規則，不會直接存檔。
+    { id:'G_07', steps:['我昨天差點花500元，結果只花了100元','信用卡','分類'], expect:{ txAdded:0, pendingAskAfter:false, lastBotReplyIncludes:'信用卡還款' } },
+    // 8. 澄清問題回答「取消」：取消的只是這次欄位澄清，不是整筆待確認交易——退回原本在問
+    // 的那句問題（這裡是 confirmAmount），草稿完整保留，不建立任何交易。之後仍可以正常
+    // 用「對」接著完成記帳，證明狀態沒有壞掉。
+    { id:'G_08', steps:['我昨天差點花500元，結果只花了100元','信用卡','取消'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'confirmAmount', pendingAskDraft:{ amount:100, dateOffsetDays:-1 }, lastBotReplyIncludes:'想確認' } },
+    { id:'G_08b', steps:['我昨天差點花500元，結果只花了100元','信用卡','取消','對','飲料'], expect:{ txAdded:1, lastTx:{ amount:100, category:'餐費' }, pendingAskAfter:false } },
   ],
 };
 
