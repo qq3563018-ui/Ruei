@@ -58,6 +58,16 @@
  *                       問金額，不能當成一般聊天放掉；但整句還夾雜其他
  *                       內容（「好貴」「我想了解」等）時仍是一般聊天，
  *                       不強迫進入待補流程
+ *   K. chitChatSafety - 待補分類時插入一般聊天（問候語／疑問語氣／太長
+ *                       的句子）不得被誤記成分類答案，草稿要完整保留；
+ *                       真正的新自訂分類（對不到任何既有分類或關鍵字，
+ *                       但看起來就是簡短的分類用詞）仍要能正常建立
+ *   L. pendingAskRobustness - 待補途中又冒出一筆看起來像記帳的新訊息
+ *                       （完整或不完整都算）時，要先用切換確認按鈕問
+ *                       清楚，不無聲覆蓋或放棄舊草稿；單純的更正／補充
+ *                       不算新交易，不觸發切換確認；不論目前在哪個待補
+ *                       狀態，「取消」都要能正確清除、「不是」都要能
+ *                       進入既有的澄清提示
  */
 
 const path = require('path');
@@ -213,7 +223,10 @@ const TESTS = {
     { id:'D10', steps:['幫我記早餐','80'], expect:{ txAdded:1, lastTx:{ amount:80, category:'餐費' }, pendingAskAfter:false } },
     { id:'D11', steps:['午餐','你好'], expect:{ txAdded:0, pendingAskAfter:true } },
     { id:'D12', steps:['300'], expect:{ txAdded:0, pendingAskAfter:true } },
-    { id:'D13', steps:['早餐','早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' } } },
+    // D13：「早餐」缺金額待補中途又送出一筆完整的新交易「早餐50」——這不是在回答原本
+    // 缺的金額，所以不會被誤吃，但也不能無聲覆蓋或放棄前一筆，要先用切換確認按鈕問清楚
+    // （對應需求二），原本的待補狀態（field:"amount"）維持不變，等使用者點選才真正處理。
+    { id:'D13', steps:['早餐','早餐50'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'amount', lastBotReplyIncludes:'前一筆記帳還沒完成' } },
     { id:'D14', steps:['早餐50、午餐'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:true } },
     { id:'D15', steps:['購買日常用品500、買東西500'], expect:{ txAdded:2, lastTx:{ amount:500, category:'購物' } } },
     { id:'D16', steps:['薪水30000、早餐50'], expect:{ txAdded:2, lastTx:{ amount:50, category:'餐費' } } },
@@ -270,9 +283,11 @@ const TESTS = {
     // 也不會因為後面在等確認，就重複處理前面已經完成的那一筆。
     { id:'E_J1', steps:['早餐50、我昨天差點花500元結果只花了100元'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:true, pendingAskField:'confirmAmount' } },
     { id:'E_J2', steps:['早餐50、我昨天差點花500元結果只花了100元','對','購物'], expect:{ txAdded:2, lastTx:{ amount:100, category:'購物' }, pendingAskAfter:false } },
-    // 待確認期間輸入另一筆全新、資訊齊全的記帳指令，不會被誤吃成上一筆的回答，
-    // 新的那一筆照樣正確記帳（原本待確認的狀態維持不變，不會被悄悄清掉或誤判）。
-    { id:'E_J3', steps:['我昨天差點花500元，結果只花了100元','早餐50'], expect:{ txAdded:1, lastTx:{ amount:50, category:'餐費' }, pendingAskAfter:true, pendingAskField:'confirmAmount' } },
+    // 待確認期間輸入另一筆全新、資訊齊全的記帳指令，不會被誤吃成上一筆的回答，但也不會
+    // 無聲直接記帳或覆蓋原本待確認的那一筆——改成用切換確認按鈕先問清楚使用者要先記哪一
+    // 筆（對應需求二），原本待確認的狀態（field:"confirmAmount"）維持不變，等使用者點選
+    // 按鈕才真正處理新交易或繼續原本那一筆。
+    { id:'E_J3', steps:['我昨天差點花500元，結果只花了100元','早餐50'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'confirmAmount', lastBotReplyIncludes:'前一筆記帳還沒完成' } },
     // 沒有待確認交易時，「對」「算了」這類簡短回答不會被誤解讀成記帳。
     { id:'E_X1', steps:['對'], expect:{ txAdded:0, pendingAskAfter:false } },
     { id:'E_X2', steps:['算了'], expect:{ txAdded:0, pendingAskAfter:false } },
@@ -442,6 +457,38 @@ const TESTS = {
     // 6. 既有缺金額待補流程（跟本次修改的分支不同，確認沒有互相干擾）維持正常。
     { id:'J_09', steps:['早餐'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'amount', lastBotReplyIncludes:'多少錢' } },
   ],
+
+  // ===== K. 一般聊天不得誤記成分類答案；真正的新自訂分類仍可正常建立 =====
+  chitChatSafety: [
+    // 1～2. 待補分類時插入一般聊天：不建立交易，草稿完整保留，之後仍可用明確分類完成。
+    { id:'K_01', steps:['刷卡500','今天天氣真好'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500, paymentMethod:'credit', category:null } } },
+    { id:'K_01b', steps:['刷卡500','今天天氣真好','購物'], expect:{ txAdded:1, lastTx:{ amount:500, category:'購物', paymentMethod:'credit' }, pendingAskAfter:false } },
+    // 「哈哈」「你好」同樣不得被誤記，草稿要能連續承受好幾次聊天干擾都不壞掉。
+    { id:'K_02', steps:['刷卡500','哈哈','你好'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'name', pendingAskDraft:{ amount:500 } } },
+    { id:'K_02b', steps:['刷卡500','哈哈','你好','餐費'], expect:{ txAdded:1, lastTx:{ amount:500, category:'餐費' }, pendingAskAfter:false } },
+    // 6. 使用者提供有效（全新）的自訂分類時，依照原本的分類管理規則處理，不一律拒絕——
+    // 「寵物飼料」對不到任何既有分類或關鍵字，但看起來就是一個簡短的分類用詞，不是聊天。
+    { id:'K_03', steps:['刷卡500','寵物飼料'], expect:{ txAdded:1, lastTx:{ amount:500, category:'寵物飼料', paymentMethod:'credit' }, pendingAskAfter:false } },
+  ],
+
+  // ===== L. 待補途中出現新交易：先用切換確認按鈕問清楚，不無聲覆蓋或放棄舊草稿；
+  // 不論在哪個待補狀態，「取消」「不是」都要能正確處理 =====
+  pendingAskRobustness: [
+    // 2.3／2.7／2.9：完整或不完整的新交易都要觸發切換確認，不直接記帳也不覆蓋舊草稿；
+    // 單純的更正／補充（例如日期更正）則不算新交易，不觸發切換確認。
+    { id:'L_01', steps:['刷卡費','刷卡消費','早餐50'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardSpendAmount', lastBotReplyIncludes:'前一筆記帳還沒完成' } },
+    { id:'L_02', steps:['刷卡費','刷卡消費','午餐'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardSpendAmount', lastBotReplyIncludes:'前一筆記帳還沒完成' } },
+    { id:'L_03', steps:['刷卡費500','不是，是前天'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardPayOrSpend', pendingAskDraft:{ amount:500, dateOffsetDays:-2 }, lastBotReplyIncludes:'刷卡消費' } },
+    // 3：各種待補狀態下「取消」都要正確清除，不建立交易。
+    { id:'L_04', steps:['早餐','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'L_05', steps:['刷卡費','刷卡消費','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    { id:'L_06', steps:['刷卡費','取消'], expect:{ txAdded:0, pendingAskAfter:false } },
+    // 4：各種待補狀態下裸「不是」都要進入澄清提示，不直接取消、不直接記帳、草稿保留。
+    { id:'L_07', steps:['早餐','不是'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'amount', lastBotReplyIncludes:'是哪裡不對呢' } },
+    { id:'L_07b', steps:['早餐','不是','不是，是80元'], expect:{ txAdded:1, lastTx:{ amount:80, category:'餐費' }, pendingAskAfter:false } },
+    { id:'L_08', steps:['刷卡費','刷卡消費','不是'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardSpendAmount', lastBotReplyIncludes:'是哪裡不對呢' } },
+    { id:'L_09', steps:['刷卡費','不是'], expect:{ txAdded:0, pendingAskAfter:true, pendingAskField:'cardPayOrSpend', lastBotReplyIncludes:'是哪裡不對呢' } },
+  ],
 };
 
 async function runGroup(page, groupName, cases) {
@@ -590,6 +637,47 @@ async function main() {
   }
   syncResult.pass = syncResult.problems.length === 0;
   allResults.push(syncResult);
+
+  // L2：聊天記帳成功卡片的「編輯」按鈕要能直接開啟既有的交易編輯表單、改掉同一筆正式
+  // 交易（同一個 id，不是另外新增一筆），存檔後卡片畫面跟記帳歷史／預算頁都要立刻反映
+  // 新的金額；同一則訊息點擊切換確認按鈕「先記＿＿」之後，也要真的把新交易存進正式
+  // 帳本，且不會把前一筆未完成草稿的付款方式帶進來。
+  const editSyncResult = { id: 'L2_edit_and_switch_dom_sync', group: 'pendingAskRobustness', pass: true, problems: [] };
+  try {
+    await page.evaluate(() => { DB.transactions = []; DB.chatLedger = { messages: [], soundOn: true, pendingAsk: null }; save(); });
+    await page.click('#btnBackFromBudget').catch(() => {});
+    await page.click('#goChatLedgerCard');
+    await page.evaluate(() => { document.getElementById('chatInput').value = '早餐500'; sendChatMessage(); });
+    const editBtnCount = await page.locator('.chat-edit-btn').count();
+    if (editBtnCount < 1) editSyncResult.problems.push('聊天卡片上沒有看到「編輯」按鈕');
+    await page.locator('.chat-edit-btn').first().click();
+    await page.fill('#f_amount', '300');
+    await page.click('#f_submit');
+    const txAfterEdit = await page.evaluate(() => DB.transactions.map(t => ({ amount: t.amount })));
+    if (!(txAfterEdit.length === 1 && txAfterEdit[0].amount === 300)) editSyncResult.problems.push(`編輯後正式帳本預期只有一筆 300，實際 ${JSON.stringify(txAfterEdit)}`);
+    const chatCardAfterEdit = await page.locator('#chatMsgList').innerText();
+    if (!chatCardAfterEdit.includes('$300') || chatCardAfterEdit.includes('$500')) editSyncResult.problems.push('聊天卡片沒有同步顯示編輯後的 300');
+
+    // 待補途中出現新交易，點擊「先記＿＿」要正確記新交易、不帶入舊草稿的付款方式。
+    await page.evaluate(() => { document.getElementById('chatInput').value = '刷卡費'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '刷卡消費'; sendChatMessage(); });
+    await page.evaluate(() => { document.getElementById('chatInput').value = '早餐50'; sendChatMessage(); });
+    await page.evaluate(() => {
+      const msg = DB.chatLedger.messages.filter(m => m.quickReply && m.quickReply.kind === 'switchNewTx' && !m.quickReply.resolved).pop();
+      if (msg) resolveChatQuickReply(msg, 'use_new');
+    });
+    const txAfterSwitch = await page.evaluate(() => DB.transactions.map(t => ({ amount: t.amount, category: t.category, paymentMethod: t.paymentMethod })));
+    const newBreakfast = txAfterSwitch.find(t => t.amount === 50);
+    if (!(newBreakfast && newBreakfast.category === '餐費' && newBreakfast.paymentMethod === 'cash')) {
+      editSyncResult.problems.push(`點擊「先記」後新交易預期是 50/餐費/現金，實際 ${JSON.stringify(txAfterSwitch)}`);
+    }
+    const pendingAfterSwitch = await page.evaluate(() => DB.chatLedger.pendingAsk);
+    if (pendingAfterSwitch !== null) editSyncResult.problems.push(`點擊「先記」後 pendingAsk 預期清除，實際 ${JSON.stringify(pendingAfterSwitch)}`);
+  } catch (e) {
+    editSyncResult.problems.push('編輯／切換確認 DOM 同步檢查執行失敗：' + e.message);
+  }
+  editSyncResult.pass = editSyncResult.problems.length === 0;
+  allResults.push(editSyncResult);
 
   await browser.close();
 

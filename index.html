@@ -4395,7 +4395,10 @@ function openTxForm(editId){
     if(editing){
       editing.date=date; editing.amount=amount; editing.type=type; editing.category=category; editing.name=name; editing.note=note;
       editing.paymentMethod = paymentMethod; editing.creditCardPaymentType = creditCardPaymentType;
-      save(); closeSheet(); renderAll(); toast("已更新這筆記帳");
+      // renderAll() 不會重畫聊天記帳的訊息列表（那是獨立的 renderChatMessages()），這裡
+      // 補呼叫一次，確保從聊天卡片點進來編輯的那幾筆，存檔後卡片上立刻顯示最新資料，
+      // 不用等重新整理或切換分頁；聊天卡片本身一律即時讀正式帳本，不會另外存一份。
+      save(); closeSheet(); renderAll(); renderChatMessages(); toast("已更新這筆記帳");
     }else{
       const newTx = createTransactionRecord({date, amount, type, category, name, note, paymentMethod, creditCardPaymentType});
       let efMsg = (type==="expense" && category===EF_LEDGER_CATEGORY) ? "，已同步存入緊急預備金" : "";
@@ -7664,13 +7667,44 @@ function matchChatAmbiguousTerm(trimmed){
   const value = extractAssertedCorrectionValue(trimmed);
   return CHAT_AMBIGUOUS_TERMS.find(row=>row.term===value) || null;
 }
-function rePushOriginalPendingQuestion(draft, field){
-  if(field==="confirmAmount"){
+// 把某個 pendingAsk 原本在問的那句話重新問一次（逐字重現，不是重寫一句類似的話），
+// 用在「使用者選擇繼續上一筆」「取消歧義澄清退回原本問題」這種需要讓使用者看到跟
+// 第一次問完全一樣的句子的地方。每個 field 的文字都跟對應的 pushChatXxx 函式產生的
+// 問句完全一致，刻意不去改寫成「看起來差不多」的句子。
+function rePushPendingAskQuestion(pending){
+  const draft = pending.draft;
+  if(pending.field==="amount"){
+    pushChatMessage({ role:"bot", text:`「${draft.name}」是多少錢呢？` });
+  }else if(pending.field==="confirmAmount"){
     const verb = draft.type==="income" ? "收到" : "花了";
     pushChatMessage({ role:"bot", text:`想確認一下，最後實際${verb} $${draft.amount.toLocaleString()} 嗎？` });
+  }else if(pending.field==="cardSpendAmount"){
+    pushChatMessage({ role:"bot", text:"這筆花了多少錢呢？" });
+  }else if(pending.field==="cardPayOrSpend"){
+    const text = draft.amount!=null
+      ? `這筆${draft.amount.toLocaleString()}元是刷卡消費，還是繳信用卡帳單呢？`
+      : "這筆是刷卡消費，還是繳信用卡帳單呢？";
+    pushChatMessage({ role:"bot", text });
+  }else if(pending.field==="disambiguate"){
+    const labels = pending.options.map(o=>o.label);
+    const text = labels.length===2
+      ? `妳是想修改${labels[0]}，還是${labels[1]}呢？`
+      : `妳是想修改${labels.join('、')}中的哪一項呢？`;
+    pushChatMessage({ role:"bot", text });
   }else{
+    // field:"name"
     pushChatMessage({ role:"bot", text:`這筆 $${draft.amount.toLocaleString()} 要記在哪個分類呢？` });
   }
+}
+// 「不是，是300元」「不是，是前天」這種帶更正詞的講法，在只接受「裸金額」的待補狀態
+// （field:"amount"／"cardSpendAmount"）下，把更正詞拿掉之後如果恰好就是一個裸金額，
+// 一樣當成直接回答金額處理，不用使用者多打一次數字。
+function matchBareAmountReply(trimmed){
+  const bareRe = /^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i;
+  if(bareRe.test(trimmed)) return extractChatAmount(trimmed);
+  const asserted = extractAssertedCorrectionValue(trimmed);
+  if(asserted!==trimmed && bareRe.test(asserted)) return extractChatAmount(asserted);
+  return null;
 }
 function pushChatFieldAmbiguityQuestion(draft, ambiguous, returnField){
   DB.chatLedger.pendingAsk = { field:"disambiguate", draft, options:ambiguous.options, returnField };
@@ -7697,6 +7731,21 @@ function finalizeChatDraftOrAskCategory(draft){
   }
   saveCompleteChatDrafts([draft]);
 }
+// 判斷一句「對不到任何已知分類」的回覆，看起來像一般聊天／完整句子，還是像使用者在
+// 講一個簡短的（可能是全新、還沒建立過的）分類名稱。分類名稱即使是自訂的，通常也是
+// 簡短的名詞組合，不會有語助詞、疑問語氣或問候語；只排除明顯看起來像聊天的情況，
+// 其餘（包含使用者真的想建立的新自訂分類）一律放行，不是看到「對不到關鍵字」就一律
+// 當成聊天拒絕。
+const CHAT_GREETING_WORDS = ["你好","哈囉","嗨","安安","哈哈","呵呵","嘻嘻","早安","午安","晚安","謝謝","掰掰","再見"];
+const CHAT_SENTENCE_PARTICLES = /嗎|呢|啊|呀|啦|喔|哦|嘛|很|真/;
+function looksLikeChatSentence(text){
+  if(CHAT_HYPOTHETICAL_MARKERS.test(text)) return true;
+  if(CHAT_FUTURE_INTENT_MARKERS.test(text) && !CHAT_COMPLETED_ACTION_MARKERS.test(text)) return true;
+  if(CHAT_GREETING_WORDS.some(w=>text.includes(w))) return true;
+  if(CHAT_SENTENCE_PARTICLES.test(text)) return true;
+  if(text.length > 10) return true;
+  return false;
+}
 /* ---- 處理上一句「還缺一項」的回覆（同一時間只會記住最新的一筆待補問題） ----
    只有「整句話整個就是在回答那一項缺的資訊」才算數，避免把下一句其實是全新、
    自己就有完整資訊（甚至是信用卡還款／負債還款等特殊交易）的訊息，誤吃成這一題的答案。 */
@@ -7705,13 +7754,39 @@ function tryResolveChatPendingAsk(rawText){
   if(!pending) return false;
   if(/[、\n；;]/.test(rawText)){ DB.chatLedger.pendingAsk = null; return false; }
   const trimmed = rawText.trim();
+  // 不論目前在問哪一種待補／待確認資訊，使用者輸入「取消」都要能正確取消「這一筆」，
+  // 不建立正式交易、清除待補狀態，統一在這裡處理一次，不必每個欄位各自重複寫一份
+  // （之前就是因為沒有每個欄位都處理到，才會有些狀態下「取消」沒有反應）。
+  // field:"disambiguate" 的取消語意不同（只是放棄這次的欄位澄清、退回原本的問題，
+  // 不是整筆取消），所以不在這裡處理，保留它自己原本的邏輯。
+  if(pending.field!=="disambiguate" && (CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed))){
+    DB.chatLedger.pendingAsk = null;
+    pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
+    return true;
+  }
   if(pending.field==="amount"){
-    // 整句必須「就只是」一個金額（可以帶元／塊／圓／貨幣符號），不能還夾雜其他文字，
-    // 否則代表這其實是另一句完整的新訊息（例如「繳信用卡3000」），不是在回答金額。
-    const bareAmountMatch = trimmed.match(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i);
-    if(!bareAmountMatch) return false;
-    const amt = extractChatAmount(trimmed);
-    if(amt==null) return false;
+    // 整句必須「就只是」一個金額（可以帶元／塊／圓／貨幣符號，也可以帶「不是，是…」
+    // 這種更正詞），不能還夾雜其他文字，否則代表這其實是另一句完整的新訊息
+    // （例如「繳信用卡3000」），不是在回答金額。
+    const amt = matchBareAmountReply(trimmed);
+    if(amt==null){
+      const draft = pending.draft;
+      // 日期更正（例如「不是，是前天」）：這一題問的是金額，日期已經確定過了，
+      // 可以直接更正，更正後同一題繼續問，不會因此跳過還沒回答的金額。
+      const dateCorrection = detectChatFieldCorrection(trimmed, draft.type);
+      if(dateCorrection && dateCorrection.field==="date"){
+        applyChatFieldCorrection(draft, dateCorrection);
+        rePushPendingAskQuestion(pending);
+        return true;
+      }
+      // 單純的「不是」「不對」，沒有講任何補充內容——不能自己猜是哪裡錯，要追問清楚，
+      // 並完整保留原本待補的草稿，不清掉也不記帳。
+      if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
+        pushChatMessage({ role:"bot", text:"是哪裡不對呢？可以告訴我正確的金額或內容～" });
+        return true;
+      }
+      return false;
+    }
     const draft = pending.draft; draft.amount = amt;
     DB.chatLedger.pendingAsk = null;
     // 信用卡還款這筆缺的是金額，補齊金額之後仍然要先問清楚 already_recorded／new_debt，
@@ -7724,17 +7799,12 @@ function tryResolveChatPendingAsk(rawText){
     return true;
   }
   if(pending.field==="cardPayOrSpend"){
-    // 使用者正在回答「這筆500元是刷卡消費，還是繳信用卡帳單呢？」。取消的是這筆還沒
-    // 確定內容的草稿本身（這題本來就是這筆交易的第一個問題，不是某個已確認問題中途
-    // 冒出來的岔題），所以跟 field:"name"／"confirmAmount" 的取消語意一致：直接整筆
-    // 取消，不建立任何交易。
+    // 使用者正在回答「這筆500元是刷卡消費，還是繳信用卡帳單呢？」。
     const draft = pending.draft;
-    if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
-      DB.chatLedger.pendingAsk = null;
-      pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
-      return true;
-    }
-    if(/消費|消费/.test(trimmed)){
+    // 「不是，是刷卡消費」「不是，是繳帳單」這種帶更正詞的講法，把更正詞拿掉之後
+    // 一樣要能認得出是在選哪一個選項，不用使用者重講一次乾淨的關鍵字。
+    const asserted = extractAssertedCorrectionValue(trimmed);
+    if(/消費|消费/.test(trimmed) || /消費|消费/.test(asserted)){
       if(draft.amount==null){
         // 單獨輸入「刷卡費」時連金額都還不知道：先問金額，問到金額後才接著問分類
         // （field:"cardSpendAmount" 拿到金額後會交給既有的 finalizeChatDraftOrAskCategory
@@ -7748,7 +7818,7 @@ function tryResolveChatPendingAsk(rawText){
       pushChatAskName({ isIncome:false, amount:draft.amount, date:draft.date, paymentMethod:"credit" });
       return true;
     }
-    if(/帳單|還款|繳/.test(trimmed)){
+    if(/帳單|還款|繳/.test(trimmed) || /帳單|還款|繳/.test(asserted)){
       // 繳信用卡帳單：沿用既有的信用卡還款防重複計算流程（already_recorded／new_debt）。
       // pushChatCreditCardAsk 本身不會動 pendingAsk，這題問完就結束了，要自己清掉，
       // 不然這個已經回答過的 cardPayOrSpend 問題會殘留、誤被當成還在等待回答。
@@ -7763,32 +7833,57 @@ function tryResolveChatPendingAsk(rawText){
       }
       return true;
     }
+    // 日期更正（例如「不是，是前天」）：這題問的是消費還是還款，日期已經確定過了，
+    // 可以直接更正，更正後同一題繼續問。
+    const dateCorrection = detectChatFieldCorrection(trimmed, draft.type);
+    if(dateCorrection && dateCorrection.field==="date"){
+      applyChatFieldCorrection(draft, dateCorrection);
+      rePushPendingAskQuestion(pending);
+      return true;
+    }
+    // 單純的「不是」「不對」，沒有講任何補充內容——不能自己猜是哪裡錯，要追問清楚，
+    // 並完整保留原本待補的草稿，不清掉也不記帳。
+    if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
+      pushChatMessage({ role:"bot", text:"是哪裡不對呢？可以告訴我正確的金額或內容～" });
+      return true;
+    }
     // 看不懂在回答消費還是還款，可能是另一則全新的訊息，退回去讓呼叫端照一般流程重新
     // 解析，這題的待確認狀態保留原樣。
     return false;
   }
   if(pending.field==="cardSpendAmount"){
     // 「刷卡費」→「刷卡消費」之後缺的金額：跟既有 field:"amount" 用同一種「整句必須就
-    // 只是一個金額」的嚴格比對，拿到金額後分類還是不知道，交給既有的
+    // 只是一個金額（或帶更正詞的裸金額）」的比對，拿到金額後分類還是不知道，交給既有的
     // finalizeChatDraftOrAskCategory 統一收尾（會接著問分類，信用卡還款／負債特殊規則
     // 也都走同一個函式，不會被跳過或繞過）。
-    const bareAmountMatch = trimmed.match(/^(?:NT\$?|\$)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:元|塊|圓)?$/i);
-    if(!bareAmountMatch) return false;
-    const amt = extractChatAmount(trimmed);
-    if(amt==null) return false;
+    const amt = matchBareAmountReply(trimmed);
+    if(amt==null){
+      const draft = pending.draft;
+      const dateCorrection = detectChatFieldCorrection(trimmed, draft.type);
+      if(dateCorrection && dateCorrection.field==="date"){
+        applyChatFieldCorrection(draft, dateCorrection);
+        rePushPendingAskQuestion(pending);
+        return true;
+      }
+      if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
+        pushChatMessage({ role:"bot", text:"是哪裡不對呢？可以告訴我正確的金額或內容～" });
+        return true;
+      }
+      return false;
+    }
     const draft = pending.draft; draft.amount = amt;
     finalizeChatDraftOrAskCategory(draft);
     return true;
   }
   if(pending.field==="disambiguate"){
-    // 使用者正在回答「妳是想修改付款方式，還是分類呢？」這種歧義澄清問題。
+    // 使用者正在回答「妳是想修改付款方式，還是分類呢？」這種歧義澄清問題。取消的
+    // 語意跟其他欄位不同（上面已經特別排除，自己處理），這裡只處理「放棄這次的欄位
+    // 澄清、退回原本在問的那個問題」。
     const draft = pending.draft;
     if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
-      // 取消的是「這次的更正」，不是整筆待確認交易——退回去原本在問的那個問題，
-      // 草稿完全不變，不會留下重複或錯誤的資料。
       const returnField = pending.returnField;
       DB.chatLedger.pendingAsk = { field: returnField, draft };
-      rePushOriginalPendingQuestion(draft, returnField);
+      rePushPendingAskQuestion({ field: returnField, draft });
       return true;
     }
     const picked = pending.options.find(o=>trimmed.includes(o.label));
@@ -7805,24 +7900,22 @@ function tryResolveChatPendingAsk(rawText){
       finalizeChatDraftOrAskCategory(draft);
       return true;
     }
+    if(/^(不是|不對|不对)[啦呀喔哦]?[。！]?$/.test(trimmed)){
+      pushChatMessage({ role:"bot", text:"是哪裡不對呢？可以告訴我正確的金額或內容～" });
+      return true;
+    }
     // 看不懂在回答什麼，可能是另一則全新的訊息，退回去讓呼叫端照一般流程重新解析，
     // 歧義澄清狀態保留原樣。
     return false;
   }
   // field:"name"（追問分類）跟 field:"confirmAmount"（追問「最後實際是不是這個金額」）
-  // 共用同一套「這句話是不是在更正某個欄位」的判斷與否定／取消處理，只有 confirmAmount
-  // 多了「對／是／沒錯」這種單純肯定的語意（name 本身是開放式問題，沒有東西可以「肯定」）。
+  // 共用同一套「這句話是不是在更正某個欄位」的判斷處理，只有 confirmAmount 多了
+  // 「對／是／沒錯」這種單純肯定的語意（name 本身是開放式問題，沒有東西可以「肯定」）。
+  // 取消已經在上面統一處理過，這裡不用再寫一次。
   if(pending.field==="name" || pending.field==="confirmAmount"){
     const draft = pending.draft;
     if(pending.field==="confirmAmount" && /^(對|对|是的|是|沒錯|没错|對啊|对啊|好|嗯|是啊)$/.test(trimmed)){
       finalizeChatDraftOrAskCategory(draft);
-      return true;
-    }
-    // 明確表示交易沒發生或要結束流程，才算取消；bare「不是」不包含在這裡。沿用既有的
-    // CHAT_NEGATION_MARKERS（涵蓋「沒買」「沒有買」等「沒（有）+動作詞」的各種寫法）。
-    if(CHAT_NEGATION_MARKERS.test(trimmed) || /取消|算了|不要了|不用了/.test(trimmed)){
-      DB.chatLedger.pendingAsk = null;
-      pushChatMessage({ role:"bot", text:"好的，那這筆先不記了。" });
       return true;
     }
     // 「信用卡」這種同時可能對應付款方式／分類的詞：如果目前就是在問分類
@@ -7859,15 +7952,32 @@ function tryResolveChatPendingAsk(rawText){
       // （例如「早餐50」），退回去讓呼叫端照一般流程重新解析，待確認狀態保留原樣。
       return false;
     }
-    // field:"name" 原本的行為：沒有偵測到特定欄位更正信號，整句當成分類／項目名稱本身
-    // 來推測分類，沿用既有的信用卡／負債／緊急預備金安全檢查，確保不會把特殊交易的
-    // 關鍵字誤吃成分類名稱。
+    // field:"name"：沒有偵測到特定欄位更正信號，也沒有對到任何已知分類。先檢查幾種
+    // 一定不能吃進來的狀況（金額、特殊交易關鍵字），其餘情況不再像之前一樣「整句無條件
+    // 當成分類」，改成先判斷這句話對不到的原因是「使用者講了一個全新的自訂分類」還是
+    // 「只是在聊天」：看起來像聊天句子（問候語、疑問語氣、語助詞、太長）就不擅自建立
+        // 交易、也不把這句話記成分類，原本待補的草稿完整保留，只簡短回應一下；看起來像簡短
+    // 的分類用詞，才接受成新的自訂分類，沿用跟手動表單「➕自訂新類別」完全一樣的分類
+    // 管理規則（寫進 DB.customCategories，不是另外存一份）。
     if(extractChatAmount(trimmed)!=null) return false;
     if(/緊急預備金|預備金|信用卡|卡費|刷卡費/.test(trimmed) || CHAT_DEBT_BUCKET_CATS.some(k=>trimmed.includes(k))) return false;
     const name = cleanChatItemName(trimmed) || trimmed.replace(/[。！,，]/g,"").trim();
     if(!name) return false;
+    const inferredCategory = draft.type==="income" ? inferChatIncomeCategory(name) : inferChatExpenseCategory(name);
+    if(inferredCategory==="其他"){
+      if(looksLikeChatSentence(name)){
+        pushChatSmallTalkReply();
+        return true;
+      }
+      const list = draft.type==="income" ? DB.customCategories.income : DB.customCategories.expense;
+      if(!list.includes(name)) list.push(name);
+      draft.name = name;
+      draft.category = name;
+      finalizeChatDraftOrAskCategory(draft);
+      return true;
+    }
     draft.name = name;
-    draft.category = draft.type==="income" ? inferChatIncomeCategory(name) : inferChatExpenseCategory(name);
+    draft.category = inferredCategory;
     finalizeChatDraftOrAskCategory(draft);
     return true;
   }
@@ -7897,6 +8007,22 @@ function resolveChatQuickReply(msg, choice){
       save();
     }
     renderChatMessages();
+  }else if(msg.quickReply.kind==="switchNewTx"){
+    const qr = msg.quickReply;
+    if(choice==="use_new"){
+      // 放棄前一筆未完成的交易，開始處理這一筆新的——新交易是重新獨立解析出來的
+      // 結果，完全不會帶入前一筆的付款方式／金額／分類。
+      qr.resolved = true; qr.resultText = `先記${qr.newSeg}`;
+      DB.chatLedger.pendingAsk = null;
+      dispatchParsedChatSegment(qr.newParsed);
+    }else if(choice==="keep_old"){
+      // 不處理新交易，恢復前一筆未完成的交易，繼續問原本缺的那一項，新交易的文字
+      // 完全不會寫進前一筆的草稿裡。
+      qr.resolved = true; qr.resultText = "繼續上一筆";
+      DB.chatLedger.pendingAsk = qr.oldPending;
+      rePushPendingAskQuestion(qr.oldPending);
+    }
+    save(); renderChatMessages();
   }
 }
 
@@ -7941,6 +8067,32 @@ function undoChatBatch(msg){
   });
 }
 
+// 把「解析完成的一段聊天內容」實際處理掉（建立交易或追問缺的資訊），跟 sendChatMessage
+// 主流程裡逐段處理的邏輯是同一套規則，只是這裡一次只處理一段（不是整批訊息），用在
+// 使用者點擊「先記＿＿」之後，真正開始處理那一段被暫存起來的新交易。
+function dispatchParsedChatSegment(parsed){
+  if(!parsed) return;
+  if(parsed.kind==="complete") saveCompleteChatDrafts([parsed]);
+  else if(parsed.kind==="ef_withdraw_guide") pushChatEfWithdrawGuide();
+  else if(parsed.kind==="debt_guide") pushChatDebtGuide(parsed);
+  else if(parsed.kind==="creditcard_ask") pushChatCreditCardAsk(parsed);
+  else if(parsed.kind==="creditcard_or_spend_ask") pushChatCreditCardOrSpendAsk(parsed);
+  else if(parsed.kind==="incomplete_amount") pushChatAskAmount(parsed);
+  else if(parsed.kind==="incomplete_name") pushChatAskName(parsed);
+  else if(parsed.kind==="confirm_amount") pushChatConfirmAmount(parsed);
+  else if(parsed.kind==="chit_chat") pushChatSmallTalkReply();
+}
+// 待補中途冒出另一筆看起來像記帳（完整或不完整都算）的新訊息：不能無聲覆蓋或放棄
+// 前一筆還沒問完的交易，也不能自動幫使用者決定，先用快速回覆按鈕問清楚要先處理哪一筆。
+// oldPending 是中斷前的那個 pendingAsk 原封不動的快照，newSeg／newParsed 是這次新訊息
+// 解析出來的結果，兩邊都先不寫入任何正式交易，等使用者點了按鈕才真正處理。
+function pushChatSwitchNewTxAsk(oldPending, newSeg, newParsed){
+  pushChatMessage({
+    role:"bot",
+    text:`前一筆記帳還沒完成，要先記錄${newSeg}嗎？`,
+    quickReply:{ kind:"switchNewTx", resolved:false, oldPending, newSeg, newParsed, labelNew:`先記${newSeg}` }
+  });
+}
 /* ---- 送出訊息 ---- */
 function sendChatMessage(){
   const input = document.getElementById("chatInput");
@@ -7951,13 +8103,26 @@ function sendChatMessage(){
   playChatSendSound();
 
   if(!tryResolveChatPendingAsk(raw)){
+    // tryResolveChatPendingAsk 認不出這句話是在回答原本那一題之後，pendingAsk 可能還
+    // 留著（例如使用者其實是講了另一筆新交易，不是在回答原本那一題）。這裡先記住當時
+    // 的狀態，待會如果新訊息看起來真的是另一筆記帳，要先問清楚，不能默默覆蓋或放棄它
+    // （唯一的例外是這句話本身帶分隔符號，那種情況上面已經直接清掉 pendingAsk，走到
+    // 這裡時 stillPending 自然就是 null，不會誤觸發這個流程）。
+    const stillPending = DB.chatLedger.pendingAsk;
     const segments = raw.split(/[、\n；;]+/).map(s=>s.trim()).filter(Boolean);
     const dateCtx = { current: todayStr() };
     const completeDrafts = [];
     let smallTalkReplied = false;
+    let switchedToConfirm = false;
     segments.forEach(seg=>{
+      if(switchedToConfirm) return;
       const parsed = parseChatSegment(seg, dateCtx);
       if(!parsed) return;
+      if(stillPending && parsed.kind!=="chit_chat"){
+        switchedToConfirm = true;
+        pushChatSwitchNewTxAsk(stillPending, seg, parsed);
+        return;
+      }
       if(parsed.kind==="complete") completeDrafts.push(parsed);
       else if(parsed.kind==="ef_withdraw_guide") pushChatEfWithdrawGuide();
       else if(parsed.kind==="debt_guide") pushChatDebtGuide(parsed);
@@ -8017,13 +8182,27 @@ function renderChatBubble(msg){
     </div>`;
   }
   let itemsHtml = "";
+  let liveFooterText = null;
   if(msg.items && msg.items.length){
+    // 每一筆都即時去查正式帳本目前的實際資料，不是直接印這筆訊息剛建立時存下來的
+    // 舊字串——這樣使用者透過下面的「編輯」把這筆改掉之後，卡片上馬上看到的就是
+    // 最新的金額／分類，不用等重新整理或切到別的分頁再切回來才會更新。下面的合計
+    // 也要跟著即時重新加總，不然會變成「項目顯示新金額、合計卻還是舊金額」這種
+    // 自相矛盾的畫面。
+    let liveCount = 0, liveTotal = 0;
     itemsHtml = `<div style="margin-top:6px;">` + msg.items.map(it=>{
-      const stillExists = DB.transactions.some(t=>t.id===it.txId);
-      return stillExists
-        ? `<div class="chat-item-link" data-txid="${it.txId}" style="cursor:pointer; text-decoration:underline; margin:2px 0;">${escapeHtml(it.text)}</div>`
-        : `<div style="color:var(--gray); text-decoration:line-through; margin:2px 0;">${escapeHtml(it.text)}（已刪除）</div>`;
+      const tx = DB.transactions.find(t=>t.id===it.txId);
+      if(!tx){
+        return `<div style="color:var(--gray); text-decoration:line-through; margin:2px 0;">${escapeHtml(it.text)}（已刪除）</div>`;
+      }
+      liveCount++; liveTotal += tx.amount;
+      const liveText = `${tx.type==="income"?"💵":"🧾"} ${escapeHtml(tx.name)} $${tx.amount.toLocaleString()}（${escapeHtml(expenseCategoryLabel(tx.category))}）`;
+      return `<div style="margin:2px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span class="chat-item-link" data-txid="${tx.id}" style="cursor:pointer; text-decoration:underline;">${liveText}</span>
+        <button type="button" class="small-link chat-edit-btn" data-txid="${tx.id}">編輯</button>
+      </div>`;
     }).join("") + `</div>`;
+    if(msg.footer) liveFooterText = `共 ${liveCount} 筆，合計 $${liveTotal.toLocaleString()}。`;
   }
   let qrHtml = "";
   if(msg.quickReply && !msg.quickReply.resolved){
@@ -8037,6 +8216,11 @@ function renderChatBubble(msg){
         <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="log_anyway">仍要記一般支出</button>
         <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="cancel">先不記</button>
       </div>`;
+    }else if(msg.quickReply.kind==="switchNewTx"){
+      qrHtml = `<div class="seg" style="margin-top:8px;">
+        <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="use_new">${escapeHtml(msg.quickReply.labelNew)}</button>
+        <button type="button" class="chat-qr-btn" data-msgid="${msg.id}" data-choice="keep_old">繼續上一筆</button>
+      </div>`;
     }
   }else if(msg.quickReply && msg.quickReply.resolved && msg.quickReply.resultText){
     qrHtml = `<div class="muted" style="margin-top:6px;">已選擇：${escapeHtml(msg.quickReply.resultText)}</div>`;
@@ -8047,7 +8231,7 @@ function renderChatBubble(msg){
       ? `<div class="muted" style="margin-top:6px;">已復原這次記帳</div>`
       : `<button class="small-link chat-undo-btn" data-msgid="${msg.id}" style="margin-top:6px;">刪除</button>`;
   }
-  const footerHtml = msg.footer ? `<div style="margin-top:6px;">${escapeHtml(msg.footer)}</div>` : "";
+  const footerHtml = liveFooterText!=null ? `<div style="margin-top:6px;">${escapeHtml(liveFooterText)}</div>` : (msg.footer ? `<div style="margin-top:6px;">${escapeHtml(msg.footer)}</div>` : "");
   return `<div style="display:flex; justify-content:flex-start; margin-bottom:8px;">
     <div class="ai-msg" style="max-width:82%; margin-bottom:0;">${escapeHtml(msg.text).replace(/\n/g,"<br>")}${itemsHtml}${footerHtml}${qrHtml}${undoHtml}</div>
   </div>`;
@@ -8055,6 +8239,9 @@ function renderChatBubble(msg){
 function wireChatMessageEvents(){
   document.querySelectorAll(".chat-item-link").forEach(el=>{
     el.addEventListener("click", ()=>openTxForm(el.dataset.txid));
+  });
+  document.querySelectorAll(".chat-edit-btn").forEach(b=>{
+    b.addEventListener("click", ()=>openTxForm(b.dataset.txid));
   });
   document.querySelectorAll(".chat-qr-btn").forEach(b=>{
     b.addEventListener("click", ()=>{
